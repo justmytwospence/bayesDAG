@@ -58,11 +58,14 @@ def _node_chrome(n: NodeIR, b: Box) -> str:
     )
 
 
-def _edge(pts: list[list[float]]) -> str:
+def _edge(pts: list[list[float]], src: str, tgt: str) -> str:
     if len(pts) < 2:
         return ""
     d = "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts)
-    return f'<path d="{d}" fill="none" stroke="#555" stroke-width="1.3" marker-end="url(#bd-arrow)"/>'
+    return (
+        f'<path class="bd-edge" data-src="{escape(src)}" data-tgt="{escape(tgt)}" d="{d}" '
+        'fill="none" stroke="#555" stroke-width="1.3" marker-end="url(#bd-arrow)"/>'
+    )
 
 
 def _plate(b: Box, label: str) -> str:
@@ -141,18 +144,18 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, overlay_mode: str = "prior", le
         b = layout.plate_boxes.get(p.id)
         if b:
             body.append(_plate(b, p.label))
-    # node chrome + label + glyph
+    # node chrome + label + glyph, wrapped in a tagged group for interactivity
     for n in ir.nodes:
         b = n.box or layout.node_boxes.get(n.id)
         if b is None:
             continue
-        body.append(_node_chrome(n, b))
+        parts = [_node_chrome(n, b)]
         if n.label_svg:
             lw, lh = geometry.label_px_size(n.label_svg)
             ox, oy = geometry.label_origin(b, lw, lh)
-            body.append(_embed_label(n.label_svg, ox, oy, lw, lh))
+            parts.append(_embed_label(n.label_svg, ox, oy, lw, lh))
         else:
-            body.append(
+            parts.append(
                 f'<text x="{b.x + b.w / 2:.1f}" y="{b.y + b.h / 2 + 4:.1f}" text-anchor="middle" '
                 f'font-size="12" fill="#222">{escape(n.id)}</text>'
             )
@@ -161,12 +164,13 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, overlay_mode: str = "prior", le
             gr = geometry.glyph_rect(b, n.role, lh)
             if gr:
                 stroke, fill = _GLYPH_COLORS.get(n.glyph.source, ("#2a8a55", "#2a8a55"))
-                body.append(glyph.render(n.glyph.kind, n.glyph_data, gr, stroke=stroke, fill=fill))
+                parts.append(glyph.render(n.glyph.kind, n.glyph_data, gr, stroke=stroke, fill=fill))
+        body.append(f'<g class="bd-node" data-node="{escape(n.id)}">' + "".join(parts) + "</g>")
     # edges on top so token-anchored arrowheads into equations are visible
     for e in ir.edges:
         pts = layout.edge_paths.get(f"{e.source}|{e.target}")
         if pts:
-            body.append(_edge(pts))
+            body.append(_edge(pts, e.source, e.target))
 
     legend_svg, total_w, total_h = "", c.w, c.h
     if legend:

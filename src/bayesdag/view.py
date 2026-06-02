@@ -49,11 +49,43 @@ class ModelGraphView:
         """Save to .svg / .png / .pdf (format from the extension)."""
         return render_static.save(self._svg, path)
 
+    def _build_spec(self) -> dict:
+        """SVG + per-node detail + adjacency (Markov blanket) for the interactive layer."""
+        from .adapters.graph import to_networkx
+
+        g = to_networkx(self.ir)
+        try:
+            import networkx as nx
+
+            moral = nx.moral_graph(g)
+        except Exception:
+            moral = None
+        parents: dict[str, list] = {n.id: [] for n in self.ir.nodes}
+        children: dict[str, list] = {n.id: [] for n in self.ir.nodes}
+        for e in self.ir.edges:
+            children.setdefault(e.source, []).append(e.target)
+            parents.setdefault(e.target, []).append(e.source)
+        nodes = {}
+        for n in self.ir.nodes:
+            blanket = sorted(moral.neighbors(n.id)) if (moral is not None and n.id in moral) else []
+            nodes[n.id] = {
+                "role": n.role,
+                "dist": n.dist,
+                "observed": n.observed,
+                "dims": list(n.dims),
+                "params": [{"name": p.name, "value": p.value_tex} for p in n.params],
+                "transform": n.transform,
+                "parents": parents.get(n.id, []),
+                "children": children.get(n.id, []),
+                "blanket": blanket,
+            }
+        return {"svg": self._svg, "nodes": nodes, "selected": ""}
+
     def widget(self):
         if self._widget is None:
             from .widget import ModelGraphWidget
 
-            self._widget = ModelGraphWidget(spec={"svg": self._svg})
+            self._widget = ModelGraphWidget(spec=self._build_spec())
         return self._widget
 
     # ---- display protocol ------------------------------------------------------

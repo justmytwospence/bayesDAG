@@ -36,3 +36,13 @@ def test_repr_mimebundle(eight_schools_model):
     # either a data dict (static fallback) or a (data, metadata) tuple (anywidget)
     data = mb[0] if isinstance(mb, tuple) else mb
     assert isinstance(data, dict) and data
+
+
+def test_widget_spec_has_nodes_adjacency_and_tags(eight_schools_model):
+    pytest.importorskip("anywidget")
+    spec = bayesdag.view(eight_schools_model).widget().spec
+    assert "svg" in spec and "nodes" in spec
+    assert set(spec["nodes"]) == {"mu", "tau", "eta", "theta", "y_obs"}
+    assert "theta" in spec["nodes"]["tau"]["blanket"]  # Markov blanket adjacency
+    assert spec["nodes"]["y_obs"]["params"]            # per-node detail (loc/scale)
+    assert 'class="bd-node"' in spec["svg"] and 'class="bd-edge"' in spec["svg"]
