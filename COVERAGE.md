@@ -16,7 +16,7 @@ arrive with a golden test. Tiers and treatments come from the design plan
 - [x] **Math + token-anchor spike** — mathjax-full runs **in-process** in py_mini_racer (no runtime Node; `PACKAGE_VERSION` define kills the `eval("require")` branch); `\cssId` token anchors extracted via transform-chain composition. `src/bayesdag/mathsvg.py`.
 - [x] PPL-agnostic `ir` + `from_pymc` (slot-aware edges, roles, dims/coords, log-transform key) + published JSON Schema + `to_elk`/`to_networkx` + duck-typed `to_ir` dispatch
 - [x] Label engine (per-dist LaTeX templates + symbol naming + PyTensor deterministic visitor with port-tokens + token-tree); renders cleanly in MathJax
-- [ ] Layout backend (`dot -Tjson` → `LayoutResult` + param-edge post-pass)
+- [x] Layout backend (`dot -Tjson0` → `LayoutResult` + coordinate transform + param-edge -> token-anchor post-pass)
 - [ ] Glyph registry + distribution-object adapter (univariate `density` kinds)
 - [ ] Shared SVG emitter + static renderer (SVG/PNG/PDF)
 - [ ] anywidget widget + thin d3 controller + `view.py` fallback
