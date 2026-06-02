@@ -99,8 +99,9 @@ def test_layout_works_inside_asyncio_loop(radon_ir):
     )
 
 
-def test_default_layout_prefers_elk(radon_ir):
-    """`layout.layout(...)` selects ELK by default when available (same canvas as forcing it)."""
+def test_default_layout_is_elk_no_silent_fallback(radon_ir):
+    """The dispatcher uses ELK by default (same result as calling it directly) — it does NOT
+    silently downgrade to dot."""
     from bayesdag.layout import layout as dispatch
 
     default = dispatch(radon_ir)
@@ -109,3 +110,14 @@ def test_default_layout_prefers_elk(radon_ir):
         round(forced.canvas.w),
         round(forced.canvas.h),
     )
+
+
+def test_dot_is_explicit_opt_in_only(radon_ir, monkeypatch):
+    """`BAYESDAG_LAYOUT=dot` is the only way to reach the Graphviz backend; it stays working as
+    the deliberate rollback target."""
+    from bayesdag.layout import layout as dispatch
+
+    monkeypatch.setenv("BAYESDAG_LAYOUT", "dot")
+    res = dispatch(radon_ir)
+    assert res.canvas.w > 0 and "plate_obs" in res.plate_boxes
+    assert {"mu", "y", "sigma", "b"} <= set(res.node_boxes)

@@ -24,7 +24,8 @@ classifiers = [
 dependencies = [
     "pymc>=5",
     "arviz",
-    "graphviz",  # `dot`: the fallback layout backend (default is ELK, via the [math] extra)
+    "mini-racer>=0.12",  # in-process V8: runs ELK (the layout engine) AND MathJax. Core.
+    "graphviz",          # `dot`: the explicit BAYESDAG_LAYOUT=dot opt-in / rollback only
     "networkx",
     "traitlets>=5",
 ]
