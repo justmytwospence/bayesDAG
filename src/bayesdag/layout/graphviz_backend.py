@@ -16,31 +16,10 @@ from __future__ import annotations
 import json
 import subprocess
 
-from .. import geometry, mathsvg
+from .. import geometry
 from ..ir import Box, LayoutResult, ModelIR
-
-
-def _render_labels(ir: ModelIR) -> dict[str, dict]:
-    """Render each node's label to SVG (set ``node.label_svg``) and collect px size +
-    fractional token anchors. Falls back to a size estimate if math isn't available."""
-    renderer = mathsvg.get_renderer()
-    use = renderer.available
-    info: dict[str, dict] = {}
-    for n in ir.nodes:
-        svg = None
-        bboxes: dict[str, tuple[float, float, float, float]] = {}
-        if use and n.label_tex:
-            try:
-                svg = renderer.render(n.label_tex, display=True)
-                bboxes = mathsvg.token_bboxes(svg)
-            except Exception:
-                svg, bboxes = None, {}
-        n.label_svg = svg
-        lw, lh = geometry.label_px_size(svg)
-        if svg is None and n.label_tex:
-            lw = max(lw, 7.0 * len(n.id))  # rough estimate without math
-        info[n.id] = {"w": lw, "h": lh, "bboxes": bboxes}
-    return info
+from . import common
+from .common import render_labels as _render_labels
 
 
 def _build_dot(ir: ModelIR, info: dict[str, dict], rankdir: str) -> str:
@@ -132,12 +111,7 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
             n = by_id[name]
             n.box = box
             res.node_boxes[name] = box
-            # absolute token anchors from the label's fractional anchors
-            lw, lh = info[name]["w"], info[name]["h"]
-            ox, oy = geometry.label_origin(box, lw, lh)
-            anchors: dict[str, Box] = {}
-            for tok, (fx, fy, fw, fh) in info[name]["bboxes"].items():
-                anchors[tok] = Box(ox + fx * lw, oy + fy * lh, fw * lw, fh * lh)
+            anchors = common.node_token_anchors(box, info[name]["w"], info[name]["h"], info[name]["bboxes"])
             n.port_anchors = anchors
             res.node_token_anchors[name] = anchors
         elif name.startswith("cluster_") and "bb" in o:  # a plate

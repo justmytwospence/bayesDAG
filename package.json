@@ -4,9 +4,10 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "build": "npm run build:widget && npm run build:mathjax && node -e \"require('fs').copyFileSync('js/widget.css','src/bayesdag/static/widget.css')\"",
+    "build": "npm run build:widget && npm run build:mathjax && npm run build:elk && node -e \"require('fs').copyFileSync('js/widget.css','src/bayesdag/static/widget.css')\"",
     "build:widget": "esbuild js/index.js --minify --format=esm --bundle --outfile=src/bayesdag/static/widget.js",
     "build:mathjax": "esbuild js/mathjax_entry.js --bundle --format=iife --platform=browser --define:PACKAGE_VERSION='\"3.2.1\"' --outfile=src/bayesdag/static/mathjax.bundle.js",
+    "build:elk": "node -e \"['elk-api.js','elk-worker.min.js'].forEach(f=>require('fs').copyFileSync('node_modules/elkjs/lib/'+f,'src/bayesdag/static/'+f))\"",
     "dev": "esbuild js/index.js --sourcemap=inline --format=esm --bundle --outfile=src/bayesdag/static/widget.js --watch"
   },
   "devDependencies": {
@@ -16,6 +17,7 @@
     "d3-selection": "^3",
     "d3-transition": "^3",
     "d3-zoom": "^3",
+    "elkjs": "^0.9.3",
     "mathjax-full": "^3.2.1"
   }
 }

@@ -24,7 +24,7 @@ classifiers = [
 dependencies = [
     "pymc>=5",
     "arviz",
-    "graphviz",
+    "graphviz",  # `dot`: the fallback layout backend (default is ELK, via the [math] extra)
     "networkx",
     "traitlets>=5",
 ]
@@ -61,7 +61,7 @@ packages = ["src/bayesdag"]
 # Run the esbuild JS build during the PEP 517 build so the wheel ships the bundle.
 [tool.hatch.build.hooks.jupyter-builder]
 build-function = "hatch_jupyter_builder.npm_builder"
-ensured-targets = ["src/bayesdag/static/widget.js"]
+ensured-targets = ["src/bayesdag/static/widget.js", "src/bayesdag/static/elk-worker.min.js"]
 skip-if-exists = ["src/bayesdag/static/widget.js"]
 dependencies = ["hatch-jupyter-builder>=0.8.3"]
 optional-editable-build = true

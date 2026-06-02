@@ -24,7 +24,7 @@ Toolchain present in this environment: `uv`, `node`/`npx`, Graphviz `dot`, `git`
 - `adapters.py` / `export.py` — `to_elk`, `to_networkx`; DOT / GraphML / PROV-JSON-LD exporters.
 - `labels.py` — per-op LaTeX template registry + deterministic graph→LaTeX visitor + token-tree.
 - `mathsvg.py` — TeX→SVG via `mini-racer`/MathJax (cached) + per-token bbox extraction. **Highest-risk module.**
-- `layout/graphviz_backend.py` — `dot -Tjson` → `LayoutResult` + coordinate transform + param-edge post-pass (behind a `LayoutBackend` interface).
+- `layout/` — `layout(ir)` picks a backend (override `BAYESDAG_LAYOUT=elk|dot`): **`elk_backend.py`** (default) runs `elkjs` in-process in `mini-racer` V8 with `hierarchyHandling=INCLUDE_CHILDREN` so plates lay out correctly; **`graphviz_backend.py`** (`dot -Tjson`) is the fallback when `mini-racer` is absent. `common.py` holds the engine-agnostic bits (label measurement, token-anchor projection, the smooth edge). Both implement `layout(ir, *, rankdir) -> LayoutResult`. Token-level port anchors are computed by us from MathJax bboxes (engine-independent).
 - `glyph/` — `registry.py` (glyph-agnostic), `spec.py` (`GlyphSpec`), `distribution.py` (scipy/idata adapter), `kinds/`.
 - `render_svg.py` — the ONE shared SVG emitter (nodes/edges/plates/glyphs/panels). Both renderers consume it.
 - `render_static.py` — standalone SVG + cairosvg PNG/PDF + TikZ.
