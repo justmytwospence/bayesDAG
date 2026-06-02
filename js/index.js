@@ -75,9 +75,12 @@ export default {
       function showTooltip(id, ev) {
         const n = nodes[id];
         if (!n) return;
-        const rel = n.dist ? `~ ${n.dist}(${esc(paramsText(n))})` : "deterministic";
+        // render the SAME MathJax SVG as the diagram; fall back to a plain relation
+        const math = n.label_svg
+          ? `<div class="bd-math">${n.label_svg}</div>`
+          : `<div>${n.dist ? `~ ${esc(n.dist)}(${esc(paramsText(n))})` : "deterministic"}</div>`;
         const dims = n.dims && n.dims.length ? `<div class="bd-dim-line">dims: ${esc(n.dims.join(" × "))}</div>` : "";
-        tooltip.innerHTML = `<b>${esc(id)}</b> · ${esc(n.role)}<div>${rel}</div>${dims}`;
+        tooltip.innerHTML = `<b>${esc(id)}</b> · ${esc(n.role)}${math}${dims}`;
         const r = el.getBoundingClientRect();
         tooltip.style.left = ev.clientX - r.left + 12 + "px";
         tooltip.style.top = ev.clientY - r.top + 12 + "px";
@@ -87,8 +90,8 @@ export default {
         const n = nodes[id];
         if (!n) return;
         const rows = [`<div class="bd-card-title">${esc(id)} <span>${esc(n.role)}</span></div>`];
+        if (n.label_svg) rows.push(`<div class="bd-math">${n.label_svg}</div>`);
         if (n.dist) rows.push(`<div>distribution: <b>${esc(n.dist)}</b></div>`);
-        if (n.params && n.params.length) rows.push(`<div>parameters: ${esc(paramsText(n))}</div>`);
         if (n.dims && n.dims.length) rows.push(`<div>dims: ${esc(n.dims.join(" × "))}</div>`);
         if (n.transform) rows.push(`<div>transform: ${esc(n.transform)}</div>`);
         const ctor = constructorText(id, n);

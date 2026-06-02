@@ -29,19 +29,31 @@ def _scalar_op_name(op: Any) -> Optional[str]:
     return None
 
 
+def _fmt_scalar(v: Any) -> str:
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    return f"{v:g}" if isinstance(v, (int, float)) else str(v)
+
+
 def _const_tex(var: Any) -> Optional[str]:
     data = getattr(var, "data", None)
     if data is None:
         return None
     arr = np.asarray(data)
     if arr.ndim == 0:
-        v = arr.item()
-        if isinstance(v, float) and v.is_integer():
-            return str(int(v))
-        return f"{v:g}" if isinstance(v, (int, float)) else str(v)
-    if arr.size <= 3:
-        return "[" + ",\\,".join(f"{float(x):g}" for x in arr.ravel()) + "]"
-    return r"[\cdots]"
+        return _fmt_scalar(arr.item())
+    flat = arr.ravel()
+    if flat.size == 0:
+        return r"[\,]"
+    # A constant vector (all entries equal) reads as the single value it repeats.
+    if np.all(flat == flat[0]):
+        return _fmt_scalar(flat[0].item())
+    # Otherwise show the actual values — eliding to "[⋯]" wastes the same space while
+    # hiding that it's a vector. Show a few entries, then a trailing ellipsis if long.
+    if flat.size <= 4:
+        return "[" + ",\\,".join(_fmt_scalar(x.item()) for x in flat) + "]"
+    head = ",\\,".join(_fmt_scalar(x.item()) for x in flat[:3])
+    return "[" + head + r",\,\ldots]"
 
 
 def render_value(

@@ -46,7 +46,10 @@ def build(ir: ModelIR) -> list[LegendItem]:
         items.append(LegendItem("symbol:=", "“=”  computed from"))
     if ir.plates:
         items.append(LegendItem("plate", "plate — repeats over its dimension"))
-    if any(("\\cdots" in (n.label_tex or "")) or n.elision_reason for n in ir.nodes):
-        items.append(LegendItem("elision", "[⋯]  value omitted for space"))
+    if any(
+        ("\\cdots" in (n.label_tex or "")) or ("\\ldots" in (n.label_tex or "")) or n.elision_reason
+        for n in ir.nodes
+    ):
+        items.append(LegendItem("elision", "[⋯]  more values / elided"))
 
     return items

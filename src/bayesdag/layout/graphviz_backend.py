@@ -83,6 +83,26 @@ def _build_dot(ir: ModelIR, info: dict[str, dict], rankdir: str) -> str:
     return "\n".join(lines)
 
 
+def _flip_spline(pos: str, gh: float) -> tuple[list[tuple[float, float]], tuple[float, float] | None]:
+    """Parse a graphviz edge ``pos`` into flipped px coords.
+
+    Format: ``e,EX,EY  B0 B1 B2 …`` — the B-points are cubic-Bezier control points (``B0``
+    start, then triples), and ``EX,EY`` is the arrowhead tip. Returns ``(control_pts, tip)``.
+    """
+    tip: tuple[float, float] | None = None
+    body: list[tuple[float, float]] = []
+    for t in pos.split():
+        if t.startswith("e,"):
+            _, x, y = t.split(",")
+            tip = (float(x), gh - float(y))
+        elif t.startswith("s,"):
+            continue
+        else:
+            x, y = t.split(",")
+            body.append((float(x), gh - float(y)))
+    return body, tip
+
+
 def _run_dot(dot_text: str) -> dict:
     proc = subprocess.run(
         ["dot", "-Tjson0"], input=dot_text, capture_output=True, text=True
@@ -125,25 +145,49 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
             pid = name[len("cluster_"):]
             res.plate_boxes[pid] = Box(llx, gh - ury, urx - llx, ury - lly)
 
-    # Custom smooth edges: dot gives node positions; we draw a gentle cubic from the source
-    # bottom-center to the target (the specific token for port-edges, else the top-center),
-    # with vertical tangents at both ends -> smooth, no faceting, no hard kinks, minimal bends.
+    # Edges follow dot's OWN spline routing (it minimizes crossings) rendered as one smooth
+    # cubic chain — no faceting. `edge_paths` is a flat list of cubic control points
+    # (`[p0, c1, c2, p1, c1, c2, p2, …]` -> `M p0 C c1 c2 p1 C …`). For a port-edge we keep
+    # dot's routing for the bulk and graft a short vertical tail onto the exact target token.
+    gvid2name = {o.get("_gvid"): o.get("name") for o in objects}
+    dot_pos: dict[tuple[str, str], str] = {}
+    for de in data.get("edges", []):
+        s = gvid2name.get(de.get("tail"))
+        t = gvid2name.get(de.get("head"))
+        if s is not None and t is not None and "pos" in de:
+            dot_pos[(s, t)] = de["pos"]
+
     for e in ir.edges:
         sb = res.node_boxes.get(e.source)
         tb = res.node_boxes.get(e.target)
         if sb is None or tb is None:
             continue
-        ex, ey = sb.x + sb.w / 2.0, sb.y + sb.h
         anchor = (
             res.node_token_anchors.get(e.target, {}).get(e.target_token_id)
             if e.target_token_id
             else None
         )
-        if anchor is not None:
-            nx, ny = anchor.x + anchor.w / 2.0, anchor.y - geometry.STANDOFF
+        body, tip = _flip_spline(dot_pos.get((e.source, e.target), ""), gh)
+        if len(body) >= 4:
+            n_seg = (len(body) - 1) // 3
+            ctrl = body[: 1 + 3 * n_seg]
+            if anchor is not None:
+                ax, ay = anchor.x + anchor.w / 2.0, anchor.y - geometry.STANDOFF
+                lx, ly = ctrl[-1]
+                dy = max(12.0, 0.4 * abs(ay - ly))
+                ctrl = ctrl + [(lx, ly + dy), (ax, ay - dy), (ax, ay)]
+            elif tip is not None:
+                lx, ly = ctrl[-1]
+                ctrl = ctrl + [(lx, ly), tip, tip]
         else:
-            nx, ny = tb.x + tb.w / 2.0, tb.y
-        dy = max(16.0, 0.42 * abs(ny - ey))
-        res.edge_paths[f"{e.source}|{e.target}"] = [[ex, ey], [ex, ey + dy], [nx, ny - dy], [nx, ny]]
+            # No usable spline -> a plain cubic with vertical tangents at both ends.
+            ex, ey = sb.x + sb.w / 2.0, sb.y + sb.h
+            if anchor is not None:
+                nx, ny = anchor.x + anchor.w / 2.0, anchor.y - geometry.STANDOFF
+            else:
+                nx, ny = tb.x + tb.w / 2.0, tb.y
+            dy = max(16.0, 0.42 * abs(ny - ey))
+            ctrl = [(ex, ey), (ex, ey + dy), (nx, ny - dy), (nx, ny)]
+        res.edge_paths[f"{e.source}|{e.target}"] = [[x, y] for x, y in ctrl]
 
     return res

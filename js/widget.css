@@ -42,6 +42,17 @@
   color: #6b7075;
 }
 
+/* rendered math (the diagram's own MathJax SVG) inside tooltip/card */
+.bd-math {
+  margin: 5px 0;
+}
+.bd-math svg {
+  max-width: 260px;
+  height: auto;
+  color: #1d1d1f;
+  vertical-align: middle;
+}
+
 /* click-to-pin detail card */
 .bd-card {
   position: absolute;

@@ -62,29 +62,12 @@ def _(np, pm):
 @app.cell
 def _(mo):
     mo.md(r"""
-    ### Static render
+    ### The diagram — hover and click
 
     Each node shows its distribution's **shape** (note `tau`'s half-normal starting at 0); the
     deterministic is real math; the observed node is a **histogram**; arrows from `mu`/`tau`/`eta`
-    land on those exact tokens inside `theta = mu + tau*eta` (port-level edges). The legend is
-    context-aware (it only lists encodings actually present).
-    """)
-    return
-
-
-@app.cell
-def _(bayesdag, es_model, mo):
-    es_view = bayesdag.view(es_model)
-    mo.Html(es_view.to_svg())
-    return (es_view,)
-
-
-@app.cell
-def _(mo):
-    mo.md(r"""
-    ### Interactive — try it
-
-    The **identical** SVG (parity by construction) plus interactions:
+    land on those exact tokens inside `theta = mu + tau*eta` (port-level edges). The legend (to the
+    side) is context-aware — it only lists encodings actually present.
 
     - **Hover** a node: everything outside its Markov blanket fades; a tooltip shows the distribution.
     - **Click** a node for a detail card (distribution, parameters, dims, a copyable `pm.*` line).
@@ -96,9 +79,10 @@ def _(mo):
 
 
 @app.cell
-def _(es_view, mo):
+def _(bayesdag, es_model, mo):
+    es_view = bayesdag.view(es_model)
     mo.ui.anywidget(es_view.widget())
-    return
+    return (es_view,)
 
 
 @app.cell
@@ -118,7 +102,7 @@ def _(es_model, pm):
 
 @app.cell
 def _(bayesdag, es_idata, es_model, mo):
-    mo.Html(bayesdag.view(es_model, idata=es_idata).to_svg())
+    mo.ui.anywidget(bayesdag.view(es_model, idata=es_idata).widget())
     return
 
 
@@ -177,20 +161,6 @@ def _(mo):
 def _(bayesdag, mo, radon_model):
     radon_view = bayesdag.view(radon_model)
     mo.ui.anywidget(radon_view.widget())
-    return (radon_view,)
-
-
-@app.cell
-def _(mo):
-    mo.md("""
-    ### Static figure (publication SVG)
-    """)
-    return
-
-
-@app.cell
-def _(mo, radon_view):
-    mo.Html(radon_view.to_svg())
     return
 
 
@@ -211,7 +181,7 @@ def _(pm, radon_model):
 
 @app.cell
 def _(bayesdag, mo, radon_idata, radon_model):
-    mo.Html(bayesdag.view(radon_model, idata=radon_idata).to_svg())
+    mo.ui.anywidget(bayesdag.view(radon_model, idata=radon_idata).widget())
     return
 
 

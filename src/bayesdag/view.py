@@ -82,6 +82,9 @@ class ModelGraphView:
                 "parents": parents.get(n.id, []),
                 "children": children.get(n.id, []),
                 "blanket": blanket,
+                # the SAME MathJax SVG embedded in the diagram -> the tooltip/card show real
+                # rendered math (parity), not raw LaTeX source.
+                "label_svg": n.label_svg,
             }
         plates: dict = {}
         if self._model is not None and self.ir.plates:

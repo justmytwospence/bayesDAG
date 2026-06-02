@@ -68,11 +68,11 @@ def _node_chrome(n: NodeIR, b: Box) -> str:
 def _edge(pts: list[list[float]], src: str, tgt: str) -> str:
     if len(pts) < 2:
         return ""
-    if len(pts) == 4:  # smooth cubic Bezier (exit, c1, c2, entry)
-        d = (
-            f"M{pts[0][0]:.1f},{pts[0][1]:.1f} C{pts[1][0]:.1f},{pts[1][1]:.1f} "
-            f"{pts[2][0]:.1f},{pts[2][1]:.1f} {pts[3][0]:.1f},{pts[3][1]:.1f}"
-        )
+    if len(pts) >= 4 and (len(pts) - 1) % 3 == 0:  # cubic chain: p0 + (c1,c2,p) triples
+        d = f"M{pts[0][0]:.1f},{pts[0][1]:.1f}"
+        for i in range(1, len(pts), 3):
+            c1, c2, p = pts[i], pts[i + 1], pts[i + 2]
+            d += f" C{c1[0]:.1f},{c1[1]:.1f} {c2[0]:.1f},{c2[1]:.1f} {p[0]:.1f},{p[1]:.1f}"
     else:
         d = "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts)
     return (
@@ -181,15 +181,13 @@ def _legend_swatch(kind: str, b: Box) -> str:
     return ""
 
 
-def _render_legend(items, ox: float, oy: float, content_w: float) -> tuple[str, float, float]:
-    """Compact, multi-column legend box (not full width) for spatial economy."""
-    pad, row_h, sw, title_h = 9.0, 18.0, 23.0, 18.0
-    cols = 2 if len(items) > 5 else 1
-    rows = -(-len(items) // cols)  # ceil
-    label_w = max((len(it.label) for it in items), default=10) * 6.0
-    col_w = sw + label_w + 12
-    w = 2 * pad + cols * col_w
-    h = pad * 2 + title_h + rows * row_h
+def _render_legend(items, ox: float, oy: float) -> tuple[str, float, float]:
+    """A compact single-column legend panel placed to the SIDE (widens, not lengthens, the
+    figure) so it doesn't eat vertical space."""
+    pad, row_h, sw, title_h = 9.0, 19.0, 24.0, 20.0
+    label_w = max((len(it.label) for it in items), default=10) * 5.7
+    w = 2 * pad + sw + label_w
+    h = pad * 2 + title_h + len(items) * row_h
     out = ['<g class="bd-legend">']
     out.append(
         f'<rect x="{ox:.1f}" y="{oy:.1f}" width="{w:.1f}" height="{h:.1f}" rx="6" '
@@ -201,12 +199,10 @@ def _render_legend(items, ox: float, oy: float, content_w: float) -> tuple[str, 
     )
     y0 = oy + pad + title_h
     for i, it in enumerate(items):
-        col, row = divmod(i, rows)  # column-major fill
-        cx = ox + pad + col * col_w
-        cy = y0 + row * row_h
-        out.append(_legend_swatch(it.swatch, Box(cx, cy + 2, 16, row_h - 7)))
+        cy = y0 + i * row_h
+        out.append(_legend_swatch(it.swatch, Box(ox + pad, cy + 2, 16, row_h - 7)))
         out.append(
-            f'<text x="{cx + sw:.1f}" y="{cy + row_h - 6:.1f}" font-size="10.5" '
+            f'<text x="{ox + pad + sw:.1f}" y="{cy + row_h - 6:.1f}" font-size="10.5" '
             f'fill="#333">{escape(it.label)}</text>'
         )
     out.append("</g>")
@@ -253,8 +249,8 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, overlay_mode: str = "prior", le
     if legend:
         items = _legend.build(ir)
         if items:
-            legend_svg, lw, lh = _render_legend(items, 0.0, c.h + _LEGEND_GAP, c.w)
-            total_w, total_h = max(c.w, lw), c.h + _LEGEND_GAP + lh
+            legend_svg, lw, lh = _render_legend(items, c.w + _LEGEND_GAP, 0.0)
+            total_w, total_h = c.w + _LEGEND_GAP + lw, max(c.h, lh)
 
     header = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{total_w:.1f}" height="{total_h:.1f}" '
