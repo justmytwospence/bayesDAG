@@ -13,17 +13,15 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(
-        r"""
-# bayesdag — a tour
+    mo.md(r"""
+    # bayesdag — a tour
 
-Shape-first, posterior-aware, interactive visualization of PyMC models. Run from the
-project root: `uv run marimo edit examples/tour.py`.
+    Shape-first, posterior-aware, interactive visualization of PyMC models. Run from the
+    project root: `uv run marimo edit examples/tour.py`.
 
-Two models, in sections: **eight schools** (the clean intro) and **radon** (a bigger
-hierarchical model where the interactive view earns its keep).
-"""
-    )
+    Two models, in sections: **eight schools** (the clean intro) and **radon** (a bigger
+    hierarchical model where the interactive view earns its keep).
+    """)
     return
 
 
@@ -39,14 +37,12 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(
-        r"""
-## 1 · Eight schools
+    mo.md(r"""
+    ## 1 · Eight schools
 
-Non-centered: hyperpriors `mu`, `tau`; a deterministic `theta = mu + tau*eta`; an observed
-Normal likelihood over a `school` plate.
-"""
-    )
+    Non-centered: hyperpriors `mu`, `tau`; a deterministic `theta = mu + tau*eta`; an observed
+    Normal likelihood over a `school` plate.
+    """)
     return
 
 
@@ -65,16 +61,14 @@ def _(np, pm):
 
 @app.cell
 def _(mo):
-    mo.md(
-        r"""
-### Static render
+    mo.md(r"""
+    ### Static render
 
-Each node shows its distribution's **shape** (note `tau`'s half-normal starting at 0); the
-deterministic is real math; the observed node is a **histogram**; arrows from `mu`/`tau`/`eta`
-land on those exact tokens inside `theta = mu + tau*eta` (port-level edges). The legend is
-context-aware (it only lists encodings actually present).
-"""
-    )
+    Each node shows its distribution's **shape** (note `tau`'s half-normal starting at 0); the
+    deterministic is real math; the observed node is a **histogram**; arrows from `mu`/`tau`/`eta`
+    land on those exact tokens inside `theta = mu + tau*eta` (port-level edges). The legend is
+    context-aware (it only lists encodings actually present).
+    """)
     return
 
 
@@ -87,19 +81,17 @@ def _(bayesdag, es_model, mo):
 
 @app.cell
 def _(mo):
-    mo.md(
-        r"""
-### Interactive — try it
+    mo.md(r"""
+    ### Interactive — try it
 
-The **identical** SVG (parity by construction) plus interactions:
+    The **identical** SVG (parity by construction) plus interactions:
 
-- **Hover** a node: everything outside its Markov blanket fades; a tooltip shows the distribution.
-- **Click** a node for a detail card (distribution, parameters, dims, a copyable `pm.*` line).
-- **Click the `school` plate** to expand its **prior predictive check** — the 8 per-school
-  curves overlaid (θ spreads via the shared μ/τ; η's coincide → exchangeability; y_obs shows
-  the prior-predictive vs. the observed data as orange ticks).
-"""
-    )
+    - **Hover** a node: everything outside its Markov blanket fades; a tooltip shows the distribution.
+    - **Click** a node for a detail card (distribution, parameters, dims, a copyable `pm.*` line).
+    - **Click the `school` plate** to expand its **prior predictive check** — the 8 per-school
+      curves overlaid (θ spreads via the shared μ/τ; η's coincide → exchangeability; y_obs shows
+      the prior-predictive vs. the observed data as orange ticks).
+    """)
     return
 
 
@@ -111,7 +103,9 @@ def _(es_view, mo):
 
 @app.cell
 def _(mo):
-    mo.md("### Fit, then posterior overlays (glyphs turn orange)")
+    mo.md("""
+    ### Fit, then posterior overlays (glyphs turn orange)
+    """)
     return
 
 
@@ -136,15 +130,13 @@ def _(es_view):
 
 @app.cell
 def _(mo):
-    mo.md(
-        r"""
-## 2 · Radon (where interactivity earns its keep)
+    mo.md(r"""
+    ## 2 · Radon (where interactivity earns its keep)
 
-A varying-intercept regression: per-county intercepts `a[county]` from hyperpriors `mu_a`,
-`sigma_a`; a shared floor effect `b`; observed `y`. Two plates (`county`, `obs`) + data nodes
-make this busy enough that hovering to isolate a node — and expanding a plate — really helps.
-"""
-    )
+    A varying-intercept regression: per-county intercepts `a[county]` from hyperpriors `mu_a`,
+    `sigma_a`; a shared floor effect `b`; observed `y`. Two plates (`county`, `obs`) + data nodes
+    make this busy enough that hovering to isolate a node — and expanding a plate — really helps.
+    """)
     return
 
 
@@ -171,15 +163,13 @@ def _(np, pm):
 
 @app.cell
 def _(mo):
-    mo.md(
-        r"""
-### Interactive
+    mo.md(r"""
+    ### Interactive
 
-Hover `a` to see it depends on `mu_a`/`sigma_a` and feeds `mu`. Click the `county` plate for
-the prior-predictive spread of the 6 intercepts; click the `obs` plate for prior-predictive
-`y` vs. the observed log-radon.
-"""
-    )
+    Hover `a` to see it depends on `mu_a`/`sigma_a` and feeds `mu`. Click the `county` plate for
+    the prior-predictive spread of the 6 intercepts; click the `obs` plate for prior-predictive
+    `y` vs. the observed log-radon.
+    """)
     return
 
 
@@ -192,7 +182,9 @@ def _(bayesdag, mo, radon_model):
 
 @app.cell
 def _(mo):
-    mo.md("### Static figure (publication SVG)")
+    mo.md("""
+    ### Static figure (publication SVG)
+    """)
     return
 
 
@@ -204,7 +196,9 @@ def _(mo, radon_view):
 
 @app.cell
 def _(mo):
-    mo.md("### Fit, then posterior overlays")
+    mo.md("""
+    ### Fit, then posterior overlays
+    """)
     return
 
 
@@ -223,14 +217,12 @@ def _(bayesdag, mo, radon_idata, radon_model):
 
 @app.cell
 def _(mo):
-    mo.md(
-        r"""
-## Notes
+    mo.md(r"""
+    ## Notes
 
-Outside a notebook (a plain script, nbconvert), the same `bayesdag.view(...)` degrades
-automatically to a static SVG via `_repr_svg_`. Pass `legend=False` for a bare figure.
-"""
-    )
+    Outside a notebook (a plain script, nbconvert), the same `bayesdag.view(...)` degrades
+    automatically to a static SVG via `_repr_svg_`. Pass `legend=False` for a bare figure.
+    """)
     return
 
 

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-from typing import Optional
 
 from .. import geometry, mathsvg
 from ..ir import Box, LayoutResult, ModelIR
@@ -93,23 +92,6 @@ def _run_dot(dot_text: str) -> dict:
     return json.loads(proc.stdout)
 
 
-def _parse_spline(pos: str, height: float) -> list[list[float]]:
-    pts: list[tuple[float, float]] = []
-    end: Optional[tuple[float, float]] = None
-    for tok in pos.split():
-        if tok.startswith("e,"):
-            _, x, y = tok.split(",")
-            end = (float(x), float(y))
-        elif tok.startswith("s,"):
-            continue
-        else:
-            x, y = tok.split(",")
-            pts.append((float(x), float(y)))
-    if end is not None:
-        pts.append(end)
-    return [[x, height - y] for (x, y) in pts]
-
-
 def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
     info = _render_labels(ir)
     data = _run_dot(_build_dot(ir, info, rankdir))
@@ -118,7 +100,6 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
     res = LayoutResult(canvas=Box(0.0, 0.0, gw, gh))
 
     objects = data.get("objects", [])
-    idx2name = [o.get("name", "") for o in objects]
     by_id = {n.id: n for n in ir.nodes}
 
     for o in objects:
@@ -144,23 +125,25 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
             pid = name[len("cluster_"):]
             res.plate_boxes[pid] = Box(llx, gh - ury, urx - llx, ury - lly)
 
-    for e in data.get("edges", []):
-        src = idx2name[e["tail"]]
-        tgt = idx2name[e["head"]]
-        pts = _parse_spline(e.get("pos", ""), gh) if e.get("pos") else []
-        # param-edge post-pass: re-route to "enter from the top" and stop just ABOVE the
-        # token so the arrowhead points at the glyph without covering it (and the final
-        # segment is ~vertical, which removes the interior-diagonal crossings).
-        edge_ir = next(
-            (x for x in ir.edges if x.source == src and x.target == tgt), None
+    # Custom smooth edges: dot gives node positions; we draw a gentle cubic from the source
+    # bottom-center to the target (the specific token for port-edges, else the top-center),
+    # with vertical tangents at both ends -> smooth, no faceting, no hard kinks, minimal bends.
+    for e in ir.edges:
+        sb = res.node_boxes.get(e.source)
+        tb = res.node_boxes.get(e.target)
+        if sb is None or tb is None:
+            continue
+        ex, ey = sb.x + sb.w / 2.0, sb.y + sb.h
+        anchor = (
+            res.node_token_anchors.get(e.target, {}).get(e.target_token_id)
+            if e.target_token_id
+            else None
         )
-        if edge_ir is not None and edge_ir.target_token_id and pts:
-            anchor = res.node_token_anchors.get(tgt, {}).get(edge_ir.target_token_id)
-            tbox = res.node_boxes.get(tgt)
-            if anchor is not None and tbox is not None:
-                cx = anchor.x + anchor.w / 2.0  # token center-x
-                top = anchor.y                  # token visual top
-                pts = pts[:-1] + [[cx, tbox.y], [cx, top - geometry.STANDOFF]]
-        res.edge_paths[f"{src}|{tgt}"] = pts
+        if anchor is not None:
+            nx, ny = anchor.x + anchor.w / 2.0, anchor.y - geometry.STANDOFF
+        else:
+            nx, ny = tb.x + tb.w / 2.0, tb.y
+        dy = max(16.0, 0.42 * abs(ny - ey))
+        res.edge_paths[f"{e.source}|{e.target}"] = [[ex, ey], [ex, ey + dy], [nx, ny - dy], [nx, ny]]
 
     return res

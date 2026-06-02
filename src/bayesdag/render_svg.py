@@ -50,6 +50,13 @@ def _embed_label(label_svg: str, x: float, y: float, w: float, h: float) -> str:
 
 
 def _node_chrome(n: NodeIR, b: Box) -> str:
+    if n.role == "deterministic":
+        # no visible box around the equation; a transparent rect keeps it hover/click-able
+        # and gives edges a region to land in.
+        return (
+            f'<rect x="{b.x:.1f}" y="{b.y:.1f}" width="{b.w:.1f}" height="{b.h:.1f}" '
+            'fill="transparent" stroke="none"/>'
+        )
     fill, stroke, rx = _CHROME.get(n.role, _CHROME["latent"])
     dash = ' stroke-dasharray="4,3"' if n.role in ("potential", "factor") else ""
     return (
@@ -61,7 +68,13 @@ def _node_chrome(n: NodeIR, b: Box) -> str:
 def _edge(pts: list[list[float]], src: str, tgt: str) -> str:
     if len(pts) < 2:
         return ""
-    d = "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+    if len(pts) == 4:  # smooth cubic Bezier (exit, c1, c2, entry)
+        d = (
+            f"M{pts[0][0]:.1f},{pts[0][1]:.1f} C{pts[1][0]:.1f},{pts[1][1]:.1f} "
+            f"{pts[2][0]:.1f},{pts[2][1]:.1f} {pts[3][0]:.1f},{pts[3][1]:.1f}"
+        )
+    else:
+        d = "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts)
     return (
         f'<path class="bd-edge" data-src="{escape(src)}" data-tgt="{escape(tgt)}" d="{d}" '
         'fill="none" stroke="#555" stroke-width="1.3" marker-end="url(#bd-arrow)"/>'
@@ -169,27 +182,33 @@ def _legend_swatch(kind: str, b: Box) -> str:
 
 
 def _render_legend(items, ox: float, oy: float, content_w: float) -> tuple[str, float, float]:
-    pad, row_h, sw, title_h = 10.0, 20.0, 26.0, 20.0
-    label_w = max((len(it.label) for it in items), default=10) * 6.3
-    w = max(content_w, sw + label_w + 2 * pad, 220.0)
-    h = pad * 2 + title_h + len(items) * row_h
+    """Compact, multi-column legend box (not full width) for spatial economy."""
+    pad, row_h, sw, title_h = 9.0, 18.0, 23.0, 18.0
+    cols = 2 if len(items) > 5 else 1
+    rows = -(-len(items) // cols)  # ceil
+    label_w = max((len(it.label) for it in items), default=10) * 6.0
+    col_w = sw + label_w + 12
+    w = 2 * pad + cols * col_w
+    h = pad * 2 + title_h + rows * row_h
     out = ['<g class="bd-legend">']
     out.append(
         f'<rect x="{ox:.1f}" y="{oy:.1f}" width="{w:.1f}" height="{h:.1f}" rx="6" '
         'fill="#fcfcfc" stroke="#dddddd"/>'
     )
     out.append(
-        f'<text x="{ox + pad:.1f}" y="{oy + pad + 12:.1f}" font-size="12" font-weight="600" '
+        f'<text x="{ox + pad:.1f}" y="{oy + pad + 11:.1f}" font-size="11.5" font-weight="600" '
         'fill="#444">Legend</text>'
     )
-    y = oy + pad + title_h
-    for it in items:
-        out.append(_legend_swatch(it.swatch, Box(ox + pad, y + 2, 18, row_h - 7)))
+    y0 = oy + pad + title_h
+    for i, it in enumerate(items):
+        col, row = divmod(i, rows)  # column-major fill
+        cx = ox + pad + col * col_w
+        cy = y0 + row * row_h
+        out.append(_legend_swatch(it.swatch, Box(cx, cy + 2, 16, row_h - 7)))
         out.append(
-            f'<text x="{ox + pad + sw:.1f}" y="{y + row_h - 6:.1f}" font-size="11" '
+            f'<text x="{cx + sw:.1f}" y="{cy + row_h - 6:.1f}" font-size="10.5" '
             f'fill="#333">{escape(it.label)}</text>'
         )
-        y += row_h
     out.append("</g>")
     return "".join(out), w, h
 

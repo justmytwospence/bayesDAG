@@ -1,15 +1,13 @@
 // bayesdag anywidget front-end (thin controller).
 //
 // INVARIANT (AGENTS.md): never computes geometry or statistics. Python ships a fully
-// laid-out SVG in `spec.svg` plus `spec.nodes` (per-node detail + adjacency). The JS
-// injects the SVG verbatim (parity with the static renderer) and adds only pan/zoom,
-// hover-highlight (Markov blanket), a tooltip, and a click-to-pin detail card via
-// CSS classes / DOM overlays.
-
-import { select } from "d3-selection";
-import { zoom } from "d3-zoom";
-
-const NS = "http://www.w3.org/2000/svg";
+// laid-out SVG in `spec.svg` plus `spec.nodes` (per-node detail + adjacency) and
+// `spec.plates` (prior-predictive panels). The JS injects the SVG verbatim (parity with
+// the static renderer) and adds, via CSS classes / DOM overlays:
+//   - hover-highlight of a node's Markov blanket + a tooltip,
+//   - click-to-pin a node detail card,
+//   - click-to-expand a plate's prior-predictive check.
+// (No pan/zoom: the diagram renders at its natural size.)
 
 function esc(s) {
   return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
@@ -50,7 +48,6 @@ export default {
     function draw() {
       const spec = model.get("spec") || {};
       const nodes = spec.nodes || {};
-      // wipe previous render but keep the overlay elements
       for (const c of Array.from(el.childNodes)) {
         if (c !== tooltip && c !== card && c !== panel) el.removeChild(c);
       }
@@ -59,18 +56,6 @@ export default {
       el.insertBefore(holder, tooltip);
       const svg = holder.querySelector("svg");
       if (!svg) return;
-
-      // wrap drawable content (not <defs>) in a <g> for pan/zoom
-      const g = document.createElementNS(NS, "g");
-      const defs = svg.querySelector("defs");
-      for (const child of Array.from(svg.childNodes)) {
-        if (child !== defs) g.appendChild(child);
-      }
-      svg.appendChild(g);
-      const z = zoom().scaleExtent([0.2, 8]).on("zoom", (ev) =>
-        g.setAttribute("transform", ev.transform.toString())
-      );
-      select(svg).call(z).style("cursor", "grab");
 
       const nodeEls = Array.from(svg.querySelectorAll(".bd-node"));
       const edgeEls = Array.from(svg.querySelectorAll(".bd-edge"));
@@ -83,7 +68,7 @@ export default {
           e.classList.toggle("bd-dim", e.dataset.src !== id && e.dataset.tgt !== id)
         );
       }
-      function clear() {
+      function clearHl() {
         nodeEls.forEach((n) => n.classList.remove("bd-dim"));
         edgeEls.forEach((e) => e.classList.remove("bd-dim"));
       }
@@ -103,8 +88,7 @@ export default {
         if (!n) return;
         const rows = [`<div class="bd-card-title">${esc(id)} <span>${esc(n.role)}</span></div>`];
         if (n.dist) rows.push(`<div>distribution: <b>${esc(n.dist)}</b></div>`);
-        if (n.params && n.params.length)
-          rows.push(`<div>parameters: ${esc(paramsText(n))}</div>`);
+        if (n.params && n.params.length) rows.push(`<div>parameters: ${esc(paramsText(n))}</div>`);
         if (n.dims && n.dims.length) rows.push(`<div>dims: ${esc(n.dims.join(" × "))}</div>`);
         if (n.transform) rows.push(`<div>transform: ${esc(n.transform)}</div>`);
         const ctor = constructorText(id, n);
@@ -118,17 +102,19 @@ export default {
         const id = nodeEl.dataset.node;
         nodeEl.style.cursor = "pointer";
         nodeEl.addEventListener("mouseenter", (ev) => {
-          if (pinned) return;
-          highlight(id);
-          showTooltip(id, ev);
+          if (!pinned) {
+            highlight(id);
+            showTooltip(id, ev);
+          }
         });
         nodeEl.addEventListener("mousemove", (ev) => {
           if (!pinned) showTooltip(id, ev);
         });
         nodeEl.addEventListener("mouseleave", () => {
-          if (pinned) return;
-          clear();
-          tooltip.style.display = "none";
+          if (!pinned) {
+            clearHl();
+            tooltip.style.display = "none";
+          }
         });
         nodeEl.addEventListener("click", (ev) => {
           ev.stopPropagation();
@@ -137,11 +123,11 @@ export default {
           model.save_changes();
           highlight(id);
           tooltip.style.display = "none";
+          panel.style.display = "none";
           showCard(id);
         });
       });
 
-      // click a plate to expand its prior-predictive check (interactive-only)
       Array.from(svg.querySelectorAll(".bd-plate")).forEach((plEl) => {
         const pid = plEl.dataset.plate;
         plEl.style.cursor = "zoom-in";
@@ -149,6 +135,7 @@ export default {
           ev.stopPropagation();
           const p = (spec.plates || {})[pid];
           if (!p || !p.panel) return;
+          card.style.display = "none";
           panel.innerHTML =
             `<div class="bd-panel-head">${esc(pid)}<span>click empty space to close</span></div>` + p.panel;
           panel.style.display = "block";
@@ -159,7 +146,7 @@ export default {
         pinned = null;
         model.set("selected_node", "");
         model.save_changes();
-        clear();
+        clearHl();
         card.style.display = "none";
         panel.style.display = "none";
       });

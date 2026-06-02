@@ -86,12 +86,14 @@ def _density_from_samples(values) -> Optional[dict]:
         return None
 
 
-def _histogram(values, max_bins: int = 24) -> Optional[dict]:
+def _histogram(values, max_bins: int = 30) -> Optional[dict]:
     v = np.asarray(values, float).ravel()
     v = v[np.isfinite(v)]
     if v.size == 0:
         return None
-    edges = np.histogram_bin_edges(v, bins="fd")  # Freedman-Diaconis default
+    # numpy "auto" = max(Sturges, Freedman-Diaconis): a robust visual default that avoids
+    # FD's too-few-bins behavior on small/lightly-tailed samples.
+    edges = np.histogram_bin_edges(v, bins="auto")
     if len(edges) > max_bins + 1:
         edges = np.histogram_bin_edges(v, bins=max_bins)
     counts, edges = np.histogram(v, bins=edges)
