@@ -54,6 +54,16 @@ def test_external_scale_param_placed_beside_its_child(radon_ir):
     assert sigma_cx > mu_cx
 
 
+def test_ports_order_parents_to_match_token_positions(radon_ir):
+    """Boundary ports: each parent is placed in the x-order of its target token, so edges
+    into `mu = f(a, county_idx) + b floor` don't cross / pile up."""
+    res = elk_backend.layout(radon_ir)
+    anchors = res.node_token_anchors["mu"]
+    assert anchors["county_idx"].x < anchors["floor"].x  # token order in the equation
+    cx = {k: res.node_boxes[k].x + res.node_boxes[k].w / 2.0 for k in ("county_idx", "floor")}
+    assert cx["county_idx"] < cx["floor"]  # ...and the source nodes follow that order
+
+
 def test_layout_is_deterministic(eight_schools_ir):
     """Fixed randomSeed -> identical geometry across runs (golden-image stability)."""
     a = elk_backend.layout(eight_schools_ir)

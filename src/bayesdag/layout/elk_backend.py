@@ -112,6 +112,10 @@ def available() -> bool:
     return get_engine().available
 
 
+def _port_id(node_id: str, tok: str) -> str:
+    return f"{node_id}\x1e{tok}"  # unit-separator keeps it unambiguous vs node/token names
+
+
 def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
     by_id = {n.id: n for n in ir.nodes}
     member_plate: dict[str, str] = {}
@@ -119,9 +123,38 @@ def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
         for m in p.members:
             member_plate[m] = p.id  # PyMC plates are keyed by dim-set -> one plate per var
 
+    # Which tokens are edge targets on each node -> fixed-position ports at the token's x, so
+    # ELK orders each node's parents to match the equation's token order (no crossing pile-up).
+    targeted: dict[str, set] = {}
+    for e in ir.edges:
+        if e.target_token_id:
+            targeted.setdefault(e.target, set()).add(e.target_token_id)
+
+    port_ids: set[str] = set()
+
     def node_json(n) -> dict:
-        w, h = geometry.node_size(info[n.id]["w"], info[n.id]["h"], n.role)
-        return {"id": n.id, "width": float(w), "height": float(h)}
+        lw, lh = info[n.id]["w"], info[n.id]["h"]
+        w, h = geometry.node_size(lw, lh, n.role)
+        d: dict = {"id": n.id, "width": float(w), "height": float(h)}
+        ports = []
+        bboxes = info[n.id]["bboxes"]
+        label_ox = (w - lw) / 2.0  # label is centered in the node (geometry.label_origin)
+        for tok in sorted(targeted.get(n.id, ())):
+            bb = bboxes.get(tok)
+            if bb is None:
+                continue
+            fx, _fy, fw, _fh = bb
+            px = max(1.0, min(w - 1.0, label_ox + (fx + fw / 2.0) * lw))  # token center x
+            pid = _port_id(n.id, tok)
+            port_ids.add(pid)
+            ports.append(
+                {"id": pid, "x": px, "y": 0.0, "width": 1.0, "height": 1.0,
+                 "layoutOptions": {"elk.port.side": "NORTH"}}
+            )
+        if ports:
+            d["ports"] = ports
+            d["layoutOptions"] = {"elk.portConstraints": "FIXED_POS"}
+        return d
 
     def plate_json(p) -> dict:
         children = [node_json(by_id[m]) for m in p.members if m in by_id and member_plate.get(m) == p.id]
@@ -130,10 +163,11 @@ def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
 
     root_children = [plate_json(p) for p in ir.plates if p.parent is None]
     root_children += [node_json(n) for n in ir.nodes if n.id not in member_plate]
-    edges = [
-        {"id": f"e{i}", "sources": [e.source], "targets": [e.target]}
-        for i, e in enumerate(ir.edges)
-    ]
+    edges = []
+    for i, e in enumerate(ir.edges):
+        pid = _port_id(e.target, e.target_token_id) if e.target_token_id else None
+        tgt = pid if pid in port_ids else e.target
+        edges.append({"id": f"e{i}", "sources": [e.source], "targets": [tgt]})
     return {
         "id": "root",
         "layoutOptions": {

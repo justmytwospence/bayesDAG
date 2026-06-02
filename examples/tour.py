@@ -115,7 +115,7 @@ def _(es_view):
 @app.cell
 def _(mo):
     mo.md(r"""
-    ## 2 · Radon (where interactivity earns its keep)
+    ## 2 · Radon
 
     A varying-intercept regression: per-county intercepts `a[county]` from hyperpriors `mu_a`,
     `sigma_a`; a shared floor effect `b`; observed `y`. Two plates (`county`, `obs`) + data nodes
