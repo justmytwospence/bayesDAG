@@ -42,12 +42,17 @@ export default {
     card.style.display = "none";
     el.appendChild(card);
 
+    const panel = document.createElement("div");
+    panel.className = "bd-panel";
+    panel.style.display = "none";
+    el.appendChild(panel);
+
     function draw() {
       const spec = model.get("spec") || {};
       const nodes = spec.nodes || {};
-      // wipe previous render but keep tooltip/card
+      // wipe previous render but keep the overlay elements
       for (const c of Array.from(el.childNodes)) {
-        if (c !== tooltip && c !== card) el.removeChild(c);
+        if (c !== tooltip && c !== card && c !== panel) el.removeChild(c);
       }
       const holder = document.createElement("div");
       holder.innerHTML = spec.svg || '<div class="bd-placeholder">bayesdag &mdash; no spec</div>';
@@ -136,12 +141,27 @@ export default {
         });
       });
 
+      // click a plate to expand its prior-predictive check (interactive-only)
+      Array.from(svg.querySelectorAll(".bd-plate")).forEach((plEl) => {
+        const pid = plEl.dataset.plate;
+        plEl.style.cursor = "zoom-in";
+        plEl.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          const p = (spec.plates || {})[pid];
+          if (!p || !p.panel) return;
+          panel.innerHTML =
+            `<div class="bd-panel-head">${esc(pid)}<span>click empty space to close</span></div>` + p.panel;
+          panel.style.display = "block";
+        });
+      });
+
       svg.addEventListener("click", () => {
         pinned = null;
         model.set("selected_node", "");
         model.save_changes();
         clear();
         card.style.display = "none";
+        panel.style.display = "none";
       });
     }
 

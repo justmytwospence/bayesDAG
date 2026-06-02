@@ -83,3 +83,34 @@
   color: #9aa0a6;
   font-size: 10px;
 }
+
+/* plate prior-predictive expansion panel (interactive-only) */
+.bd-panel {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 12;
+  max-height: 92%;
+  overflow: auto;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid #c7c7cc;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+}
+.bd-panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: baseline;
+  font-size: 12px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 6px;
+}
+.bd-panel-head span {
+  font-weight: 400;
+  color: #9aa0a6;
+  font-size: 10px;
+}

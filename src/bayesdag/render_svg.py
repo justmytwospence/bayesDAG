@@ -71,10 +71,68 @@ def _edge(pts: list[list[float]], src: str, tgt: str) -> str:
 def _plate(b: Box, label: str) -> str:
     return (
         f'<rect x="{b.x:.1f}" y="{b.y:.1f}" width="{b.w:.1f}" height="{b.h:.1f}" rx="6" ry="6" '
-        f'fill="none" stroke="#9aa0a6" stroke-width="1" stroke-dasharray="2,2"/>'
+        f'fill="none" stroke="#9aa0a6" stroke-width="1" stroke-dasharray="2,2" pointer-events="all"/>'
         f'<text x="{b.x + b.w - 4:.1f}" y="{b.y + b.h - 5:.1f}" text-anchor="end" '
         f'font-size="11" fill="#6b7075">{escape(label)}</text>'
     )
+
+
+def _panel_curve(xs: list[float], ys: list[float], box: Box, color: str = "#3a6ea5") -> str:
+    x0, x1 = xs[0], xs[-1]
+    span = (x1 - x0) or 1.0
+    pts = [
+        (box.x + (x - x0) / span * box.w, box.y + box.h - max(0.0, min(1.0, y)) * box.h)
+        for x, y in zip(xs, ys)
+    ]
+    d = "M" + " L".join(f"{px:.1f},{py:.1f}" for px, py in pts)
+    return f'<path d="{d}" fill="none" stroke="{color}" stroke-width="1" opacity="0.3"/>'
+
+
+def render_plate_panel(expansion: dict) -> str:
+    """Standalone SVG for a plate's prior-predictive expansion: per member variable, the N
+    per-instance densities overlaid on a shared axis (observed members get data ticks)."""
+    members = expansion.get("members", [])
+    if not members:
+        return ""
+    pw, rh, pad, title = 280.0, 60.0, 12.0, 18.0
+    w = pw + 2 * pad
+    h = pad * 2 + 22 + len(members) * (rh + title + 8)
+    out = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w:.0f}" height="{h:.0f}" '
+        f'viewBox="0 0 {w:.0f} {h:.0f}" font-family="system-ui, sans-serif">',
+        f'<rect width="{w:.0f}" height="{h:.0f}" rx="8" fill="#ffffff" stroke="#c7c7cc"/>',
+        f'<text x="{pad}" y="{pad + 12}" font-size="12" font-weight="600" fill="#333">'
+        f'prior predictive — {escape(expansion.get("label", ""))}</text>',
+    ]
+    y = pad + 22
+    for mem in members:
+        cap = f" (showing {len(mem['curves'])})" if mem.get("capped") else ""
+        obs_note = "  ·  orange ticks = observed data" if mem.get("observed") else ""
+        out.append(
+            f'<text x="{pad}" y="{y + 11:.1f}" font-size="11" fill="#555">'
+            f'{escape(mem["id"])} — {mem["n"]} instances{cap}{obs_note}</text>'
+        )
+        box = Box(pad, y + title, pw, rh)
+        out.append(
+            f'<rect x="{box.x}" y="{box.y:.1f}" width="{box.w}" height="{box.h}" '
+            'fill="#fafafa" stroke="#eeeeee"/>'
+        )
+        xs = mem["xs"]
+        for c in mem["curves"]:
+            out.append(_panel_curve(xs, c, box))
+        if mem.get("observed"):
+            x0, x1 = xs[0], xs[-1]
+            span = (x1 - x0) or 1.0
+            for v in mem["observed"]:
+                if x0 <= v <= x1:
+                    px = box.x + (v - x0) / span * box.w
+                    out.append(
+                        f'<line x1="{px:.1f}" y1="{box.y + box.h - 8:.1f}" x2="{px:.1f}" '
+                        f'y2="{box.y + box.h:.1f}" stroke="#d2691e" stroke-width="1.5"/>'
+                    )
+        y += title + rh + 8
+    out.append("</svg>")
+    return "".join(out)
 
 
 def _legend_swatch(kind: str, b: Box) -> str:
@@ -139,11 +197,11 @@ def _render_legend(items, ox: float, oy: float, content_w: float) -> tuple[str, 
 def to_svg(ir: ModelIR, layout: LayoutResult, *, overlay_mode: str = "prior", legend: bool = True) -> str:
     c = layout.canvas or Box(0, 0, 100, 100)
     body = [_DEFS]
-    # plates (behind everything)
+    # plates (behind everything), tagged for click-to-expand
     for p in ir.plates:
         b = layout.plate_boxes.get(p.id)
         if b:
-            body.append(_plate(b, p.label))
+            body.append(f'<g class="bd-plate" data-plate="{escape(p.id)}">' + _plate(b, p.label) + "</g>")
     # node chrome + label + glyph, wrapped in a tagged group for interactivity
     for n in ir.nodes:
         b = n.box or layout.node_boxes.get(n.id)

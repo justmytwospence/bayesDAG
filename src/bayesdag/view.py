@@ -10,6 +10,7 @@ from typing import Any
 
 from . import render_static
 from .convert import to_ir
+from .ir import ModelIR
 from .layout import layout
 from .render_svg import to_svg
 
@@ -36,6 +37,9 @@ class ModelGraphView:
     def __init__(
         self, model_or_ir: Any, idata: Any = None, *, rankdir: str = "TB", legend: bool = True
     ) -> None:
+        # keep the source model (if any) so the interactive plate prior-predictive panels
+        # can be computed lazily — static rendering never pays that cost.
+        self._model = None if isinstance(model_or_ir, ModelIR) else model_or_ir
         self.ir = to_ir(model_or_ir, idata=idata)
         self.layout = layout(self.ir, rankdir=rankdir)
         self._svg = to_svg(self.ir, self.layout, legend=legend)
@@ -79,7 +83,19 @@ class ModelGraphView:
                 "children": children.get(n.id, []),
                 "blanket": blanket,
             }
-        return {"svg": self._svg, "nodes": nodes, "selected": ""}
+        plates: dict = {}
+        if self._model is not None and self.ir.plates:
+            try:
+                from .adapters.ppc import prior_predictive_expansions
+                from .render_svg import render_plate_panel
+
+                for pid, exp in prior_predictive_expansions(self._model, self.ir).items():
+                    panel = render_plate_panel(exp)
+                    if panel:
+                        plates[pid] = {"panel": panel}
+            except Exception:
+                plates = {}
+        return {"svg": self._svg, "nodes": nodes, "plates": plates, "selected": ""}
 
     def widget(self):
         if self._widget is None:

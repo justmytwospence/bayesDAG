@@ -46,3 +46,14 @@ def test_widget_spec_has_nodes_adjacency_and_tags(eight_schools_model):
     assert "theta" in spec["nodes"]["tau"]["blanket"]  # Markov blanket adjacency
     assert spec["nodes"]["y_obs"]["params"]            # per-node detail (loc/scale)
     assert 'class="bd-node"' in spec["svg"] and 'class="bd-edge"' in spec["svg"]
+    assert 'class="bd-plate"' in spec["svg"]
+
+
+def test_plate_prior_predictive_panel(eight_schools_model):
+    pytest.importorskip("anywidget")
+    plates = bayesdag.view(eight_schools_model).widget().spec.get("plates", {})
+    assert "plate_school" in plates
+    panel = plates["plate_school"]["panel"]
+    assert "prior predictive" in panel
+    assert panel.count("<path") >= 3  # overlaid per-instance density curves
+    assert "y_obs" in panel           # observed member row (with data ticks)
