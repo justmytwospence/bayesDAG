@@ -11,10 +11,10 @@ arrive with a golden test. Tiers and treatments come from the design plan
 - [ ] **M3** — interop exporters, reparam suggestions, scale, cross-PPL, upstream
 
 ## M0 build checklist
-- [ ] Project scaffold (pyproject/package.json/docs/git) — *in progress*
-- [ ] uv env (Python 3.12) + deps installed; `pymc` imports
-- [ ] **Math + token-anchor spike** (mathjax-full in mini-racer? fallback ladder; token bboxes) — *highest risk, first*
-- [ ] PPL-agnostic `ir` + `from_pymc` + JSON Schema + provenance + `to_elk`/`to_networkx`
+- [x] Project scaffold (pyproject/package.json/docs/git)
+- [x] uv env (Python 3.12) + deps installed; `pymc` 6.0.1 / `arviz` 1.1.0 import
+- [x] **Math + token-anchor spike** — mathjax-full runs **in-process** in py_mini_racer (no runtime Node; `PACKAGE_VERSION` define kills the `eval("require")` branch); `\cssId` token anchors extracted via transform-chain composition. `src/bayesdag/mathsvg.py`.
+- [~] IR dataclasses (`src/bayesdag/ir.py`, round-trips) done; `from_pymc` + JSON Schema + `to_elk`/`to_networkx` pending (task #4)
 - [ ] Label engine (LaTeX templates + deterministic visitor + token-tree)
 - [ ] Layout backend (`dot -Tjson` → `LayoutResult` + param-edge post-pass)
 - [ ] Glyph registry + distribution-object adapter (univariate `density` kinds)
