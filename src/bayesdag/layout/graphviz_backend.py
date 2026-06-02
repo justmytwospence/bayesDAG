@@ -29,24 +29,26 @@ def _render_labels(ir: ModelIR) -> dict[str, dict]:
     info: dict[str, dict] = {}
     for n in ir.nodes:
         svg = None
-        anchors: dict[str, tuple[float, float]] = {}
+        bboxes: dict[str, tuple[float, float, float, float]] = {}
         if use and n.label_tex:
             try:
-                svg, anchors = renderer.render_with_anchors(n.label_tex, display=True)
+                svg = renderer.render(n.label_tex, display=True)
+                bboxes = mathsvg.token_bboxes(svg)
             except Exception:
-                svg, anchors = None, {}
+                svg, bboxes = None, {}
         n.label_svg = svg
         lw, lh = geometry.label_px_size(svg)
         if svg is None and n.label_tex:
             lw = max(lw, 7.0 * len(n.id))  # rough estimate without math
-        info[n.id] = {"w": lw, "h": lh, "anchors": anchors}
+        info[n.id] = {"w": lw, "h": lh, "bboxes": bboxes}
     return info
 
 
 def _build_dot(ir: ModelIR, info: dict[str, dict], rankdir: str) -> str:
     lines = [
         "digraph G {",
-        f'  graph [rankdir={rankdir}, nodesep=0.45, ranksep=0.55, pad=0.1];',
+        f"  graph [rankdir={rankdir}, nodesep=0.32, ranksep=0.6, pad=0.1, "
+        "newrank=true, compound=true];",
         '  node [shape=box, fixedsize=true, label=""];',
     ]
     member_of: dict[str, str] = {}
@@ -70,7 +72,14 @@ def _build_dot(ir: ModelIR, info: dict[str, dict], rankdir: str) -> str:
         if n.id not in member_of:
             lines.append(node_line(n))
     for e in ir.edges:
-        lines.append(f"  {json.dumps(e.source)} -> {json.dumps(e.target)};")
+        # Heavily weight edges INSIDE a plate so the plate's spine stays straight/vertical
+        # and only the cross-plate (external-parent) edges bend -> fewer crossings.
+        same_plate = (
+            member_of.get(e.source) is not None
+            and member_of.get(e.source) == member_of.get(e.target)
+        )
+        weight = 8 if same_plate else 1
+        lines.append(f"  {json.dumps(e.source)} -> {json.dumps(e.target)} [weight={weight}];")
     lines.append("}")
     return "\n".join(lines)
 
@@ -126,9 +135,8 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
             lw, lh = info[name]["w"], info[name]["h"]
             ox, oy = geometry.label_origin(box, lw, lh)
             anchors: dict[str, Box] = {}
-            for tok, (fx, fy) in info[name]["anchors"].items():
-                ax, ay = ox + fx * lw, oy + fy * lh
-                anchors[tok] = Box(ax, ay, 0.0, 0.0)
+            for tok, (fx, fy, fw, fh) in info[name]["bboxes"].items():
+                anchors[tok] = Box(ox + fx * lw, oy + fy * lh, fw * lw, fh * lh)
             n.port_anchors = anchors
             res.node_token_anchors[name] = anchors
         elif name.startswith("cluster_") and "bb" in o:  # a plate
@@ -140,14 +148,19 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
         src = idx2name[e["tail"]]
         tgt = idx2name[e["head"]]
         pts = _parse_spline(e.get("pos", ""), gh) if e.get("pos") else []
-        # param-edge post-pass: retarget the head to the specific token anchor
+        # param-edge post-pass: re-route to "enter from the top" and stop just ABOVE the
+        # token so the arrowhead points at the glyph without covering it (and the final
+        # segment is ~vertical, which removes the interior-diagonal crossings).
         edge_ir = next(
             (x for x in ir.edges if x.source == src and x.target == tgt), None
         )
-        if edge_ir is not None and edge_ir.target_token_id:
+        if edge_ir is not None and edge_ir.target_token_id and pts:
             anchor = res.node_token_anchors.get(tgt, {}).get(edge_ir.target_token_id)
-            if anchor is not None and pts:
-                pts[-1] = [anchor.x, anchor.y]
+            tbox = res.node_boxes.get(tgt)
+            if anchor is not None and tbox is not None:
+                cx = anchor.x + anchor.w / 2.0  # token center-x
+                top = anchor.y                  # token visual top
+                pts = pts[:-1] + [[cx, tbox.y], [cx, top - geometry.STANDOFF]]
         res.edge_paths[f"{src}|{tgt}"] = pts
 
     return res

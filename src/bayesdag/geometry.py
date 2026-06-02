@@ -17,6 +17,7 @@ GLYPH_H = 30.0  # reserved height for the distribution-shape glyph strip
 GAP = 4.0       # gap between label and glyph
 MIN_W = 56.0
 MIN_H = 38.0
+STANDOFF = 6.0  # px gap left above a token so a port-edge arrowhead doesn't cover the glyph
 
 _W = re.compile(r'\bwidth="([\d.]+)ex"')
 _H = re.compile(r'\bheight="([\d.]+)ex"')

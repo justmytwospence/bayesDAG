@@ -3,6 +3,7 @@
 import pytest
 
 from bayesdag import mathsvg
+from bayesdag.geometry import STANDOFF
 from bayesdag.layout import layout
 
 _math = mathsvg.get_renderer().available
@@ -23,15 +24,24 @@ def test_layout_produces_boxes_and_plate(eight_schools_ir):
 
 
 @pytest.mark.skipif(not _math, reason="needs the 'math' extra for token anchors")
-def test_param_edges_land_on_token_anchors(eight_schools_ir):
+def test_token_anchors_are_real_bboxes(eight_schools_ir):
     res = layout(eight_schools_ir)
-    loc = res.node_token_anchors["y_obs"]["loc"]
-    end = res.edge_paths["theta|y_obs"][-1]
-    assert abs(end[0] - loc.x) < 0.5 and abs(end[1] - loc.y) < 0.5
-    # deterministic port-edge: mu -> theta targets the mu token inside the equation
-    mtok = res.node_token_anchors["theta"]["mu"]
-    mend = res.edge_paths["mu|theta"][-1]
-    assert abs(mend[0] - mtok.x) < 0.5 and abs(mend[1] - mtok.y) < 0.5
+    b = res.node_token_anchors["theta"]["mu"]
+    assert b.w > 0 and b.h > 0  # real bbox, not a zero-size point
+
+
+@pytest.mark.skipif(not _math, reason="needs the 'math' extra for token anchors")
+def test_param_edges_enter_token_from_top_without_overlap(eight_schools_ir):
+    res = layout(eight_schools_ir)
+    for edge, node, tok in [("theta|y_obs", "y_obs", "loc"), ("mu|theta", "theta", "mu")]:
+        b = res.node_token_anchors[node][tok]
+        cx = b.x + b.w / 2.0
+        pts = res.edge_paths[edge]
+        end = pts[-1]
+        assert abs(end[0] - cx) < 1.5            # centered on the token
+        assert end[1] < b.y                       # arrowhead ABOVE the token (no overlap)
+        assert abs((b.y - end[1]) - STANDOFF) < 1.5
+        assert abs(pts[-2][0] - end[0]) < 1.5    # final approach is ~vertical
 
 
 @pytest.mark.skipif(not _math, reason="needs the 'math' extra")

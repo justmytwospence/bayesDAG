@@ -110,6 +110,93 @@ def token_anchors(svg: str) -> dict[str, tuple[float, float]]:
     return anchors
 
 
+_XLINK = "{http://www.w3.org/1999/xlink}href"
+_NUM = re.compile(r"-?\d+\.?\d*(?:[eE]-?\d+)?")
+# very rough per-glyph em box used when a <use>'s referenced path can't be measured
+_FALLBACK_EM_W = 0.5
+_FALLBACK_EM_H = 0.7
+_EM_UNITS = 1000.0
+
+
+def _defs_path_extents(svg: str) -> dict[str, tuple[float, float, float, float]]:
+    """Crude bounding box (minx,miny,maxx,maxy) for each ``<path id=.. d=..>`` in <defs>.
+
+    Treats the ``d`` numbers as alternating x,y — approximate (includes Bezier control
+    points / descenders) but sufficient to aim an edge at a token's top-center."""
+    out: dict[str, tuple[float, float, float, float]] = {}
+    for m in re.finditer(r'<path\b[^>]*\bid="([^"]+)"[^>]*\bd="([^"]+)"', svg):
+        nums = [float(x) for x in _NUM.findall(m.group(2))]
+        xs, ys = nums[0::2], nums[1::2]
+        if xs and ys:
+            out[m.group(1)] = (min(xs), min(ys), max(xs), max(ys))
+    return out
+
+
+def token_bboxes(svg: str) -> dict[str, tuple[float, float, float, float]]:
+    """Map ``token_id -> (fx, fy, fw, fh)``: the token's fractional bounding box within the
+    SVG (fx,fy = top-left; 0..1). Used to aim a port-edge at the token's top-center with a
+    standoff so the arrowhead doesn't cover the glyph."""
+    try:
+        root = ET.fromstring(svg)
+    except ET.ParseError:
+        return {}
+    vb = root.get("viewBox")
+    if not vb:
+        return {}
+    min_x, min_y, vb_w, vb_h = (float(x) for x in vb.split())
+    if vb_w == 0 or vb_h == 0:
+        return {}
+    extents = _defs_path_extents(svg)
+    boxes: dict[str, list[float]] = {}
+    origins: dict[str, tuple[float, float]] = {}
+
+    def grow(tok: str, x: float, y: float) -> None:
+        b = boxes.get(tok)
+        if b is None:
+            boxes[tok] = [x, y, x, y]
+        else:
+            b[0], b[1], b[2], b[3] = min(b[0], x), min(b[1], y), max(b[2], x), max(b[3], y)
+
+    def walk(el: ET.Element, M: tuple, tok: Optional[str]) -> None:
+        M2 = _mat_mul(M, _parse_transform(el.get("transform")))
+        nid = el.get("id")
+        if nid and nid.startswith("tok-"):
+            tok = nid[len("tok-"):]
+            origins[tok] = (M2[4], M2[5])
+        if tok is not None and _local(el.tag) == "use":
+            href = (el.get(_XLINK) or el.get("href") or "").lstrip("#")
+            ux, uy = float(el.get("x", 0) or 0), float(el.get("y", 0) or 0)
+            Mu = _mat_mul(M2, (1.0, 0.0, 0.0, 1.0, ux, uy))
+            ex = extents.get(href)
+            if ex:
+                x0, y0, x1, y1 = ex
+                for cx, cy in ((x0, y0), (x1, y0), (x1, y1), (x0, y1)):
+                    grow(tok, Mu[0] * cx + Mu[2] * cy + Mu[4], Mu[1] * cx + Mu[3] * cy + Mu[5])
+            else:
+                grow(tok, Mu[4], Mu[5])
+        for child in el:
+            walk(child, M2, tok)
+
+    walk(root, _IDENTITY, None)
+
+    result: dict[str, tuple[float, float, float, float]] = {}
+    seen = set(boxes) | set(origins)
+    for tok in seen:
+        if tok in boxes and boxes[tok][2] > boxes[tok][0] and boxes[tok][3] > boxes[tok][1]:
+            x0, y0, x1, y1 = boxes[tok]
+        else:  # degenerate -> small em box centered on the token origin
+            ox, oy = origins.get(tok, (min_x, min_y))
+            w, h = _FALLBACK_EM_W * _EM_UNITS, _FALLBACK_EM_H * _EM_UNITS
+            x0, y0, x1, y1 = ox, oy - h, ox + w, oy
+        result[tok] = (
+            (x0 - min_x) / vb_w,
+            (y0 - min_y) / vb_h,
+            (x1 - x0) / vb_w,
+            (y1 - y0) / vb_h,
+        )
+    return result
+
+
 class MathRenderer:
     """Lazy in-process MathJax renderer. Construct once and reuse (V8 init is the cost)."""
 

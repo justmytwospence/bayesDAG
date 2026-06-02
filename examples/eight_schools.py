@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.20.4"
+__generated_with = "0.23.8"
 app = marimo.App(width="medium")
 
 
@@ -13,14 +13,12 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        # bayesdag — eight schools (M0 vertical slice)
+    mo.md("""
+    # bayesdag — eight schools (M0 vertical slice)
 
-        Shape-first, posterior-aware visualization of a PyMC model. Run from the project
-        root: `uv run marimo edit examples/eight_schools.py`.
-        """
-    )
+    Shape-first, posterior-aware visualization of a PyMC model. Run from the project
+    root: `uv run marimo edit examples/eight_schools.py`.
+    """)
     return
 
 
@@ -36,14 +34,12 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        ## The model — non-centered eight schools
+    mo.md("""
+    ## The model — non-centered eight schools
 
-        Hyperpriors `mu`, `tau`; a non-centered deterministic `theta = mu + tau*eta`; an
-        observed Normal likelihood over a `school` plate.
-        """
-    )
+    Hyperpriors `mu`, `tau`; a non-centered deterministic `theta = mu + tau*eta`; an
+    observed Normal likelihood over a `school` plate.
+    """)
     return
 
 
@@ -62,16 +58,14 @@ def _(np, pm):
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        ## Static render
+    mo.md("""
+    ## Static render
 
-        Each node shows its distribution's **shape** (note `tau`'s half-normal starting at
-        0); the deterministic is rendered as real math; the observed node is a **histogram**
-        of the data; and the arrows from `mu`/`tau`/`eta` land on those exact tokens inside
-        `theta = mu + tau*eta` (port-level edges).
-        """
-    )
+    Each node shows its distribution's **shape** (note `tau`'s half-normal starting at
+    0); the deterministic is rendered as real math; the observed node is a **histogram**
+    of the data; and the arrows from `mu`/`tau`/`eta` land on those exact tokens inside
+    `theta = mu + tau*eta` (port-level edges).
+    """)
     return
 
 
@@ -84,14 +78,12 @@ def _(bayesdag, mo, model):
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        ## Interactive render
+    mo.md("""
+    ## Interactive render
 
-        The **identical** SVG, in an anywidget with pan/zoom. (Static and interactive are
-        the same bytes — parity by construction.)
-        """
-    )
+    The **identical** SVG, in an anywidget with pan/zoom. (Static and interactive are
+    the same bytes — parity by construction.)
+    """)
     return
 
 
@@ -103,7 +95,9 @@ def _(mo, prior_view):
 
 @app.cell
 def _(mo):
-    mo.md("## Fit, then posterior overlays")
+    mo.md("""
+    ## Fit, then posterior overlays
+    """)
     return
 
 
@@ -118,7 +112,9 @@ def _(model, pm):
 
 @app.cell
 def _(mo):
-    mo.md("Node glyphs are now **posterior** KDEs (orange) from the fitted `idata`:")
+    mo.md("""
+    Node glyphs are now **posterior** KDEs (orange) from the fitted `idata`:
+    """)
     return
 
 
@@ -130,15 +126,13 @@ def _(bayesdag, idata, mo, model):
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        ## Export & fallback
+    mo.md("""
+    ## Export & fallback
 
-        `view.save("eight_schools.svg")` writes publication SVG (PNG/PDF via the `[export]`
-        extra). Outside a notebook (a plain script, nbconvert), the same `bayesdag.view(...)`
-        degrades automatically to static SVG via `_repr_svg_`.
-        """
-    )
+    `view.save("eight_schools.svg")` writes publication SVG (PNG/PDF via the `[export]`
+    extra). Outside a notebook (a plain script, nbconvert), the same `bayesdag.view(...)`
+    degrades automatically to static SVG via `_repr_svg_`.
+    """)
     return
 
 
