@@ -48,12 +48,20 @@ def node_token_anchors(box: Box, label_w: float, label_h: float, bboxes: dict) -
 
 def simple_edge_path(sb: Box, tb: Box, anchor: Box | None) -> list[list[float]]:
     """A gentle cubic from the source bottom-center to the target (the specific token for a
-    port-edge, else the top-center) with vertical tangents at both ends — smooth, no kinks.
+    port-edge, else the top-center). The curve heads roughly STRAIGHT at the source and lands
+    ~vertically on the target token (so the arrowhead sits just above the glyph, standoff).
+
+    The tangent length is short and capped so a parent that's far to the SIDE gets a direct
+    diagonal — not a long horizontal segment hugging the plate boundary on its way over.
     Returned as a 4-point cubic ``[p0, c1, c2, p1]`` (what ``render_svg._edge`` consumes)."""
     ex, ey = sb.x + sb.w / 2.0, sb.y + sb.h
     if anchor is not None:
         nx, ny = anchor.x + anchor.w / 2.0, anchor.y - geometry.STANDOFF
     else:
         nx, ny = tb.x + tb.w / 2.0, tb.y
-    dy = max(16.0, 0.42 * abs(ny - ey))
-    return [[ex, ey], [ex, ey + dy], [nx, ny - dy], [nx, ny]]
+    span = abs(ny - ey)
+    k = max(12.0, min(0.35 * span, 26.0))  # short, capped -> direct (no boundary-hugging swoop)
+    # lean the departure toward the target so the edge sets off in its general direction,
+    # while the landing stays vertical for a clean arrowhead on the token.
+    c1x = ex + 0.25 * (nx - ex)
+    return [[ex, ey], [c1x, ey + k], [nx, ny - k], [nx, ny]]
