@@ -5,7 +5,7 @@ arrive with a golden test. Tiers and treatments come from the design plan
 ([`.claude/plans/please-review-all-the-streamed-storm.md`](.claude/plans/please-review-all-the-streamed-storm.md)).
 
 ## Milestones
-- [ ] **M0** — vertical slice (8-schools, both renderers, narrow coverage)
+- [x] **M0** — vertical slice (8-schools, both renderers, narrow coverage) ✅
 - [ ] **M1** — coverage to the hard list
 - [ ] **M2** — posterior-geometry explorer + polish
 - [ ] **M3** — interop exporters, reparam suggestions, scale, cross-PPL, upstream
@@ -20,8 +20,8 @@ arrive with a golden test. Tiers and treatments come from the design plan
 - [x] Glyph registry (glyph-agnostic) + distribution-data provider: analytic prior densities, observed histograms (FD bins), posterior KDE; `density`/`histogram`/`schematic`/`heatmap` kinds
 - [x] Shared SVG emitter (plates, role-styled chrome, embedded MathJax labels, token-anchored edges, glyphs) + static renderer (SVG; PNG/PDF via cairosvg)
 - [x] anywidget widget (ships identical SVG) + thin d3 controller (pan/zoom) + `view.py` env-fallback (`_repr_mimebundle_`/`_repr_svg_`/`_display_`); `bayesdag.view(model)`
-- [ ] 8-schools example + marimo notebook
-- [ ] M0 tests (token-anchor, param/label, parity, port-edge, glyphs, interop, env)
+- [x] 8-schools example + marimo notebook (runs end-to-end: prior -> interactive -> fit -> posterior -> export)
+- [x] M0 tests (48): token-anchor, param/label, parity (widget==static SVG), port-edge, glyphs, interop, env-fallback, import-light invariant
 
 ## PyMC construct coverage
 
