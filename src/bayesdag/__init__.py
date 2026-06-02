@@ -20,4 +20,12 @@ try:
 except importlib.metadata.PackageNotFoundError:  # running from a source checkout
     __version__ = "0.0.0+dev"
 
-__all__ = ["__version__"]
+__all__ = ["__version__", "to_ir"]
+
+
+def __getattr__(name: str):  # lazy public API (keeps `import bayesdag` cheap)
+    if name == "to_ir":
+        from .convert import to_ir
+
+        return to_ir
+    raise AttributeError(f"module 'bayesdag' has no attribute {name!r}")

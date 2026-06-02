@@ -1,0 +1,537 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bayesdag.dev/schema/graph-v1.0.json",
+  "title": "bayesdag Model-Graph IR v1.0",
+  "$ref": "#/$defs/ModelIR",
+  "$defs": {
+    "ModelIR": {
+      "type": "object",
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NodeIR"
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EdgeIR"
+          }
+        },
+        "plates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlateIR"
+          }
+        },
+        "aux_views": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AuxViewIR"
+          }
+        },
+        "meta": {
+          "$ref": "#/$defs/Meta"
+        }
+      },
+      "additionalProperties": true
+    },
+    "NodeIR": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "latent",
+            "observed",
+            "deterministic",
+            "data",
+            "potential",
+            "factor"
+          ]
+        },
+        "observed": {
+          "type": "boolean"
+        },
+        "dist": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "params": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ParamIR"
+          }
+        },
+        "dims": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "coords": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "items": {}
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "label_tex": {
+          "type": "string"
+        },
+        "label_tree": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TokenIR"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "transform": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "idata_unconstrained_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "glyph": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GlyphSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "overlays": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OverlayRef"
+          }
+        },
+        "representable": {
+          "type": "boolean"
+        },
+        "elision_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "docstring": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "label_svg": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "box": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Box"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "port_anchors": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Box"
+          }
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "role"
+      ]
+    },
+    "ParamIR": {
+      "type": "object",
+      "properties": {
+        "index": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "token_id": {
+          "type": "string"
+        },
+        "parents": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "index",
+        "name",
+        "token_id"
+      ]
+    },
+    "TokenIR": {
+      "type": "object",
+      "properties": {
+        "token_id": {
+          "type": "string"
+        },
+        "tex": {
+          "type": "string"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TokenIR"
+          }
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "token_id",
+        "tex"
+      ]
+    },
+    "GlyphSpec": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "prior_analytic",
+            "prior_family_only",
+            "posterior_kde",
+            "observed_hist"
+          ]
+        },
+        "interval": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "point": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "layout": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "transform": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": {}
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "OverlayRef": {
+      "type": "object",
+      "properties": {
+        "idata_group": {
+          "type": "string"
+        },
+        "var_name": {
+          "type": "string"
+        },
+        "var_dims": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sample_dims": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "idata_group",
+        "var_name"
+      ]
+    },
+    "Box": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "w": {
+          "type": "number"
+        },
+        "h": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "x",
+        "y",
+        "w",
+        "h"
+      ]
+    },
+    "EdgeIR": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "target_token_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "source",
+        "target"
+      ]
+    },
+    "PlateIR": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "parent": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "box": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Box"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "label"
+      ]
+    },
+    "AuxViewIR": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "vars": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "edge": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "axis_space": {
+          "type": "string"
+        },
+        "data_ref": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": {}
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "kind"
+      ]
+    },
+    "Meta": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string"
+        },
+        "source_ppl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "creation_library": {
+          "type": "string"
+        },
+        "creation_library_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "creation_library_language": {
+          "type": "string"
+        },
+        "created_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

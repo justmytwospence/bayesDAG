@@ -14,7 +14,7 @@ arrive with a golden test. Tiers and treatments come from the design plan
 - [x] Project scaffold (pyproject/package.json/docs/git)
 - [x] uv env (Python 3.12) + deps installed; `pymc` 6.0.1 / `arviz` 1.1.0 import
 - [x] **Math + token-anchor spike** — mathjax-full runs **in-process** in py_mini_racer (no runtime Node; `PACKAGE_VERSION` define kills the `eval("require")` branch); `\cssId` token anchors extracted via transform-chain composition. `src/bayesdag/mathsvg.py`.
-- [~] IR dataclasses (`src/bayesdag/ir.py`, round-trips) done; `from_pymc` + JSON Schema + `to_elk`/`to_networkx` pending (task #4)
+- [x] PPL-agnostic `ir` + `from_pymc` (slot-aware edges, roles, dims/coords, log-transform key) + published JSON Schema + `to_elk`/`to_networkx` + duck-typed `to_ir` dispatch
 - [ ] Label engine (LaTeX templates + deterministic visitor + token-tree)
 - [ ] Layout backend (`dot -Tjson` → `LayoutResult` + param-edge post-pass)
 - [ ] Glyph registry + distribution-object adapter (univariate `density` kinds)
@@ -64,9 +64,9 @@ arrive with a golden test. Tiers and treatments come from the design plan
 - [ ] Cross-cutting: `transform.animate="hops"` · `layout="ridgeline"`
 
 ## Exporters / interop
-- [ ] `to_elk` · `to_networkx`
+- [x] `to_elk` · `to_networkx` (+ `markov_blanket`)
 - [ ] DOT · GraphML · PROV-JSON-LD · (optional) Cytoscape / Hugin
-- [ ] Published JSON Schema (draft 2020-12) + validation
+- [x] Published JSON Schema (draft 2020-12) + validation
 
 ## Posterior geometry / diagnostics (M2+)
 - [ ] graph-selected divergence joints · auto unconstrained axis (`log τ`) · diagnostic badges (R-hat/ESS/MCSE/divergence-involvement)
