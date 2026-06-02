@@ -11,7 +11,7 @@ uv sync                              # create .venv (Python 3.12), install deps 
 npm install                          # JS deps (esbuild, d3-*)  — run before the first `uv sync` build, or set HATCH_JUPYTER_BUILDER_SKIP_NPM=1
 npm run dev                          # esbuild --watch -> src/bayesdag/static/widget.js
 uv run env ANYWIDGET_HMR=1 jupyter lab     # live-reload widget dev (Jupyter)
-uv run env ANYWIDGET_HMR=1 marimo edit examples/eight_schools.py   # marimo dev
+uv run env ANYWIDGET_HMR=1 marimo edit examples/tour.py   # marimo dev
 uv run pytest                        # test suite
 uv build                             # wheel (runs esbuild via hatch-jupyter-builder; bundle is included)
 ```
