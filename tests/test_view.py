@@ -23,12 +23,23 @@ def test_save(tmp_path, eight_schools_model):
     assert v.save(tmp_path / "m.svg").exists()
 
 
-def test_widget_ships_identical_svg(eight_schools_model):
+def test_widget_ships_identical_graph_svg(eight_schools_model):
     pytest.importorskip("anywidget")
+    from bayesdag.render_svg import to_svg
+
+    # The widget omits the legend by default (hover covers it), but the GRAPH itself is
+    # byte-identical to the static renderer (same LayoutResult + emitter) — parity holds.
     v = bayesdag.view(eight_schools_model)
     w = v.widget()
-    # the widget renders the EXACT bytes the static renderer produced
-    assert w.spec["svg"] == v.to_svg()
+    assert "bd-legend" not in w.spec["svg"]                       # no legend in the widget
+    assert "bd-legend" in v.to_svg()                              # ...but yes in the static SVG
+    assert w.spec["svg"] == to_svg(v.ir, v.layout, legend=False)  # identical graph bytes
+
+
+def test_widget_legend_opt_in(eight_schools_model):
+    pytest.importorskip("anywidget")
+    v = bayesdag.view(eight_schools_model, widget_legend=True)
+    assert "bd-legend" in v.widget().spec["svg"]
 
 
 def test_repr_mimebundle(eight_schools_model):

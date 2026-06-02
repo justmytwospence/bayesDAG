@@ -195,9 +195,9 @@ def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
             "elk.randomSeed": "1",  # determinism for golden tests
             "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
             "elk.layered.crossingMinimization.greedySwitchHierarchical.type": "TWO_SIDED",
-            "elk.spacing.nodeNode": "28",
-            "elk.layered.spacing.nodeNodeBetweenLayers": "36",
-            "elk.spacing.edgeNode": "16",
+            "elk.spacing.nodeNode": "34",
+            "elk.layered.spacing.nodeNodeBetweenLayers": "40",
+            "elk.spacing.edgeNode": "18",
         },
         "children": root_children,
         "edges": edges,
@@ -241,9 +241,8 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
         if b is not None:
             res.plate_boxes[p.id] = b
 
-    # ELK fixes placement; we draw our own smooth cubic to the exact token. With external
-    # parents now placed on the correct side (sigma above y, not opposite it), the simple
-    # source->token cubic stays clean — and reads better than ELK's orthogonal routing.
+    # ELK fixes placement; we draw our own smooth edge to the exact token, bowing around any
+    # node that sits in the straight path (ELK's own routing fights the token-ports).
     for e in ir.edges:
         sb = res.node_boxes.get(e.source)
         tb = res.node_boxes.get(e.target)
@@ -254,6 +253,7 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
             if e.target_token_id
             else None
         )
-        res.edge_paths[f"{e.source}|{e.target}"] = common.simple_edge_path(sb, tb, anchor)
+        obstacles = [b for nid, b in res.node_boxes.items() if nid not in (e.source, e.target)]
+        res.edge_paths[f"{e.source}|{e.target}"] = common.routed_edge_path(sb, tb, anchor, obstacles)
 
     return res

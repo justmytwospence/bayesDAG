@@ -63,8 +63,8 @@ def _(mo):
 
     Each node shows its distribution's **shape** (note `tau`'s half-normal starting at 0); the
     deterministic is real math; the observed node is a **histogram**; arrows from `mu`/`tau`/`eta`
-    land on those exact tokens inside `theta = mu + tau*eta` (port-level edges). The legend (to the
-    side) is context-aware — it only lists encodings actually present.
+    land on those exact tokens inside `theta = mu + tau*eta` (port-level edges). The interactive
+    view drops the legend (hover shows the same info); the static `save(...)` figure keeps it.
 
     - **Hover** a node: everything outside its Markov blanket fades; a tooltip shows the distribution.
     - **Click** a node for a detail card (distribution, parameters, dims, a copyable `pm.*` line).

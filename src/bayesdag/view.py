@@ -35,13 +35,23 @@ def _interactive_available() -> bool:
 
 class ModelGraphView:
     def __init__(
-        self, model_or_ir: Any, idata: Any = None, *, rankdir: str = "TB", legend: bool = True
+        self,
+        model_or_ir: Any,
+        idata: Any = None,
+        *,
+        rankdir: str = "TB",
+        legend: bool = True,
+        widget_legend: bool = False,
     ) -> None:
         # keep the source model (if any) so the interactive plate prior-predictive panels
         # can be computed lazily — static rendering never pays that cost.
         self._model = None if isinstance(model_or_ir, ModelIR) else model_or_ir
         self.ir = to_ir(model_or_ir, idata=idata)
         self.layout = layout(self.ir, rankdir=rankdir)
+        # The static figure carries the legend by default (it can't hover); the interactive
+        # widget omits it by default since the same info is one hover away.
+        self._legend = legend
+        self._widget_legend = widget_legend
         self._svg = to_svg(self.ir, self.layout, legend=legend)
         self._widget = None
 
@@ -98,7 +108,13 @@ class ModelGraphView:
                         plates[pid] = {"panel": panel}
             except Exception:
                 plates = {}
-        return {"svg": self._svg, "nodes": nodes, "plates": plates, "selected": ""}
+        # widget SVG omits the legend by default (hover surfaces the same info); the static
+        # `self._svg` keeps it. Re-render is cheap (layout + math are already computed).
+        widget_svg = (
+            self._svg if self._widget_legend == self._legend
+            else to_svg(self.ir, self.layout, legend=self._widget_legend)
+        )
+        return {"svg": widget_svg, "nodes": nodes, "plates": plates, "selected": ""}
 
     def widget(self):
         if self._widget is None:
@@ -130,9 +146,20 @@ class ModelGraphView:
 
 
 def view(
-    model_or_ir: Any, idata: Any = None, *, rankdir: str = "TB", legend: bool = True
+    model_or_ir: Any,
+    idata: Any = None,
+    *,
+    rankdir: str = "TB",
+    legend: bool = True,
+    widget_legend: bool = False,
 ) -> ModelGraphView:
     """Visualize a PyMC model (or a ``ModelIR``). Returns a :class:`ModelGraphView` that
-    renders interactively in a notebook and statically elsewhere. ``legend=True`` embeds a
-    context-aware legend in the figure (set ``legend=False`` for a bare diagram)."""
-    return ModelGraphView(model_or_ir, idata=idata, rankdir=rankdir, legend=legend)
+    renders interactively in a notebook and statically elsewhere.
+
+    ``legend`` (default ``True``) embeds a context-aware legend in the **static** figure.
+    ``widget_legend`` (default ``False``) controls it for the **interactive** widget, which
+    omits the legend by default since hovering a node already surfaces the same information.
+    """
+    return ModelGraphView(
+        model_or_ir, idata=idata, rankdir=rankdir, legend=legend, widget_legend=widget_legend
+    )
