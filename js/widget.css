@@ -1,0 +1,14 @@
+.bayesdag {
+  width: 100%;
+  overflow: auto;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.bayesdag svg {
+  max-width: 100%;
+  height: auto;
+}
+.bayesdag-placeholder {
+  padding: 1rem;
+  color: #757575;
+  font-style: italic;
+}

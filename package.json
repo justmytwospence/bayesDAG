@@ -1,0 +1,18 @@
+{
+  "name": "bayesdag",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild js/index.js --minify --format=esm --bundle --outfile=src/bayesdag/static/widget.js && node -e \"require('fs').copyFileSync('js/widget.css','src/bayesdag/static/widget.css')\"",
+    "dev": "esbuild js/index.js --sourcemap=inline --format=esm --bundle --outfile=src/bayesdag/static/widget.js --watch"
+  },
+  "devDependencies": {
+    "esbuild": "^0.23.0"
+  },
+  "dependencies": {
+    "d3-selection": "^3",
+    "d3-zoom": "^3",
+    "d3-transition": "^3"
+  }
+}

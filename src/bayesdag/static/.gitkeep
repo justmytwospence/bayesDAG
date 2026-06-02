@@ -1,0 +1,2 @@
+# Build output directory for the esbuild bundle (widget.js / widget.css).
+# Contents are gitignored; this file keeps the directory present in the repo.
