@@ -18,7 +18,7 @@ arrive with a golden test. Tiers and treatments come from the design plan
 - [x] Label engine (per-dist LaTeX templates + symbol naming + PyTensor deterministic visitor with port-tokens + token-tree); renders cleanly in MathJax
 - [x] Layout backend (`dot -Tjson0` → `LayoutResult` + coordinate transform + param-edge -> token-anchor post-pass)
 - [x] Glyph registry (glyph-agnostic) + distribution-data provider: analytic prior densities, observed histograms (FD bins), posterior KDE; `density`/`histogram`/`schematic`/`heatmap` kinds
-- [ ] Shared SVG emitter + static renderer (SVG/PNG/PDF)
+- [x] Shared SVG emitter (plates, role-styled chrome, embedded MathJax labels, token-anchored edges, glyphs) + static renderer (SVG; PNG/PDF via cairosvg)
 - [ ] anywidget widget + thin d3 controller + `view.py` fallback
 - [ ] 8-schools example + marimo notebook
 - [ ] M0 tests (token-anchor, param/label, parity, port-edge, glyphs, interop, env)

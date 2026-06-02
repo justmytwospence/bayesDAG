@@ -1,0 +1,39 @@
+"""Shared SVG emitter: well-formedness, embedded labels/glyphs, and saving."""
+
+import xml.etree.ElementTree as ET
+
+import pytest
+
+from bayesdag import mathsvg, render_static
+from bayesdag.layout import layout
+from bayesdag.render_svg import to_svg
+
+_math = mathsvg.get_renderer().available
+
+
+def test_svg_is_well_formed_xml(eight_schools_ir):
+    res = layout(eight_schools_ir)
+    svg = to_svg(eight_schools_ir, res)
+    root = ET.fromstring(svg)  # composed doc (incl. nested MathJax svgs) must parse
+    assert root.tag.endswith("svg")
+    assert "viewBox" in root.attrib
+    # one rect per node (chrome) at minimum, plus the plate
+    assert svg.count("<rect") >= len(eight_schools_ir.nodes)
+    assert "marker-end" in svg  # edges have arrowheads
+
+
+@pytest.mark.skipif(not _math, reason="needs the 'math' extra")
+def test_svg_embeds_labels_and_glyphs(eight_schools_ir):
+    res = layout(eight_schools_ir)
+    svg = to_svg(eight_schools_ir, res)
+    assert "data-mml-node" in svg  # embedded MathJax labels
+    # density glyph paths + observed histogram bars beyond the edge paths
+    assert svg.count("<path") > len(eight_schools_ir.edges)
+    ET.fromstring(svg)  # still well-formed with nested svgs
+
+
+def test_save_svg(tmp_path, eight_schools_ir):
+    res = layout(eight_schools_ir)
+    svg = to_svg(eight_schools_ir, res)
+    out = render_static.save(svg, tmp_path / "model.svg")
+    assert out.exists() and out.read_text().lstrip().startswith("<svg")
