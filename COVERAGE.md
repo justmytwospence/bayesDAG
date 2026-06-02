@@ -17,7 +17,7 @@ arrive with a golden test. Tiers and treatments come from the design plan
 - [x] PPL-agnostic `ir` + `from_pymc` (slot-aware edges, roles, dims/coords, log-transform key) + published JSON Schema + `to_elk`/`to_networkx` + duck-typed `to_ir` dispatch
 - [x] Label engine (per-dist LaTeX templates + symbol naming + PyTensor deterministic visitor with port-tokens + token-tree); renders cleanly in MathJax
 - [x] Layout backend (`dot -Tjson0` → `LayoutResult` + coordinate transform + param-edge -> token-anchor post-pass)
-- [ ] Glyph registry + distribution-object adapter (univariate `density` kinds)
+- [x] Glyph registry (glyph-agnostic) + distribution-data provider: analytic prior densities, observed histograms (FD bins), posterior KDE; `density`/`histogram`/`schematic`/`heatmap` kinds
 - [ ] Shared SVG emitter + static renderer (SVG/PNG/PDF)
 - [ ] anywidget widget + thin d3 controller + `view.py` fallback
 - [ ] 8-schools example + marimo notebook
@@ -58,7 +58,7 @@ arrive with a golden test. Tiers and treatments come from the design plan
 - [ ] Experimental `pymc.dims` xtensor RVs (`XRV`) — best-effort or declared experimental
 
 ## Glyph kinds (registry)
-- [ ] `density` (default univariate, the primary mark) · `cdf` · `ccdf` · `histogram` · `gradient` · `dotplot` · `quantile_dotplot` · `band`
+- [x] `density` (primary mark) · `histogram` · `schematic` — done; `cdf`/`ccdf`/`gradient`/`dotplot`/`quantile_dotplot`/`band` pending
 - [ ] `interval` / `point` annotations
 - [ ] Non-univariate: `kde2d`/`scatter2d`/`contour2d`/`hexbin` · `heatmap`/`corr_ellipses` · `ternary` · `rose`/`polar` · `stem`/`bar`
 - [ ] Cross-cutting: `transform.animate="hops"` · `layout="ridgeline"`

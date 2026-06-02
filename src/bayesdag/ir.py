@@ -110,6 +110,7 @@ class NodeIR:
     transform: Optional[str] = None              # e.g. "log", "logodds", "simplex"
     idata_unconstrained_key: Optional[str] = None  # e.g. "tau_log__" in unconstrained_posterior
     glyph: Optional[GlyphSpec] = None
+    glyph_data: Optional[dict[str, Any]] = None  # precomputed shape (xs/ys or edges/counts), shipped in-band
     overlays: list[OverlayRef] = field(default_factory=list)
     representable: bool = True
     elision_reason: Optional[str] = None

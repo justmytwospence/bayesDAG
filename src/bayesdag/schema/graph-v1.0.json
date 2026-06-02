@@ -142,6 +142,17 @@
             }
           ]
         },
+        "glyph_data": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": {}
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "overlays": {
           "type": "array",
           "items": {

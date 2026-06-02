@@ -1,0 +1,95 @@
+"""Built-in glyph kinds (each renders precomputed shape data into an absolute px box).
+
+``density``   data = {"xs": [...], "ys": [...]}   (ys normalized to 0..1)
+``histogram`` data = {"edges": [...], "counts": [...]}  (counts normalized to 0..1)
+``schematic`` data = {"xs","ys"} drawn faint/dashed (family shape only)
+``heatmap``   data = {"matrix": [[...]]}  (proves non-univariate kinds register the same way)
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from ..ir import Box
+from .registry import register
+
+
+def _poly(xs, ys, box: Box):
+    x0, x1 = min(xs), max(xs)
+    span = (x1 - x0) or 1.0
+
+    def sx(x):
+        return box.x + (x - x0) / span * box.w
+
+    def sy(y):
+        return box.y + box.h - max(0.0, min(1.0, y)) * box.h
+
+    return [(sx(x), sy(y)) for x, y in zip(xs, ys)]
+
+
+def render_density(data: dict[str, Any], box: Box, *, stroke="#2a7", fill="#2a7", fill_opacity=0.18, dashed=False, **_):
+    xs, ys = data.get("xs"), data.get("ys")
+    if not xs or not ys:
+        return ""
+    pts = _poly(xs, ys, box)
+    line = "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+    base = box.y + box.h
+    area = (
+        f"M{pts[0][0]:.1f},{base:.1f} L"
+        + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+        + f" L{pts[-1][0]:.1f},{base:.1f} Z"
+    )
+    dash = ' stroke-dasharray="3,2"' if dashed else ""
+    return (
+        f'<path d="{area}" fill="{fill}" fill-opacity="{fill_opacity}" stroke="none"/>'
+        f'<path d="{line}" fill="none" stroke="{stroke}" stroke-width="1.3"{dash}/>'
+    )
+
+
+def render_schematic(data: dict[str, Any], box: Box, **_):
+    # Family shape only: faint + dashed, with an "approx" cue.
+    return render_density(data, box, stroke="#999", fill="#999", fill_opacity=0.08, dashed=True)
+
+
+def render_histogram(data: dict[str, Any], box: Box, *, fill="#5a7fb5", stroke="#3a5f95", **_):
+    edges, counts = data.get("edges"), data.get("counts")
+    if not edges or not counts:
+        return ""
+    x0, x1 = edges[0], edges[-1]
+    span = (x1 - x0) or 1.0
+    base = box.y + box.h
+    bars = []
+    for i, c in enumerate(counts):
+        bx = box.x + (edges[i] - x0) / span * box.w
+        bw = max(0.5, (edges[i + 1] - edges[i]) / span * box.w - 1.0)
+        bh = max(0.0, min(1.0, c)) * box.h
+        bars.append(f'<rect x="{bx:.1f}" y="{base - bh:.1f}" width="{bw:.1f}" height="{bh:.1f}" fill="{fill}" stroke="{stroke}" stroke-width="0.4"/>')
+    return "".join(bars)
+
+
+def render_heatmap(data: dict[str, Any], box: Box, **_):
+    """Matrix glyph (covariance/correlation) — a non-univariate kind, proving the registry
+    is glyph-agnostic. data = {"matrix": [[...], ...]} in 0..1."""
+    m = data.get("matrix")
+    if not m:
+        return ""
+    rows = len(m)
+    cols = len(m[0]) if rows else 0
+    if not cols:
+        return ""
+    cw, ch = box.w / cols, box.h / rows
+    cells = []
+    for i, row in enumerate(m):
+        for j, v in enumerate(row):
+            g = int(max(0.0, min(1.0, v)) * 255)
+            cells.append(
+                f'<rect x="{box.x + j * cw:.1f}" y="{box.y + i * ch:.1f}" width="{cw:.1f}" height="{ch:.1f}" '
+                f'fill="rgb({255 - g},{255 - g},{g})"/>'
+            )
+    return "".join(cells)
+
+
+register("density", render_density)
+register("schematic", render_schematic)
+register("histogram", render_histogram)
+register("heatmap", render_heatmap)

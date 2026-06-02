@@ -17,6 +17,7 @@ from typing import Any, Optional
 
 from .. import labels
 from ..ir import EdgeIR, Meta, ModelIR, NodeIR, OverlayRef, ParamIR, PlateIR
+from .glyph_data import glyph_for
 from .pytensor_latex import render_value
 
 _SKIP_PARAMS = {"self", "size", "rng", "dtype", "name", "kwargs", "args"}
@@ -157,6 +158,7 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
         tr = transforms.get(var) if hasattr(transforms, "get") else None
         tname = getattr(tr, "name", None) if tr is not None else None
         unconstrained = f"{name}_{tname}__" if tname else None
+        glyph_spec, glyph_data = glyph_for(var, role, dist, model, idata)
         nodes.append(
             NodeIR(
                 id=name,
@@ -170,6 +172,8 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
                 label_tree=label_tree,
                 transform=tname,
                 idata_unconstrained_key=unconstrained,
+                glyph=glyph_spec,
+                glyph_data=glyph_data,
                 overlays=_overlays(name, role, dims, idata),
             )
         )
