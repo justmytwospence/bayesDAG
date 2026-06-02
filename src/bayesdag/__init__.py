@@ -20,10 +20,12 @@ try:
 except importlib.metadata.PackageNotFoundError:  # running from a source checkout
     __version__ = "0.0.0+dev"
 
-__all__ = ["__version__", "to_ir"]
+from .view import view  # noqa: E402  (binds the function, shadowing the submodule attr)
+
+__all__ = ["__version__", "to_ir", "view"]
 
 
-def __getattr__(name: str):  # lazy public API (keeps `import bayesdag` cheap)
+def __getattr__(name: str):  # lazy: keep heavy/optional deps out of `import bayesdag`
     if name == "to_ir":
         from .convert import to_ir
 

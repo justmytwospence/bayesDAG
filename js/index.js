@@ -1,23 +1,40 @@
 // bayesdag anywidget front-end (thin controller).
 //
-// INVARIANT (see AGENTS.md): this module NEVER computes geometry or statistics.
-// Python ships a fully laid-out SVG plus a `spec` (ModelIR + LayoutResult + glyph
-// fragments + adjacency + precomputed aux-view data). The JS only injects that SVG
-// and adds pan/zoom, hover, selection, highlight, and collapse via class/transform
-// toggles. This is what guarantees static == interactive by construction.
-//
-// M0 stub: inject the shipped SVG and wire pan/zoom. The full controller
-// (Markov-blanket highlight, plate collapse, linked aux panels) lands in task #9.
+// INVARIANT (AGENTS.md): never computes geometry or statistics. Python ships a fully
+// laid-out SVG in `spec.svg`; the JS injects it verbatim (parity with the static
+// renderer) and adds only pan/zoom + hover/selection via transforms/classes.
+
+import { select } from "d3-selection";
+import { zoom } from "d3-zoom";
+
+const NS = "http://www.w3.org/2000/svg";
 
 export default {
   render({ model, el }) {
     el.classList.add("bayesdag");
-    const draw = () => {
+
+    function draw() {
       const spec = model.get("spec") || {};
       el.innerHTML =
-        spec.svg ||
-        '<div class="bayesdag-placeholder">bayesdag widget &mdash; no spec yet</div>';
-    };
+        spec.svg || '<div class="bayesdag-placeholder">bayesdag &mdash; no spec yet</div>';
+      const svg = el.querySelector("svg");
+      if (!svg) return;
+
+      // Wrap all drawn content in a <g> so we can pan/zoom without touching geometry.
+      const g = document.createElementNS(NS, "g");
+      const defs = svg.querySelector("defs");
+      for (const child of Array.from(svg.childNodes)) {
+        if (child === defs) continue; // keep <defs> (markers) at the svg root
+        g.appendChild(child);
+      }
+      svg.appendChild(g);
+
+      const z = zoom()
+        .scaleExtent([0.2, 8])
+        .on("zoom", (ev) => g.setAttribute("transform", ev.transform.toString()));
+      select(svg).call(z).style("cursor", "grab");
+    }
+
     draw();
     model.on("change:spec", draw);
   },

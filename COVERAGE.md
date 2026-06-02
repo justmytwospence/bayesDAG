@@ -19,7 +19,7 @@ arrive with a golden test. Tiers and treatments come from the design plan
 - [x] Layout backend (`dot -Tjson0` → `LayoutResult` + coordinate transform + param-edge -> token-anchor post-pass)
 - [x] Glyph registry (glyph-agnostic) + distribution-data provider: analytic prior densities, observed histograms (FD bins), posterior KDE; `density`/`histogram`/`schematic`/`heatmap` kinds
 - [x] Shared SVG emitter (plates, role-styled chrome, embedded MathJax labels, token-anchored edges, glyphs) + static renderer (SVG; PNG/PDF via cairosvg)
-- [ ] anywidget widget + thin d3 controller + `view.py` fallback
+- [x] anywidget widget (ships identical SVG) + thin d3 controller (pan/zoom) + `view.py` env-fallback (`_repr_mimebundle_`/`_repr_svg_`/`_display_`); `bayesdag.view(model)`
 - [ ] 8-schools example + marimo notebook
 - [ ] M0 tests (token-anchor, param/label, parity, port-edge, glyphs, interop, env)
 
