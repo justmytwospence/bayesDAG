@@ -78,6 +78,27 @@ def test_layout_is_deterministic(eight_schools_ir):
         )
 
 
+def test_layout_works_inside_asyncio_loop(radon_ir):
+    """Regression: marimo runs cells inside an asyncio loop, where mini-racer forbids a
+    blocking promise.get() on the loop thread. ELK must still run (on its worker thread) and
+    the dispatcher must NOT silently fall back to dot."""
+    import asyncio
+
+    from bayesdag.layout import layout as dispatch
+
+    direct = elk_backend.layout(radon_ir)
+
+    async def _run():
+        return dispatch(radon_ir)
+
+    in_loop = asyncio.run(_run())
+    # same engine as the direct ELK call (matching canvas) -> not the dot fallback
+    assert (round(in_loop.canvas.w), round(in_loop.canvas.h)) == (
+        round(direct.canvas.w),
+        round(direct.canvas.h),
+    )
+
+
 def test_default_layout_prefers_elk(radon_ir):
     """`layout.layout(...)` selects ELK by default when available (same canvas as forcing it)."""
     from bayesdag.layout import layout as dispatch

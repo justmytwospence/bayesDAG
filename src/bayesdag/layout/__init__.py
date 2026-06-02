@@ -34,12 +34,22 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
     try:
         from .elk_backend import available as _elk_available
 
-        if _elk_available():
+        elk_ok = _elk_available()
+    except Exception:
+        elk_ok = False
+    if elk_ok:
+        try:
             from .elk_backend import layout as _elk
 
             return _elk(ir, rankdir=rankdir)
-    except Exception:
-        pass
+        except Exception as exc:  # ELK was available but failed -> surface it, don't hide it
+            import warnings
+
+            warnings.warn(
+                f"bayesdag: ELK layout failed ({exc!r}); falling back to graphviz dot. "
+                "Set BAYESDAG_LAYOUT=dot to silence, or report this.",
+                stacklevel=2,
+            )
     from .graphviz_backend import layout as _dot
 
     return _dot(ir, rankdir=rankdir)

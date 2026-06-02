@@ -60,6 +60,7 @@ class ElkEngine:
         self._api_path = api_path or (sd / "elk-api.js")
         self._worker_path = worker_path or (sd / "elk-worker.min.js")
         self._ctx = None
+        self._executor = None
 
     @property
     def available(self) -> bool:
@@ -69,7 +70,20 @@ class ElkEngine:
             return False
         return self._api_path.exists() and self._worker_path.exists()
 
-    def _context(self):
+    def _worker(self):
+        # All mini-racer work runs on ONE dedicated thread. mini-racer binds its event loop to
+        # the thread that creates the context; if that's a thread with a live asyncio loop (a
+        # marimo cell), `promise.get()` either asserts or deadlocks. A single private thread that
+        # never runs an asyncio loop lets mini-racer own its loop and `.get()` block safely.
+        if self._executor is None:
+            import concurrent.futures
+
+            self._executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="bayesdag-elk"
+            )
+        return self._executor
+
+    def _context(self):  # must run on the worker thread (see _worker)
         if self._ctx is None:
             from py_mini_racer import MiniRacer
 
@@ -92,10 +106,14 @@ class ElkEngine:
             self._ctx = ctx
         return self._ctx
 
-    def layout_graph(self, graph: dict, timeout_ms: int = 30000) -> dict:
+    def _layout_blocking(self, graph: dict, timeout_ms: int) -> dict:
         ctx = self._context()
         ctx.eval("globalThis.__elkG = " + json.dumps(graph))
         return json.loads(ctx.eval("__elkRun(__elkG)").get(timeout=timeout_ms))
+
+    def layout_graph(self, graph: dict, timeout_ms: int = 30000) -> dict:
+        # marshal onto the dedicated thread (context is created there on first use)
+        return self._worker().submit(self._layout_blocking, graph, timeout_ms).result()
 
 
 _ENGINE: Optional[ElkEngine] = None

@@ -14,13 +14,10 @@ def _():
 @app.cell
 def _(mo):
     mo.md(r"""
-    # bayesdag — a tour
+    # bayesdag
 
     Shape-first, posterior-aware, interactive visualization of PyMC models. Run from the
     project root: `uv run marimo edit examples/tour.py`.
-
-    Two models, in sections: **eight schools** (the clean intro) and **radon** (a bigger
-    hierarchical model where the interactive view earns its keep).
     """)
     return
 
