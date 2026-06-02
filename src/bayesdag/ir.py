@@ -67,6 +67,7 @@ class ParamIR:
     name: str
     token_id: str
     parents: list[str] = field(default_factory=list)  # source node ids feeding this slot
+    value_tex: Optional[str] = None  # LaTeX for the slot content (constant / parent symbol / expr)
 
 
 # --------------------------------------------------------------------------- glyphs

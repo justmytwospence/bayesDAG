@@ -15,7 +15,7 @@ arrive with a golden test. Tiers and treatments come from the design plan
 - [x] uv env (Python 3.12) + deps installed; `pymc` 6.0.1 / `arviz` 1.1.0 import
 - [x] **Math + token-anchor spike** — mathjax-full runs **in-process** in py_mini_racer (no runtime Node; `PACKAGE_VERSION` define kills the `eval("require")` branch); `\cssId` token anchors extracted via transform-chain composition. `src/bayesdag/mathsvg.py`.
 - [x] PPL-agnostic `ir` + `from_pymc` (slot-aware edges, roles, dims/coords, log-transform key) + published JSON Schema + `to_elk`/`to_networkx` + duck-typed `to_ir` dispatch
-- [ ] Label engine (LaTeX templates + deterministic visitor + token-tree)
+- [x] Label engine (per-dist LaTeX templates + symbol naming + PyTensor deterministic visitor with port-tokens + token-tree); renders cleanly in MathJax
 - [ ] Layout backend (`dot -Tjson` → `LayoutResult` + param-edge post-pass)
 - [ ] Glyph registry + distribution-object adapter (univariate `density` kinds)
 - [ ] Shared SVG emitter + static renderer (SVG/PNG/PDF)
@@ -34,7 +34,7 @@ arrive with a golden test. Tiers and treatments come from the design plan
 - [ ] `Flat` / `HalfFlat` → name + prior-linter badge
 
 ### Medium
-- [ ] `pm.Deterministic` (math-mode rendering with node budget + elision)
+- [x] `pm.Deterministic` (math-mode rendering with node budget + elision; leaf port-tokens) — basic ops (add/mul/sub/div/pow/exp/log/sqrt); more ops as needed
 - [ ] Transforms (log/logodds/simplex/…) as badges via `rvs_to_transforms`
 - [ ] MvNormal / matrix params → `heatmap` glyph
 - [ ] Nested / prefixed submodels (group by prefix)

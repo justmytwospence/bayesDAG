@@ -15,7 +15,9 @@ from __future__ import annotations
 import inspect
 from typing import Any, Optional
 
+from .. import labels
 from ..ir import EdgeIR, Meta, ModelIR, NodeIR, OverlayRef, ParamIR, PlateIR
+from .pytensor_latex import render_value
 
 _SKIP_PARAMS = {"self", "size", "rng", "dtype", "name", "kwargs", "args"}
 
@@ -80,7 +82,8 @@ def _rv_dist_and_params(var: Any, named: dict[int, str]) -> tuple[Optional[str],
     params: list[ParamIR] = []
     for i, (nm, val) in enumerate(zip(names, dparams)):
         parents = _direct_named_parents(val, named, exclude=var.name)
-        params.append(ParamIR(index=i, name=nm, token_id=nm, parents=parents))
+        value_tex, _ = render_value(val, named, wrap_leaves=False)
+        params.append(ParamIR(index=i, name=nm, token_id=nm, parents=parents, value_tex=value_tex))
     return dist, params
 
 
@@ -126,6 +129,7 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
     var_names = list(compute)
 
     rv_param_map: dict[str, dict[str, str]] = {}  # child -> {parent_name: token_id}
+    det_tokens: dict[str, set[str]] = {}  # deterministic child -> leaf names wrapped in its expr
     nodes: list[NodeIR] = []
     for name in var_names:
         var = model[name]
@@ -133,6 +137,7 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
         observed = role == "observed"
         dist: Optional[str] = None
         params: list[ParamIR] = []
+        label_tex, label_tree = labels.assemble_bare(name)
         if role in ("latent", "observed") and getattr(var, "owner", None) is not None:
             dist, params = _rv_dist_and_params(var, named)
             pm: dict[str, str] = {}
@@ -140,6 +145,13 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
                 for parent in pr.parents:
                     pm.setdefault(parent, pr.token_id)
             rv_param_map[name] = pm
+            label_tex, label_tree = labels.assemble_stochastic(
+                name, dist, [(pr.token_id, pr.value_tex or "") for pr in params]
+            )
+        elif role == "deterministic" and getattr(var, "owner", None) is not None:
+            expr_tex, used = render_value(var, named, wrap_leaves=True, _root=True)
+            det_tokens[name] = used
+            label_tex, label_tree = labels.assemble_deterministic(name, expr_tex, sorted(used))
         dims = list(n2d.get(name, ()))
         node_coords = {d: coords[d] for d in dims if d in coords} or None
         tr = transforms.get(var) if hasattr(transforms, "get") else None
@@ -154,7 +166,8 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
                 params=params,
                 dims=dims,
                 coords=node_coords,
-                label_tex=name,  # placeholder; the label engine fills rich LaTeX + token tree
+                label_tex=label_tex,
+                label_tree=label_tree,
                 transform=tname,
                 idata_unconstrained_key=unconstrained,
                 overlays=_overlays(name, role, dims, idata),
@@ -164,8 +177,10 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
     edges: list[EdgeIR] = []
     for child, parents in compute.items():
         pmap = rv_param_map.get(child, {})
+        used = det_tokens.get(child, set())
         for parent in sorted(parents):
-            edges.append(EdgeIR(source=parent, target=child, target_token_id=pmap.get(parent)))
+            token = pmap.get(parent) or (parent if parent in used else None)
+            edges.append(EdgeIR(source=parent, target=child, target_token_id=token))
 
     plates: list[PlateIR] = []
     for plate in g.get_plates():

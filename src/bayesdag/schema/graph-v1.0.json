@@ -221,6 +221,16 @@
           "items": {
             "type": "string"
           }
+        },
+        "value_tex": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": true,
