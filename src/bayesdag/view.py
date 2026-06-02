@@ -33,10 +33,12 @@ def _interactive_available() -> bool:
 
 
 class ModelGraphView:
-    def __init__(self, model_or_ir: Any, idata: Any = None, *, rankdir: str = "TB") -> None:
+    def __init__(
+        self, model_or_ir: Any, idata: Any = None, *, rankdir: str = "TB", legend: bool = True
+    ) -> None:
         self.ir = to_ir(model_or_ir, idata=idata)
         self.layout = layout(self.ir, rankdir=rankdir)
-        self._svg = to_svg(self.ir, self.layout)
+        self._svg = to_svg(self.ir, self.layout, legend=legend)
         self._widget = None
 
     # ---- outputs ---------------------------------------------------------------
@@ -76,7 +78,10 @@ class ModelGraphView:
         return mo.Html(self._svg)
 
 
-def view(model_or_ir: Any, idata: Any = None, *, rankdir: str = "TB") -> ModelGraphView:
+def view(
+    model_or_ir: Any, idata: Any = None, *, rankdir: str = "TB", legend: bool = True
+) -> ModelGraphView:
     """Visualize a PyMC model (or a ``ModelIR``). Returns a :class:`ModelGraphView` that
-    renders interactively in a notebook and statically elsewhere."""
-    return ModelGraphView(model_or_ir, idata=idata, rankdir=rankdir)
+    renders interactively in a notebook and statically elsewhere. ``legend=True`` embeds a
+    context-aware legend in the figure (set ``legend=False`` for a bare diagram)."""
+    return ModelGraphView(model_or_ir, idata=idata, rankdir=rankdir, legend=legend)
