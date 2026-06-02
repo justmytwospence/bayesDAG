@@ -91,31 +91,47 @@ def simple_edge_path(sb: Box, tb: Box, anchor: Box | None) -> list[list[float]]:
     return [[ex, ey], [c1x, ey + k], [nx, ny - k], [nx, ny]]
 
 
+def _segment_hits_box(p0: tuple, p1: tuple, box: Box, margin: float) -> bool:
+    """True if the straight segment ``p0->p1`` passes through ``box`` expanded by ``margin``."""
+    x0, y0 = p0
+    x1, y1 = p1
+    bx0, by0, bx1, by1 = box.x - margin, box.y - margin, box.x + box.w + margin, box.y + box.h + margin
+    n = 24
+    for i in range(n + 1):
+        t = i / n
+        x, y = x0 + (x1 - x0) * t, y0 + (y1 - y0) * t
+        if bx0 <= x <= bx1 and by0 <= y <= by1:
+            return True
+    return False
+
+
 def routed_edge_path(sb: Box, tb: Box, anchor: Box | None, obstacles: list) -> list[list[float]]:
-    """The direct edge (``simple_edge_path``) when its straight path is clear; otherwise bow
-    around any node box that sits in the way, then land ~vertically on the token. Plate boxes
-    are NOT obstacles (edges are meant to cross plate boundaries) — pass node boxes only."""
+    """The direct edge (``simple_edge_path``) when its straight path is clear; otherwise route
+    DOWN a clear vertical channel to one side of the blocking node(s), past their full height,
+    then into the target token from below — so the edge never crosses a node. Plate boxes are
+    NOT obstacles (edges are meant to cross plate boundaries) — pass node boxes only."""
     ex, ey = sb.x + sb.w / 2.0, sb.y + sb.h
     if anchor is not None:
         nx, ny = anchor.x + anchor.w / 2.0, anchor.y - geometry.STANDOFF
     else:
         nx, ny = tb.x + tb.w / 2.0, tb.y
-    span = ny - ey
-    if abs(span) < 1.0:
+    if abs(ny - ey) < 1.0:
         return simple_edge_path(sb, tb, anchor)
-    lo, hi = (ey, ny) if ey < ny else (ny, ey)
+
+    clippers = [o for o in obstacles if _segment_hits_box((ex, ey), (nx, ny), o, 2.0)]
+    if not clippers:
+        return simple_edge_path(sb, tb, anchor)
+
     margin = 16.0
-    waypoints: list[list[float]] = []
-    for o in sorted(obstacles, key=lambda b: b.y):
-        oy = o.y + o.h / 2.0
-        if not (lo + 2.0 < oy < hi - 2.0):
-            continue
-        xline = ex + (nx - ex) * ((oy - ey) / span)  # straight-line x at the obstacle's mid-height
-        if o.x - margin <= xline <= o.x + o.w + margin:  # the straight path clips this node
-            left, right = o.x - margin, o.x + o.w + margin
-            sidex = right if abs(right - xline) <= abs(xline - left) else left
-            waypoints.append([sidex, oy])
-    if not waypoints:
+    cx = sum(o.x + o.w / 2.0 for o in clippers) / len(clippers)
+    # channel down the side the source is already on (no need to cross over the obstacle)
+    if ex >= cx:
+        channel = max(o.x + o.w for o in clippers) + margin
+    else:
+        channel = min(o.x for o in clippers) - margin
+    top = max(min(o.y for o in clippers) - margin, ey + 8.0)
+    bot = min(max(o.y + o.h for o in clippers) + margin, ny - 8.0)
+    if bot <= top:  # obstacles fill the whole gap -> fall back to a direct edge
         return simple_edge_path(sb, tb, anchor)
-    stub = max(12.0, min(0.35 * abs(span), 24.0))
-    return smooth_polyline([[ex, ey], *waypoints, [nx, ny - stub], [nx, ny]])
+    stub = max(10.0, min(0.3 * abs(ny - bot), 20.0))
+    return smooth_polyline([[ex, ey], [channel, top], [channel, bot], [nx, ny - stub], [nx, ny]])
