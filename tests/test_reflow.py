@@ -96,6 +96,64 @@ def test_dense_models_at_most_one_crossing(name):
     assert count_crossings(layout(ir)) <= 1
 
 
+@pytest.mark.parametrize("name", list(MODEL_BUILDERS))
+def test_no_node_overlap(name):
+    """No two node boxes overlap: the free-scalar reflow must never stack boxes (a later box's
+    fill would paint over an earlier node's label, e.g. hier_reg's b1/b2/b3/sigma)."""
+    res = layout(to_ir(MODEL_BUILDERS[name]()))
+    boxes = list(res.node_boxes.items())
+    for i in range(len(boxes)):
+        ni, bi = boxes[i]
+        for j in range(i + 1, len(boxes)):
+            nj, bj = boxes[j]
+            ox = min(bi.x + bi.w, bj.x + bj.w) - max(bi.x, bj.x)
+            oy = min(bi.y + bi.h, bj.y + bj.h) - max(bi.y, bj.y)
+            assert not (ox > 1.0 and oy > 1.0), f"{name}: {ni} overlaps {nj}"
+
+
+@pytest.mark.parametrize("name", list(MODEL_BUILDERS))
+def test_token_edges_mostly_arrive_vertically(name):
+    """Most arrowheads into equation tokens point ~straight down (near-vertical final tangent) —
+    the 'point downward' touch. A minority stay diagonal where a vertical tip would have to slice a
+    neighbour's edge or a node; ``prefer_vertical_tips`` keeps those diagonal rather than add a
+    crossing. So we assert the majority are vertical, not all (today every model is >= 79%)."""
+    ir = to_ir(MODEL_BUILDERS[name]())
+    res = layout(ir)
+    vert = tot = 0
+    for e in ir.edges:
+        if not e.target_token_id:
+            continue
+        pts = res.edge_paths.get(f"{e.source}|{e.target}")
+        if not pts or len(pts) < 2:
+            continue
+        (cx, cy), (px, py) = pts[-2], pts[-1]  # last control handle -> endpoint = tip tangent
+        tot += 1
+        if abs(px - cx) <= 0.4 * abs(py - cy) + 0.5:
+            vert += 1
+    assert tot == 0 or vert / tot >= 0.7, f"{name}: only {vert}/{tot} token edges arrive vertically"
+
+
+def test_mrp_hyperparam_edges_avoid_foreign_plates():
+    """MRP's ``sigma_X -> a_X`` arrows must route on the token side and not bow across a plate that
+    holds neither endpoint — the left-bow that crossed plate lines in the original report."""
+    ir = to_ir(MODEL_BUILDERS["mrp"]())
+    res = layout(ir)
+    member_plate = {m: p.id for p in ir.plates for m in p.members}
+    bad = []
+    for e in ir.edges:
+        if not (e.source.startswith("sigma_") and e.target.startswith("a_")):
+            continue
+        pts = res.edge_paths.get(f"{e.source}|{e.target}")
+        s = _samples(pts)[2:-2] if pts else []
+        own = (member_plate.get(e.source), member_plate.get(e.target))
+        for pid, b in res.plate_boxes.items():
+            if pid in own:
+                continue
+            if any(b.x + 1 <= x <= b.x + b.w - 1 and b.y + 1 <= y <= b.y + b.h - 1 for x, y in s):
+                bad.append((f"{e.source}->{e.target}", pid))
+    assert not bad, f"edges bow across foreign plates: {bad}"
+
+
 def test_reflow_is_deterministic():
     """Same model (fixed seeds) -> byte-identical geometry across runs, reflow included."""
     a = layout(to_ir(MODEL_BUILDERS["hier_reg"]()))

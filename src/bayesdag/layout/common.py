@@ -77,10 +77,12 @@ def _target_point(tb: Box, anchor: Box | None) -> tuple[float, float]:
 
 
 def simple_edge_path(sb: Box, tb: Box, anchor: Box | None) -> list[list[float]]:
-    """A gentle cubic from the source bottom-center to the target token. The edge leaves the
-    source heading down, and **approaches the token along the source->token line** so the
-    arrowhead orients with the line (no vertical kink at the tip). Ends a standoff above the
-    glyph so the arrowhead doesn't cover it. Returned as a 4-point cubic ``[p0, c1, c2, p1]``."""
+    """A gentle cubic from the source bottom-center to the target token, approaching ALONG the
+    source->token line. This is the crossing-optimal *body*; the arrowhead is turned to point
+    straight DOWN afterwards by ``reflow.prefer_vertical_tips`` wherever a vertical tip doesn't add
+    a crossing (it edits only the final handle, leaving the body — and so every crossing /
+    through-node count — untouched). Ends a standoff above the glyph so the arrowhead doesn't cover
+    it. Returned as a 4-point cubic ``[p0, c1, c2, p1]``."""
     ex, ey = sb.x + sb.w / 2.0, sb.y + sb.h
     nx, ny = _target_point(tb, anchor)
     dx, dy = nx - ex, ny - ey
@@ -88,7 +90,7 @@ def simple_edge_path(sb: Box, tb: Box, anchor: Box | None) -> list[list[float]]:
     ux, uy = dx / dist, dy / dist
     k = max(14.0, min(0.32 * dist, 44.0))
     c1 = [ex + 0.18 * dx, ey + max(12.0, min(0.4 * abs(dy), 30.0))]  # set off downward, slight lean
-    c2 = [nx - ux * k, ny - uy * k]  # pull the end handle back ALONG the approach -> aligned tip
+    c2 = [nx - ux * k, ny - uy * k]  # pull the end handle back ALONG the approach
     return [[ex, ey], c1, c2, [nx, ny]]
 
 
@@ -137,11 +139,17 @@ def _obstacle_hits(path: list, obstacles: list) -> int:
     )
 
 
-def edge_candidates(sb: Box, tb: Box, anchor: Box | None, obstacles: list) -> list[list[list[float]]]:
+def edge_candidates(
+    sb: Box, tb: Box, anchor: Box | None, obstacles: list, plates: list | None = None
+) -> list[list[list[float]]]:
     """Candidate routes for one edge, best-first: the direct curve, then (if it hits a node) a
-    vertical channel PAST the blocking node(s) down each side into the target token. The global
-    optimizer (``reflow.optimize_routes``) picks among these to minimize total crossings +
-    through-nodes. Plate boxes are NOT obstacles — pass node boxes only."""
+    vertical channel PAST the blocking node(s) down each side into the target token. The channel
+    side is chosen by, in priority order: fewest node hits, fewest FOREIGN-plate intrusions, then
+    the side the target token sits on — so an arrow lands on its token without bowing across a
+    plate line (e.g. MRP's ``sigma -> a = z*sigma`` routes right onto the right-most token instead
+    of swinging left out of the plate). The global optimizer (``reflow.optimize_routes``) picks
+    among these. Node boxes are obstacles; ``plates`` (the caller passes plate boxes already
+    excluding this edge's own src/tgt plates) only influence the side choice, never block."""
     ex, ey = sb.x + sb.w / 2.0, sb.y + sb.h
     nx, ny = _target_point(tb, anchor)
     direct = simple_edge_path(sb, tb, anchor)
@@ -161,13 +169,27 @@ def edge_candidates(sb: Box, tb: Box, anchor: Box | None, obstacles: list) -> li
         return [direct]
     left = min(o.x for o in clippers) - margin
     right = max(o.x + o.w for o in clippers) + margin
-    chans = [smooth_polyline([[ex, ey], [c, top], [c, bot], [nx, ny]]) for c in (left, right)]
-    # offer the cleaner channel first, then the other, then the direct curve as a fallback
-    chans.sort(key=lambda p: _obstacle_hits(p, obstacles))
-    return chans + [direct]
+    plates = plates or []
+
+    def _foreign(path: list) -> int:
+        s = _chain_points(path)[1:-1]
+        return sum(
+            1 for pb in plates
+            if any(pb.x <= x <= pb.x + pb.w and pb.y <= y <= pb.y + pb.h for x, y in s)
+        )
+
+    # build both side channels, then order by (node hits, foreign-plate intrusions, token side)
+    built = []
+    for cx in (left, right):
+        p = smooth_polyline([[ex, ey], [cx, top], [cx, bot], [nx, ny]])
+        built.append((p, _obstacle_hits(p, obstacles), _foreign(p), abs(cx - nx)))
+    built.sort(key=lambda t: (t[1], t[2], t[3]))
+    return [t[0] for t in built] + [direct]
 
 
-def routed_edge_path(sb: Box, tb: Box, anchor: Box | None, obstacles: list) -> list[list[float]]:
+def routed_edge_path(
+    sb: Box, tb: Box, anchor: Box | None, obstacles: list, plates: list | None = None
+) -> list[list[float]]:
     """Default (locally-best) route for one edge — the first ``edge_candidates`` entry. The
     global optimizer may later swap in a different candidate to reduce total crossings."""
-    return edge_candidates(sb, tb, anchor, obstacles)[0]
+    return edge_candidates(sb, tb, anchor, obstacles, plates)[0]

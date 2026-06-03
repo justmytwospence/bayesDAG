@@ -217,21 +217,24 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, overlay_mode: str = "prior", le
         b = layout.plate_boxes.get(p.id)
         if b:
             body.append(f'<g class="bd-plate" data-plate="{escape(p.id)}">' + _plate(b, p.label) + "</g>")
-    # node chrome + label + glyph, wrapped in a tagged group for interactivity
-    for n in ir.nodes:
-        b = n.box or layout.node_boxes.get(n.id)
-        if b is None:
-            continue
-        parts = [_node_chrome(n, b)]
+    # Two passes so a later node's (opaque) chrome box can never paint over an earlier node's
+    # label/glyph: ALL chrome first, then ALL labels+glyphs on top. Each pass tags its group with
+    # data-node, and the widget keys hover/selection off data-node (js/index.js), so splitting a
+    # node across two groups is transparent to interactivity. Parity holds: one emitter, both
+    # renderers consume this verbatim.
+    drawn = [(n, b) for n in ir.nodes if (b := (n.box or layout.node_boxes.get(n.id))) is not None]
+    for n, b in drawn:  # chrome (boxes) behind everything else node-ish
+        body.append(f'<g class="bd-node" data-node="{escape(n.id)}">' + _node_chrome(n, b) + "</g>")
+    for n, b in drawn:  # labels + glyphs above all chrome
         if n.label_svg:
             lw, lh = geometry.label_px_size(n.label_svg)
             ox, oy = geometry.label_origin(b, lw, lh)
-            parts.append(_embed_label(n.label_svg, ox, oy, lw, lh))
+            parts = [_embed_label(n.label_svg, ox, oy, lw, lh)]
         else:
-            parts.append(
+            parts = [
                 f'<text x="{b.x + b.w / 2:.1f}" y="{b.y + b.h / 2 + 4:.1f}" text-anchor="middle" '
                 f'font-size="12" fill="#222">{escape(n.id)}</text>'
-            )
+            ]
         if n.glyph and n.glyph_data:
             _, lh = geometry.label_px_size(n.label_svg)
             gr = geometry.glyph_rect(b, n.role, lh)
