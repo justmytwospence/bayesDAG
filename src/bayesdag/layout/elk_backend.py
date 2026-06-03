@@ -203,7 +203,11 @@ def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
             "elk.randomSeed": "1",  # determinism for golden tests
             "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
             "elk.layered.crossingMinimization.greedySwitchHierarchical.type": "TWO_SIDED",
-            "elk.layered.nodePlacement.strategy": "LINEAR_SEGMENTS",  # pull parents toward ports
+            # ELK routes the edges itself, as right angles around the nodes (we draw what it returns)
+            "elk.edgeRouting": "ORTHOGONAL",
+            # balanced placement centers a single-child node (e.g. y) under its parent
+            "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
+            "elk.layered.nodePlacement.bk.fixedAlignment": "BALANCED",
             "elk.spacing.nodeNode": "34",
             "elk.layered.spacing.nodeNodeBetweenLayers": "40",
             "elk.spacing.edgeNode": "18",
@@ -225,6 +229,59 @@ def _collect_boxes(data: dict) -> dict[str, Box]:
 
     walk(data, 0.0, 0.0)
     return boxes
+
+
+def _container_offsets(data: dict) -> dict[str, tuple[float, float]]:
+    """Absolute (x, y) of every node/plate container, for converting an edge's container-relative
+    section points to absolute coordinates."""
+    off: dict[str, tuple[float, float]] = {}
+
+    def walk(node: dict, ox: float, oy: float) -> None:
+        for c in node.get("children", []):
+            x, y = ox + float(c.get("x", 0.0)), oy + float(c.get("y", 0.0))
+            off[c["id"]] = (x, y)
+            walk(c, x, y)
+
+    walk(data, 0.0, 0.0)
+    return off
+
+
+def _collect_edges(ir: ModelIR, data: dict, res: LayoutResult) -> None:
+    """Consume ELK's native orthogonal edge routes. Each ELK edge (id ``e{i}`` -> ``ir.edges[i]``)
+    carries a ``container`` whose absolute position offsets the section's relative points; the
+    polyline is ``[startPoint] + bendPoints + [endPoint]``. For a token-targeted edge we drop the
+    arrow vertically onto its token (a standoff above the glyph). The polyline is emitted as a
+    rounded right-angle cubic chain."""
+    offsets = _container_offsets(data)
+    by_eid = {e.get("id"): e for e in data.get("edges", [])}
+    for i, e in enumerate(ir.edges):
+        elk_e = by_eid.get(f"e{i}")
+        if elk_e is None:
+            continue
+        ox, oy = offsets.get(elk_e.get("container", "root"), (0.0, 0.0))
+        pts: list[list[float]] = []
+        for s in elk_e.get("sections", []):
+            sp = s.get("startPoint")
+            if sp is not None:
+                pts.append([ox + sp["x"], oy + sp["y"]])
+            for bp in s.get("bendPoints", []):
+                pts.append([ox + bp["x"], oy + bp["y"]])
+            ep = s.get("endPoint")
+            if ep is not None:
+                pts.append([ox + ep["x"], oy + ep["y"]])
+        if len(pts) < 2:
+            continue
+        # land token-targeted edges vertically just above their specific token
+        anchor = (
+            res.node_token_anchors.get(e.target, {}).get(e.target_token_id)
+            if e.target_token_id
+            else None
+        )
+        if anchor is not None:
+            tx = anchor.x + anchor.w / 2.0
+            pts[-1] = [tx, pts[-1][1]]  # align ELK's endpoint to the token x (it already is, ~)
+            pts.append([tx, anchor.y - geometry.STANDOFF])  # vertical drop onto the token
+        res.edge_paths[f"{e.source}|{e.target}"] = common.orthogonal_path(pts, radius=5.0)
 
 
 def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
@@ -250,33 +307,8 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
         if b is not None:
             res.plate_boxes[p.id] = b
 
-    _route_edges(ir, res)
-
-    # Parent-order reflow: nudge free-scalar parents into token order — but keep it ONLY if it
-    # strictly reduces edge crossings, so it can never make a model worse (honest + bounded).
-    from . import reflow
-
-    before = reflow.count_crossings(res)
-    before_ov = reflow.count_overlaps(res)
-    if before > 0:
-        snap_boxes = dict(res.node_boxes)
-        snap_anchors = {k: dict(v) for k, v in res.node_token_anchors.items()}
-        snap_edges = dict(res.edge_paths)
-        if reflow.snap_free_scalars(ir, res):
-            _route_edges(ir, res)
-            # keep the snap only if it reduces crossings AND introduces no new node overlap —
-            # a crossing-fix that stacks boxes is worse than the crossing it removed.
-            if reflow.count_crossings(res) >= before or reflow.count_overlaps(res) > before_ov:
-                res.node_boxes, res.node_token_anchors, res.edge_paths = (
-                    snap_boxes, snap_anchors, snap_edges,
-                )
-
-    # pull terminal nodes back under their parents (ELK left-drags them); gated like snap
-    _center_leaves(ir, res)
-    # global route repair: choose each edge's route to minimize crossings + through-nodes
-    reflow.optimize_routes(ir, res)
-    # cosmetic pass: point arrowheads straight down into their tokens where it adds no crossing
-    reflow.prefer_vertical_tips(ir, res)
+    # ELK routed the edges orthogonally; consume those routes (no custom routing / reflow).
+    _collect_edges(ir, data, res)
 
     # sync node geometry back onto the IR nodes + recompute the canvas to cover everything
     for n in ir.nodes:
@@ -289,86 +321,3 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
         h = max(b.y + b.h for b in allboxes)
         res.canvas = Box(0.0, 0.0, max(res.canvas.w, w), max(res.canvas.h, h))
     return res
-
-
-def _route_edges(ir: ModelIR, res: LayoutResult) -> None:
-    """(Re)compute every edge path from the current node boxes / token anchors. We draw our own
-    smooth edge to the exact token, bowing around any node in the straight path and preferring the
-    side that doesn't carve across a foreign plate."""
-    member_plate = {m: p.id for p in ir.plates for m in p.members}
-    for e in ir.edges:
-        sb = res.node_boxes.get(e.source)
-        tb = res.node_boxes.get(e.target)
-        if sb is None or tb is None:
-            continue
-        anchor = (
-            res.node_token_anchors.get(e.target, {}).get(e.target_token_id)
-            if e.target_token_id
-            else None
-        )
-        obstacles = [b for nid, b in res.node_boxes.items() if nid not in (e.source, e.target)]
-        # plates whose box the edge may avoid bowing through — its own src/tgt plates excluded
-        plates = [
-            b for pid, b in res.plate_boxes.items()
-            if pid not in (member_plate.get(e.source), member_plate.get(e.target))
-        ]
-        res.edge_paths[f"{e.source}|{e.target}"] = common.routed_edge_path(
-            sb, tb, anchor, obstacles, plates
-        )
-
-
-def _center_leaves(ir: ModelIR, res: LayoutResult) -> None:
-    """ELK left-drags a terminal node (one with no children) toward the start of its layer, so e.g.
-    MRP's ``y`` lands in the corner instead of under ``p``. Pull each leaf horizontally so its
-    incoming-edge tokens sit under their parents (making those edges vertical). Gated: kept only if
-    it stays inside the leaf's own plate, adds no node overlap, and doesn't raise crossings /
-    through-nodes / foreign-plate bows. Deterministic."""
-    from . import reflow
-
-    member_plate = {m: p.id for p in ir.plates for m in p.members}
-    has_child = {e.source for e in ir.edges}
-
-    def pen() -> int:
-        return (
-            reflow.count_through_nodes(ir, res) * 1_000_000
-            + reflow.count_crossings(res) * 1_000
-            + reflow.foreign_plate_total(ir, res)
-        )
-
-    base, base_ov = pen(), reflow.count_overlaps(res)
-    for n in ir.nodes:
-        nid = n.id
-        b = res.node_boxes.get(nid)
-        if nid in has_child or b is None:  # leaves only
-            continue
-        toks = res.node_token_anchors.get(nid, {})
-        offsets = []
-        for e in ir.edges:
-            if e.target != nid:
-                continue
-            pb = res.node_boxes.get(e.source)
-            if pb is None:
-                continue
-            a = toks.get(e.target_token_id) if e.target_token_id else None
-            tcx = (a.x + a.w / 2.0) if a is not None else (b.x + b.w / 2.0)
-            offsets.append((pb.x + pb.w / 2.0) - tcx)  # shift to put this token under its parent
-        if not offsets:
-            continue
-        dx = sum(offsets) / len(offsets)
-        pid = member_plate.get(nid)
-        if pid and pid in res.plate_boxes:  # keep the leaf inside its plate
-            pl = res.plate_boxes[pid]
-            dx = min(max(b.x + dx, pl.x + 6.0), pl.x + pl.w - b.w - 6.0) - b.x
-        if abs(dx) < 1.0:
-            continue
-        snap_box = res.node_boxes[nid]
-        snap_anc = dict(res.node_token_anchors.get(nid, {}))
-        snap_edges = dict(res.edge_paths)
-        reflow._shift_node(res, nid, dx)
-        _route_edges(ir, res)
-        if pen() > base or reflow.count_overlaps(res) > base_ov:  # made it worse -> revert
-            res.node_boxes[nid] = snap_box
-            res.node_token_anchors[nid] = snap_anc
-            res.edge_paths = snap_edges
-        else:
-            base = pen()

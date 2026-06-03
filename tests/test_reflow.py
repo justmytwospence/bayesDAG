@@ -1,6 +1,8 @@
-"""Layout quality across the six escalating example models: no edge passes through a node,
-the crossing-free models are crossing-free, and the two dense models keep at most the single
-forced (plate-contiguity) crossing. Uses an independent fine-grained geometric detector."""
+"""Layout-quality guarantees ELK's orthogonal routing must keep, across the six escalating example
+models: no edge passes through a non-endpoint node, the crossing-free models stay crossing-free and
+the two dense models keep at most the single forced (plate-contiguity) crossing, no node boxes
+overlap, token edges arrive vertically, and hyperparameter edges don't bow through foreign plates.
+Uses independent fine-grained geometric detectors (not the layout's own metrics)."""
 
 import pytest
 
@@ -98,8 +100,8 @@ def test_dense_models_at_most_one_crossing(name):
 
 @pytest.mark.parametrize("name", list(MODEL_BUILDERS))
 def test_no_node_overlap(name):
-    """No two node boxes overlap: the free-scalar reflow must never stack boxes (a later box's
-    fill would paint over an earlier node's label, e.g. hier_reg's b1/b2/b3/sigma)."""
+    """No two node boxes overlap (a later box's fill would paint over an earlier node's label).
+    ELK never overlaps nodes, so this stays at 0 — a regression guard."""
     res = layout(to_ir(MODEL_BUILDERS[name]()))
     boxes = list(res.node_boxes.items())
     for i in range(len(boxes)):
@@ -112,14 +114,12 @@ def test_no_node_overlap(name):
 
 
 @pytest.mark.parametrize("name", list(MODEL_BUILDERS))
-def test_token_edges_mostly_arrive_vertically(name):
-    """Most arrowheads into equation tokens point ~straight down (near-vertical final tangent) —
-    the 'point downward' touch. A minority stay diagonal where a vertical tip would have to slice a
-    neighbour's edge or a node; ``prefer_vertical_tips`` keeps those diagonal rather than add a
-    crossing. So we assert the majority are vertical, not all (today every model is >= 79%)."""
+def test_token_edges_arrive_vertically(name):
+    """Every arrowhead into an equation token points straight DOWN. Orthogonal routes enter the
+    token's NORTH port and we append a vertical landing segment onto the token, so the final tangent
+    is vertical by construction — no diagonal tips anywhere."""
     ir = to_ir(MODEL_BUILDERS[name]())
     res = layout(ir)
-    vert = tot = 0
     for e in ir.edges:
         if not e.target_token_id:
             continue
@@ -127,10 +127,7 @@ def test_token_edges_mostly_arrive_vertically(name):
         if not pts or len(pts) < 2:
             continue
         (cx, cy), (px, py) = pts[-2], pts[-1]  # last control handle -> endpoint = tip tangent
-        tot += 1
-        if abs(px - cx) <= 0.4 * abs(py - cy) + 0.5:
-            vert += 1
-    assert tot == 0 or vert / tot >= 0.7, f"{name}: only {vert}/{tot} token edges arrive vertically"
+        assert abs(px - cx) <= 0.4 * abs(py - cy) + 0.5, f"{name}: {e.source}->{e.target} tip not vertical"
 
 
 def test_mrp_hyperparam_edges_avoid_foreign_plates():
@@ -154,8 +151,8 @@ def test_mrp_hyperparam_edges_avoid_foreign_plates():
     assert not bad, f"edges bow across foreign plates: {bad}"
 
 
-def test_reflow_is_deterministic():
-    """Same model (fixed seeds) -> byte-identical geometry across runs, reflow included."""
+def test_layout_is_deterministic():
+    """Same model (fixed ELK seed) -> byte-identical node geometry across runs."""
     a = layout(to_ir(MODEL_BUILDERS["hier_reg"]()))
     b = layout(to_ir(MODEL_BUILDERS["hier_reg"]()))
     for k, box in a.node_boxes.items():
