@@ -181,8 +181,16 @@ def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
 
     root_children = [plate_json(p) for p in ir.plates if p.parent is None]
     root_children += [node_json(n) for n in ir.nodes if n.id not in member_plate]
+
+    # Feed edges to ELK grouped by target and ordered by their target-token x, so
+    # considerModelOrder orders each node's parents to match the equation's token order.
+    def _tok_x(e) -> float:
+        bb = info.get(e.target, {}).get("bboxes", {}).get(e.target_token_id or "")
+        return (bb[0] + bb[2] / 2.0) if bb else 0.5
+
+    ordered = sorted(enumerate(ir.edges), key=lambda ie: (ie[1].target, _tok_x(ie[1])))
     edges = []
-    for i, e in enumerate(ir.edges):
+    for i, e in ordered:
         pid = _port_id(e.target, e.target_token_id) if e.target_token_id else None
         tgt = pid if pid in port_ids else e.target
         edges.append({"id": f"e{i}", "sources": [e.source], "targets": [tgt]})
@@ -195,6 +203,7 @@ def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
             "elk.randomSeed": "1",  # determinism for golden tests
             "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
             "elk.layered.crossingMinimization.greedySwitchHierarchical.type": "TWO_SIDED",
+            "elk.layered.nodePlacement.strategy": "LINEAR_SEGMENTS",  # pull parents toward ports
             "elk.spacing.nodeNode": "34",
             "elk.layered.spacing.nodeNodeBetweenLayers": "40",
             "elk.spacing.edgeNode": "18",
@@ -241,8 +250,43 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
         if b is not None:
             res.plate_boxes[p.id] = b
 
-    # ELK fixes placement; we draw our own smooth edge to the exact token, bowing around any
-    # node that sits in the straight path (ELK's own routing fights the token-ports).
+    _route_edges(ir, res)
+
+    # Parent-order reflow: nudge free-scalar parents into token order — but keep it ONLY if it
+    # strictly reduces edge crossings, so it can never make a model worse (honest + bounded).
+    from . import reflow
+
+    before = reflow.count_crossings(res)
+    if before > 0:
+        snap_boxes = dict(res.node_boxes)
+        snap_anchors = {k: dict(v) for k, v in res.node_token_anchors.items()}
+        snap_edges = dict(res.edge_paths)
+        if reflow.snap_free_scalars(ir, res):
+            _route_edges(ir, res)
+            if reflow.count_crossings(res) >= before:  # no improvement -> revert
+                res.node_boxes, res.node_token_anchors, res.edge_paths = (
+                    snap_boxes, snap_anchors, snap_edges,
+                )
+
+    # global route repair: choose each edge's route to minimize crossings + through-nodes
+    reflow.optimize_routes(ir, res)
+
+    # sync node geometry back onto the IR nodes + recompute the canvas to cover everything
+    for n in ir.nodes:
+        if n.id in res.node_boxes:
+            n.box = res.node_boxes[n.id]
+            n.port_anchors = res.node_token_anchors.get(n.id, n.port_anchors)
+    allboxes = list(res.node_boxes.values()) + list(res.plate_boxes.values())
+    if allboxes:
+        w = max(b.x + b.w for b in allboxes)
+        h = max(b.y + b.h for b in allboxes)
+        res.canvas = Box(0.0, 0.0, max(res.canvas.w, w), max(res.canvas.h, h))
+    return res
+
+
+def _route_edges(ir: ModelIR, res: LayoutResult) -> None:
+    """(Re)compute every edge path from the current node boxes / token anchors. We draw our own
+    smooth edge to the exact token, bowing around any node in the straight path."""
     for e in ir.edges:
         sb = res.node_boxes.get(e.source)
         tb = res.node_boxes.get(e.target)
@@ -255,5 +299,3 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
         )
         obstacles = [b for nid, b in res.node_boxes.items() if nid not in (e.source, e.target)]
         res.edge_paths[f"{e.source}|{e.target}"] = common.routed_edge_path(sb, tb, anchor, obstacles)
-
-    return res

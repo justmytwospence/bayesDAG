@@ -108,39 +108,66 @@ def _cubic4_points(pts: list, n: int = 26) -> list[tuple[float, float]]:
     return out
 
 
-def routed_edge_path(sb: Box, tb: Box, anchor: Box | None, obstacles: list) -> list[list[float]]:
-    """The direct edge (``simple_edge_path``) when its rendered CURVE is clear; otherwise route
-    DOWN a clear vertical channel to one side of the blocking node(s), past their full height,
-    then into the target token from below — so the edge never crosses a node. Plate boxes are
-    NOT obstacles (edges are meant to cross plate boundaries) — pass node boxes only.
+def _chain_points(pts, n: int = 12) -> list[tuple[float, float]]:
+    """Sample a cubic-Bezier CHAIN (``[p0, c1, c2, p1, c1, c2, p2, …]``) into points."""
+    out = []
+    if len(pts) >= 4 and (len(pts) - 1) % 3 == 0:
+        for i in range(1, len(pts), 3):
+            p0 = pts[0] if i == 1 else pts[i - 1]
+            c1, c2, p3 = pts[i], pts[i + 1], pts[i + 2]
+            for k in range(n + 1):
+                t = k / n
+                mt = 1 - t
+                out.append(
+                    (
+                        mt**3 * p0[0] + 3 * mt**2 * t * c1[0] + 3 * mt * t * t * c2[0] + t**3 * p3[0],
+                        mt**3 * p0[1] + 3 * mt**2 * t * c1[1] + 3 * mt * t * t * c2[1] + t**3 * p3[1],
+                    )
+                )
+    return out
 
-    We test the actual curve (not the straight chord), so a gentle bend that already clears a
-    corner doesn't provoke a needless detour, while a curve that bulges into a node does."""
+
+def _obstacle_hits(path: list, obstacles: list) -> int:
+    """How many node-box interiors a path passes through (endpoints' touch excluded by the
+    1px inset)."""
+    s = _chain_points(path)[1:-1]
+    return sum(
+        1 for o in obstacles
+        if any(o.x + 1 <= x <= o.x + o.w - 1 and o.y + 1 <= y <= o.y + o.h - 1 for x, y in s)
+    )
+
+
+def edge_candidates(sb: Box, tb: Box, anchor: Box | None, obstacles: list) -> list[list[list[float]]]:
+    """Candidate routes for one edge, best-first: the direct curve, then (if it hits a node) a
+    vertical channel PAST the blocking node(s) down each side into the target token. The global
+    optimizer (``reflow.optimize_routes``) picks among these to minimize total crossings +
+    through-nodes. Plate boxes are NOT obstacles — pass node boxes only."""
     ex, ey = sb.x + sb.w / 2.0, sb.y + sb.h
     nx, ny = _target_point(tb, anchor)
-    if abs(ny - ey) < 1.0:
-        return simple_edge_path(sb, tb, anchor)
-
     direct = simple_edge_path(sb, tb, anchor)
-    pts = _cubic4_points(direct)[2:-2]  # ignore the endpoints (they touch source/token)
+    if abs(ny - ey) < 1.0 or _obstacle_hits(direct, obstacles) == 0:
+        return [direct]
+    pts = _cubic4_points(direct)[2:-2]
     clippers = [
-        o
-        for o in obstacles
+        o for o in obstacles
         if any(o.x <= x <= o.x + o.w and o.y <= y <= o.y + o.h for x, y in pts)
     ]
     if not clippers:
-        return direct
-
+        return [direct]
     margin = 16.0
-    cx = sum(o.x + o.w / 2.0 for o in clippers) / len(clippers)
-    # channel down the side the source is already on (no need to cross over the obstacle)
-    if ex >= cx:
-        channel = max(o.x + o.w for o in clippers) + margin
-    else:
-        channel = min(o.x for o in clippers) - margin
     top = max(min(o.y for o in clippers) - margin, ey + 8.0)
     bot = min(max(o.y + o.h for o in clippers) + margin, ny - 8.0)
-    if bot <= top:  # obstacles fill the whole gap -> fall back to a direct edge
-        return simple_edge_path(sb, tb, anchor)
-    # end at the token (no vertical stub) so the arrowhead aligns with the (channel,bot)->token approach
-    return smooth_polyline([[ex, ey], [channel, top], [channel, bot], [nx, ny]])
+    if bot <= top:
+        return [direct]
+    left = min(o.x for o in clippers) - margin
+    right = max(o.x + o.w for o in clippers) + margin
+    chans = [smooth_polyline([[ex, ey], [c, top], [c, bot], [nx, ny]]) for c in (left, right)]
+    # offer the cleaner channel first, then the other, then the direct curve as a fallback
+    chans.sort(key=lambda p: _obstacle_hits(p, obstacles))
+    return chans + [direct]
+
+
+def routed_edge_path(sb: Box, tb: Box, anchor: Box | None, obstacles: list) -> list[list[float]]:
+    """Default (locally-best) route for one edge — the first ``edge_candidates`` entry. The
+    global optimizer may later swap in a different candidate to reduce total crossings."""
+    return edge_candidates(sb, tb, anchor, obstacles)[0]

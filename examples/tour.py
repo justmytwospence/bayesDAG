@@ -185,10 +185,199 @@ def _(bayesdag, mo, radon_idata, radon_model):
 @app.cell
 def _(mo):
     mo.md(r"""
+    ## 3 · Hierarchical regression
+
+    A varying intercept `a[county]` plus several fixed coefficients `b1,b2,b3`, all converging on
+    one deterministic `mu = a[county_idx] + b1*x1 + b2*x2 + b3*x3`. Watch how the free coefficients
+    are placed in the equation's token order so their arrows don't cross.
+    """)
+    return
+
+
+@app.cell
+def _(np, pm):
+    hr_rng = np.random.default_rng(1)
+    hr_nc, hr_no = 6, 60
+    hr_cidx = hr_rng.integers(0, hr_nc, hr_no)
+    hr_x1, hr_x2, hr_x3 = (hr_rng.normal(size=hr_no) for _ in range(3))
+    hr_at = hr_rng.normal(0, 1, hr_nc)
+    hr_y = hr_at[hr_cidx] + 0.5 * hr_x1 - 0.3 * hr_x2 + 0.2 * hr_x3 + hr_rng.normal(0, 0.3, hr_no)
+    with pm.Model(coords={"county": np.arange(hr_nc), "obs": np.arange(hr_no)}) as hr_model:
+        hr_mu_a = pm.Normal("mu_a", 0, 5)
+        hr_sa = pm.HalfNormal("sigma_a", 5)
+        hr_a = pm.Normal("a", hr_mu_a, hr_sa, dims="county")
+        hr_b1 = pm.Normal("b1", 0, 5)
+        hr_b2 = pm.Normal("b2", 0, 5)
+        hr_b3 = pm.Normal("b3", 0, 5)
+        hr_s = pm.HalfNormal("sigma", 1)
+        hr_cc = pm.Data("county_idx", hr_cidx, dims="obs")
+        hr_X1 = pm.Data("x1", hr_x1, dims="obs")
+        hr_X2 = pm.Data("x2", hr_x2, dims="obs")
+        hr_X3 = pm.Data("x3", hr_x3, dims="obs")
+        pm.Deterministic("mu", hr_a[hr_cc] + hr_b1 * hr_X1 + hr_b2 * hr_X2 + hr_b3 * hr_X3, dims="obs")
+        pm.Normal("y", hr_model.named_vars["mu"], hr_s, observed=hr_y, dims="obs")
+    return (hr_model,)
+
+
+@app.cell
+def _(bayesdag, hr_model, mo):
+    mo.ui.anywidget(bayesdag.view(hr_model).widget())
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""
+    ## 4 · IRT (2-parameter item response theory)
+
+    Three crossed plates — `student`, `item`, `obs` — with a deterministic logit
+    `eta = a[item]*(theta[student] - b[item])` combining three plated parents via crossed indexing.
+    A canonical psychometrics model; an order more structurally complex than radon.
+    """)
+    return
+
+
+@app.cell
+def _(np, pm):
+    irt_rng = np.random.default_rng(2)
+    irt_ns, irt_ni = 20, 10
+    irt_no = irt_ns * irt_ni
+    irt_si = np.repeat(np.arange(irt_ns), irt_ni)
+    irt_ii = np.tile(np.arange(irt_ni), irt_ns)
+    irt_th = irt_rng.normal(0, 1, irt_ns)
+    irt_at = irt_rng.lognormal(0, 0.3, irt_ni)
+    irt_bt = irt_rng.normal(0, 1, irt_ni)
+    irt_obs = irt_rng.binomial(1, 1 / (1 + np.exp(-(irt_at[irt_ii] * (irt_th[irt_si] - irt_bt[irt_ii])))))
+    with pm.Model(coords={"student": np.arange(irt_ns), "item": np.arange(irt_ni), "obs": np.arange(irt_no)}) as irt_model:
+        irt_theta = pm.Normal("theta", 0, 1, dims="student")
+        irt_mua = pm.Normal("mu_a", 0, 1)
+        irt_saa = pm.HalfNormal("sigma_a", 1)
+        irt_a = pm.LogNormal("a", irt_mua, irt_saa, dims="item")
+        irt_mub = pm.Normal("mu_b", 0, 1)
+        irt_sbb = pm.HalfNormal("sigma_b", 1)
+        irt_b = pm.Normal("b", irt_mub, irt_sbb, dims="item")
+        irt_S = pm.Data("student_idx", irt_si, dims="obs")
+        irt_I = pm.Data("item_idx", irt_ii, dims="obs")
+        pm.Deterministic("eta", irt_a[irt_I] * (irt_theta[irt_S] - irt_b[irt_I]), dims="obs")
+        pm.Bernoulli("y", logit_p=irt_model.named_vars["eta"], observed=irt_obs, dims="obs")
+    return (irt_model,)
+
+
+@app.cell
+def _(bayesdag, irt_model, mo):
+    mo.ui.anywidget(bayesdag.view(irt_model).widget())
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""
+    ## 5 · MRP (multilevel regression & poststratification)
+
+    Five crossed grouping factors (`state`, `age`, `education`, `ethnicity`, `region`), each a
+    non-centered random effect, all converging on one logit — six plates and ~7 convergent parents.
+    Gelman's canonical polling model; the maximal single-equation layout stress test.
+    """)
+    return
+
+
+@app.cell
+def _(np, pm):
+    mrp_rng = np.random.default_rng(3)
+    mrp_ns, mrp_na, mrp_ne, mrp_nh, mrp_nr, mrp_no = 8, 4, 4, 4, 4, 400
+    mrp_idx = {k: mrp_rng.integers(0, n, mrp_no) for k, n in (("s", mrp_ns), ("a", mrp_na), ("e", mrp_ne), ("h", mrp_nh), ("r", mrp_nr))}
+    mrp_male = mrp_rng.integers(0, 2, mrp_no).astype(float)
+    mrp_y = mrp_rng.binomial(1, 0.5, mrp_no)
+    mrp_coords = {"state": np.arange(mrp_ns), "age": np.arange(mrp_na), "edu": np.arange(mrp_ne), "eth": np.arange(mrp_nh), "region": np.arange(mrp_nr), "obs": np.arange(mrp_no)}
+    with pm.Model(coords=mrp_coords) as mrp_model:
+        mrp_a = pm.Normal("a", 0, 1)
+
+        def mrp_re(name, dim):
+            sg = pm.HalfNormal("sigma_" + name, 1)
+            z = pm.Normal("z_" + name, 0, 1, dims=dim)
+            return pm.Deterministic(name, z * sg, dims=dim)
+
+        mrp_as = mrp_re("a_state", "state")
+        mrp_aa = mrp_re("a_age", "age")
+        mrp_ae = mrp_re("a_edu", "edu")
+        mrp_ah = mrp_re("a_eth", "eth")
+        mrp_ar = mrp_re("a_region", "region")
+        mrp_bm = pm.Normal("b_male", 0, 1)
+        mrp_S = pm.Data("state_idx", mrp_idx["s"], dims="obs")
+        mrp_A = pm.Data("age_idx", mrp_idx["a"], dims="obs")
+        mrp_E = pm.Data("edu_idx", mrp_idx["e"], dims="obs")
+        mrp_H = pm.Data("eth_idx", mrp_idx["h"], dims="obs")
+        mrp_R = pm.Data("region_idx", mrp_idx["r"], dims="obs")
+        mrp_M = pm.Data("male", mrp_male, dims="obs")
+        pm.Deterministic("p", mrp_a + mrp_as[mrp_S] + mrp_aa[mrp_A] + mrp_ae[mrp_E] + mrp_ah[mrp_H] + mrp_ar[mrp_R] + mrp_bm * mrp_M, dims="obs")
+        pm.Bernoulli("y", logit_p=mrp_model.named_vars["p"], observed=mrp_y, dims="obs")
+    return (mrp_model,)
+
+
+@app.cell
+def _(bayesdag, mo, mrp_model):
+    mo.ui.anywidget(bayesdag.view(mrp_model).widget())
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""
+    ## 6 · Joint longitudinal–survival model
+
+    Two interlinked sub-hierarchies over `subject`: a longitudinal mixed model (random intercept
+    `b0`, slope `b1`, trajectory `traj`) **and** a survival model whose log-rate `gamma0 + alpha*b1`
+    depends on the longitudinal slope. The shared parents `b0`/`b1` feed *two* likelihood subtrees —
+    the joint-model "association". Canonical in biostatistics.
+    """)
+    return
+
+
+@app.cell
+def _(np, pm):
+    jm_rng = np.random.default_rng(4)
+    jm_nsub, jm_nvis = 40, 4
+    jm_nl = jm_nsub * jm_nvis
+    jm_si = np.repeat(np.arange(jm_nsub), jm_nvis)
+    jm_tm = np.tile(np.linspace(0, 1, jm_nvis), jm_nsub)
+    jm_b0t = jm_rng.normal(1, 0.5, jm_nsub)
+    jm_b1t = jm_rng.normal(-0.5, 0.3, jm_nsub)
+    jm_yl = jm_b0t[jm_si] + jm_b1t[jm_si] * jm_tm + jm_rng.normal(0, 0.2, jm_nl)
+    jm_ev = jm_rng.exponential(1 / np.exp(-1 + 0.8 * jm_b1t))
+    with pm.Model(coords={"subject": np.arange(jm_nsub), "visit": np.arange(jm_nl)}) as jm_model:
+        jm_mb0 = pm.Normal("mu_b0", 0, 2)
+        jm_s0 = pm.HalfNormal("sigma_b0", 1)
+        jm_mb1 = pm.Normal("mu_b1", 0, 2)
+        jm_s1 = pm.HalfNormal("sigma_b1", 1)
+        jm_b0 = pm.Normal("b0", jm_mb0, jm_s0, dims="subject")
+        jm_b1 = pm.Normal("b1", jm_mb1, jm_s1, dims="subject")
+        jm_sy = pm.HalfNormal("sigma_y", 1)
+        jm_S = pm.Data("subj_idx", jm_si, dims="visit")
+        jm_T = pm.Data("time", jm_tm, dims="visit")
+        pm.Deterministic("traj", jm_b0[jm_S] + jm_b1[jm_S] * jm_T, dims="visit")
+        pm.Normal("y_long", jm_model.named_vars["traj"], jm_sy, observed=jm_yl, dims="visit")
+        jm_g0 = pm.Normal("gamma0", 0, 2)
+        jm_al = pm.Normal("alpha", 0, 1)
+        pm.Deterministic("log_rate", jm_g0 + jm_al * jm_b1, dims="subject")
+        pm.Exponential("event_time", pm.math.exp(-jm_model.named_vars["log_rate"]), observed=jm_ev, dims="subject")
+    return (jm_model,)
+
+
+@app.cell
+def _(bayesdag, jm_model, mo):
+    mo.ui.anywidget(bayesdag.view(jm_model).widget())
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""
     ## Notes
 
-    Outside a notebook (a plain script, nbconvert), the same `bayesdag.view(...)` degrades
-    automatically to a static SVG via `_repr_svg_`. Pass `legend=False` for a bare figure.
+    Each model fits quickly (`pm.sample` with small `draws`); pass `idata=` to `view(...)` to turn
+    the prior glyphs into posterior KDEs (as in §1–2). Outside a notebook the same
+    `bayesdag.view(...)` degrades automatically to a static SVG via `_repr_svg_`; pass
+    `legend=False` for a bare figure.
     """)
     return
 
