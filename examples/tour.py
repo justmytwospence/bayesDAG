@@ -83,6 +83,15 @@ def _(bayesdag, es_model, mo):
 
 
 @app.cell
+def _(es_model, mo, pm):
+    mo.vstack([
+        mo.md("**Baseline — PyMC's built-in `model_to_graphviz` for the same model:**"),
+        mo.Html(pm.model_to_graphviz(es_model).pipe(format="svg").decode()),
+    ])
+    return
+
+
+@app.cell
 def _(mo):
     mo.md("""
     ### Fit, then posterior overlays (glyphs turn orange)
@@ -162,6 +171,15 @@ def _(bayesdag, mo, radon_model):
 
 
 @app.cell
+def _(mo, pm, radon_model):
+    mo.vstack([
+        mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
+        mo.Html(pm.model_to_graphviz(radon_model).pipe(format="svg").decode()),
+    ])
+    return
+
+
+@app.cell
 def _(mo):
     mo.md("""
     ### Fit, then posterior overlays
@@ -226,6 +244,15 @@ def _(bayesdag, hr_model, mo):
 
 
 @app.cell
+def _(hr_model, mo, pm):
+    mo.vstack([
+        mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
+        mo.Html(pm.model_to_graphviz(hr_model).pipe(format="svg").decode()),
+    ])
+    return
+
+
+@app.cell
 def _(mo):
     mo.md(r"""
     ## 4 · IRT (2-parameter item response theory)
@@ -266,6 +293,15 @@ def _(np, pm):
 @app.cell
 def _(bayesdag, irt_model, mo):
     mo.ui.anywidget(bayesdag.view(irt_model).widget())
+    return
+
+
+@app.cell
+def _(irt_model, mo, pm):
+    mo.vstack([
+        mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
+        mo.Html(pm.model_to_graphviz(irt_model).pipe(format="svg").decode()),
+    ])
     return
 
 
@@ -321,6 +357,15 @@ def _(bayesdag, mo, mrp_model):
 
 
 @app.cell
+def _(mo, mrp_model, pm):
+    mo.vstack([
+        mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
+        mo.Html(pm.model_to_graphviz(mrp_model).pipe(format="svg").decode()),
+    ])
+    return
+
+
+@app.cell
 def _(mo):
     mo.md(r"""
     ## 6 · Joint longitudinal–survival model
@@ -366,6 +411,15 @@ def _(np, pm):
 @app.cell
 def _(bayesdag, jm_model, mo):
     mo.ui.anywidget(bayesdag.view(jm_model).widget())
+    return
+
+
+@app.cell
+def _(jm_model, mo, pm):
+    mo.vstack([
+        mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
+        mo.Html(pm.model_to_graphviz(jm_model).pipe(format="svg").decode()),
+    ])
     return
 
 
