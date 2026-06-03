@@ -246,6 +246,17 @@ def _container_offsets(data: dict) -> dict[str, tuple[float, float]]:
     return off
 
 
+def _seg_clear(x0: float, y0: float, x1: float, y1: float, boxes: list) -> bool:
+    """True if the axis-aligned segment (x0,y0)->(x1,y1) misses every box interior (1px inset)."""
+    for t in range(25):
+        x = x0 + (x1 - x0) * t / 24.0
+        y = y0 + (y1 - y0) * t / 24.0
+        for b in boxes:
+            if b.x + 1 <= x <= b.x + b.w - 1 and b.y + 1 <= y <= b.y + b.h - 1:
+                return False
+    return True
+
+
 def _collect_edges(ir: ModelIR, data: dict, res: LayoutResult) -> None:
     """Consume ELK's native orthogonal edge routes. Each ELK edge (id ``e{i}`` -> ``ir.edges[i]``)
     carries a ``container`` whose absolute position offsets the section's relative points; the
@@ -271,15 +282,37 @@ def _collect_edges(ir: ModelIR, data: dict, res: LayoutResult) -> None:
                 pts.append([ox + ep["x"], oy + ep["y"]])
         if len(pts) < 2:
             continue
-        # land token-targeted edges vertically just above their specific token
         anchor = (
             res.node_token_anchors.get(e.target, {}).get(e.target_token_id)
             if e.target_token_id
             else None
         )
+        # Recenter the source exit under the target: a clean vertical when the target token sits
+        # over the source, otherwise the box edge nearest it. ELK otherwise exits a wide / in-plate
+        # node off to one side, away from where the edge is heading. We shift only the leading
+        # vertical run, and only if the moved drop + its connector stay clear of every other node.
+        sb = res.node_boxes.get(e.source)
+        if sb is not None and abs(pts[1][0] - pts[0][0]) < 0.5:
+            tb = res.node_boxes.get(e.target)
+            ex = (anchor.x + anchor.w / 2.0) if anchor is not None else (
+                tb.x + tb.w / 2.0 if tb is not None else pts[0][0]
+            )
+            m = min(8.0, sb.w * 0.25)
+            ex = min(max(ex, sb.x + m), sb.x + sb.w - m)  # keep the exit on the source's bottom edge
+            sx0 = pts[0][0]
+            run = 1
+            while run < len(pts) - 1 and abs(pts[run][0] - sx0) < 0.5:
+                run += 1
+            obstacles = [b for nid, b in res.node_boxes.items() if nid not in (e.source, e.target)]
+            y0, y1 = pts[0][1], pts[run - 1][1]
+            nxt_x = pts[run][0] if run < len(pts) else ex
+            if _seg_clear(ex, y0, ex, y1, obstacles) and _seg_clear(ex, y1, nxt_x, y1, obstacles):
+                for k in range(run):
+                    pts[k][0] = ex
+        # land token-targeted edges vertically just above their specific token
         if anchor is not None:
             tx = anchor.x + anchor.w / 2.0
-            pts[-1] = [tx, pts[-1][1]]  # align ELK's endpoint to the token x (it already is, ~)
+            pts[-1] = [tx, pts[-1][1]]
             pts.append([tx, anchor.y - geometry.STANDOFF])  # vertical drop onto the token
         res.edge_paths[f"{e.source}|{e.target}"] = common.orthogonal_path(pts, radius=5.0)
 
