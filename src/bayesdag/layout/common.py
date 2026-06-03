@@ -70,57 +70,66 @@ def smooth_polyline(pts: list) -> list[list[float]]:
     return out
 
 
-def simple_edge_path(sb: Box, tb: Box, anchor: Box | None) -> list[list[float]]:
-    """A gentle cubic from the source bottom-center to the target (the specific token for a
-    port-edge, else the top-center). The curve heads roughly STRAIGHT at the source and lands
-    ~vertically on the target token (so the arrowhead sits just above the glyph, standoff).
-
-    The tangent length is short and capped so a parent that's far to the SIDE gets a direct
-    diagonal — not a long horizontal segment hugging the plate boundary on its way over.
-    Returned as a 4-point cubic ``[p0, c1, c2, p1]`` (what ``render_svg._edge`` consumes)."""
-    ex, ey = sb.x + sb.w / 2.0, sb.y + sb.h
+def _target_point(tb: Box, anchor: Box | None) -> tuple[float, float]:
     if anchor is not None:
-        nx, ny = anchor.x + anchor.w / 2.0, anchor.y - geometry.STANDOFF
-    else:
-        nx, ny = tb.x + tb.w / 2.0, tb.y
-    span = abs(ny - ey)
-    k = max(12.0, min(0.35 * span, 26.0))  # short, capped -> direct (no boundary-hugging swoop)
-    # lean the departure toward the target so the edge sets off in its general direction,
-    # while the landing stays vertical for a clean arrowhead on the token.
-    c1x = ex + 0.25 * (nx - ex)
-    return [[ex, ey], [c1x, ey + k], [nx, ny - k], [nx, ny]]
+        return anchor.x + anchor.w / 2.0, anchor.y - geometry.STANDOFF
+    return tb.x + tb.w / 2.0, tb.y
 
 
-def _segment_hits_box(p0: tuple, p1: tuple, box: Box, margin: float) -> bool:
-    """True if the straight segment ``p0->p1`` passes through ``box`` expanded by ``margin``."""
-    x0, y0 = p0
-    x1, y1 = p1
-    bx0, by0, bx1, by1 = box.x - margin, box.y - margin, box.x + box.w + margin, box.y + box.h + margin
-    n = 24
+def simple_edge_path(sb: Box, tb: Box, anchor: Box | None) -> list[list[float]]:
+    """A gentle cubic from the source bottom-center to the target token. The edge leaves the
+    source heading down, and **approaches the token along the source->token line** so the
+    arrowhead orients with the line (no vertical kink at the tip). Ends a standoff above the
+    glyph so the arrowhead doesn't cover it. Returned as a 4-point cubic ``[p0, c1, c2, p1]``."""
+    ex, ey = sb.x + sb.w / 2.0, sb.y + sb.h
+    nx, ny = _target_point(tb, anchor)
+    dx, dy = nx - ex, ny - ey
+    dist = max((dx * dx + dy * dy) ** 0.5, 1.0)
+    ux, uy = dx / dist, dy / dist
+    k = max(14.0, min(0.32 * dist, 44.0))
+    c1 = [ex + 0.18 * dx, ey + max(12.0, min(0.4 * abs(dy), 30.0))]  # set off downward, slight lean
+    c2 = [nx - ux * k, ny - uy * k]  # pull the end handle back ALONG the approach -> aligned tip
+    return [[ex, ey], c1, c2, [nx, ny]]
+
+
+def _cubic4_points(pts: list, n: int = 26) -> list[tuple[float, float]]:
+    """Sample a 4-point cubic ``[p0, c1, c2, p3]`` into points along the curve."""
+    p0, c1, c2, p3 = pts
+    out = []
     for i in range(n + 1):
         t = i / n
-        x, y = x0 + (x1 - x0) * t, y0 + (y1 - y0) * t
-        if bx0 <= x <= bx1 and by0 <= y <= by1:
-            return True
-    return False
+        mt = 1 - t
+        out.append(
+            (
+                mt**3 * p0[0] + 3 * mt**2 * t * c1[0] + 3 * mt * t * t * c2[0] + t**3 * p3[0],
+                mt**3 * p0[1] + 3 * mt**2 * t * c1[1] + 3 * mt * t * t * c2[1] + t**3 * p3[1],
+            )
+        )
+    return out
 
 
 def routed_edge_path(sb: Box, tb: Box, anchor: Box | None, obstacles: list) -> list[list[float]]:
-    """The direct edge (``simple_edge_path``) when its straight path is clear; otherwise route
+    """The direct edge (``simple_edge_path``) when its rendered CURVE is clear; otherwise route
     DOWN a clear vertical channel to one side of the blocking node(s), past their full height,
     then into the target token from below — so the edge never crosses a node. Plate boxes are
-    NOT obstacles (edges are meant to cross plate boundaries) — pass node boxes only."""
+    NOT obstacles (edges are meant to cross plate boundaries) — pass node boxes only.
+
+    We test the actual curve (not the straight chord), so a gentle bend that already clears a
+    corner doesn't provoke a needless detour, while a curve that bulges into a node does."""
     ex, ey = sb.x + sb.w / 2.0, sb.y + sb.h
-    if anchor is not None:
-        nx, ny = anchor.x + anchor.w / 2.0, anchor.y - geometry.STANDOFF
-    else:
-        nx, ny = tb.x + tb.w / 2.0, tb.y
+    nx, ny = _target_point(tb, anchor)
     if abs(ny - ey) < 1.0:
         return simple_edge_path(sb, tb, anchor)
 
-    clippers = [o for o in obstacles if _segment_hits_box((ex, ey), (nx, ny), o, 2.0)]
+    direct = simple_edge_path(sb, tb, anchor)
+    pts = _cubic4_points(direct)[2:-2]  # ignore the endpoints (they touch source/token)
+    clippers = [
+        o
+        for o in obstacles
+        if any(o.x <= x <= o.x + o.w and o.y <= y <= o.y + o.h for x, y in pts)
+    ]
     if not clippers:
-        return simple_edge_path(sb, tb, anchor)
+        return direct
 
     margin = 16.0
     cx = sum(o.x + o.w / 2.0 for o in clippers) / len(clippers)
@@ -133,5 +142,5 @@ def routed_edge_path(sb: Box, tb: Box, anchor: Box | None, obstacles: list) -> l
     bot = min(max(o.y + o.h for o in clippers) + margin, ny - 8.0)
     if bot <= top:  # obstacles fill the whole gap -> fall back to a direct edge
         return simple_edge_path(sb, tb, anchor)
-    stub = max(10.0, min(0.3 * abs(ny - bot), 20.0))
-    return smooth_polyline([[ex, ey], [channel, top], [channel, bot], [nx, ny - stub], [nx, ny]])
+    # end at the token (no vertical stub) so the arrowhead aligns with the (channel,bot)->token approach
+    return smooth_polyline([[ex, ey], [channel, top], [channel, bot], [nx, ny]])

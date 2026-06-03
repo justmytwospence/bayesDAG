@@ -31,7 +31,7 @@ def test_token_anchors_are_real_bboxes(eight_schools_ir):
 
 
 @pytest.mark.skipif(not _math, reason="needs the 'math' extra for token anchors")
-def test_param_edges_enter_token_from_top_without_overlap(eight_schools_ir):
+def test_param_edges_land_on_token_without_overlap(eight_schools_ir):
     res = layout(eight_schools_ir)
     for edge, node, tok in [("theta|y_obs", "y_obs", "loc"), ("mu|theta", "theta", "mu")]:
         b = res.node_token_anchors[node][tok]
@@ -41,7 +41,6 @@ def test_param_edges_enter_token_from_top_without_overlap(eight_schools_ir):
         assert abs(end[0] - cx) < 1.5            # centered on the token
         assert end[1] < b.y                       # arrowhead ABOVE the token (no overlap)
         assert abs((b.y - end[1]) - STANDOFF) < 1.5
-        assert abs(pts[-2][0] - end[0]) < 1.5    # final approach is ~vertical
 
 
 @pytest.mark.skipif(not _math, reason="needs the 'math' extra")
