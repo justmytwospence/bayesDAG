@@ -29,6 +29,9 @@ from . import common
 
 _DIRECTION = {"TB": "DOWN", "BT": "UP", "LR": "RIGHT", "RL": "LEFT"}
 _PLATE_PADDING = "[top=14.0,left=14.0,bottom=28.0,right=14.0]"  # bottom: room for the plate label
+# corner radii of the rendered node chrome (render_svg._CHROME) — edges must exit/enter on the
+# straight part of the border, not the cut corner; deterministic nodes draw no border (exempt).
+_CORNER_RX = {"latent": 9.0, "observed": 9.0, "data": 11.0, "potential": 3.0, "factor": 3.0}
 
 # Synchronous in-process worker: run the GWT engine in its own `self` (inheriting
 # Error/Math from globalThis) and expose a Worker-like handle the elk-api talks to.
@@ -265,6 +268,7 @@ def _collect_edges(ir: ModelIR, data: dict, res: LayoutResult) -> None:
     rounded right-angle cubic chain."""
     offsets = _container_offsets(data)
     by_eid = {e.get("id"): e for e in data.get("edges", [])}
+    roles = {n.id: n.role for n in ir.nodes}
     for i, e in enumerate(ir.edges):
         elk_e = by_eid.get(f"e{i}")
         if elk_e is None:
@@ -294,26 +298,29 @@ def _collect_edges(ir: ModelIR, data: dict, res: LayoutResult) -> None:
         sb = res.node_boxes.get(e.source)
         if sb is not None and abs(pts[1][0] - pts[0][0]) < 0.5:
             tb = res.node_boxes.get(e.target)
-            ex = (anchor.x + anchor.w / 2.0) if anchor is not None else (
+            tok = (anchor.x + anchor.w / 2.0) if anchor is not None else (
                 tb.x + tb.w / 2.0 if tb is not None else pts[0][0]
             )
-            # token over (or at the edge of) the source -> exit exactly under it (clean vertical);
-            # a genuinely-distant token -> exit at the near box edge, pulled a touch off the corner
-            lo, hi, mgn = sb.x, sb.x + sb.w, min(8.0, sb.w * 0.25)
-            if ex < lo:
-                ex = lo if lo - ex <= 10.0 else lo + mgn
-            elif ex > hi:
-                ex = hi if ex - hi <= 10.0 else hi - mgn
+            # exits must stay on the source's STRAIGHT bottom border (>= its corner radius from the
+            # ends), or a rounded box leaves the edge floating off its cut corner; deterministics
+            # draw no border so they're exempt.
+            rx = 0.0 if roles.get(e.source) == "deterministic" else _CORNER_RX.get(roles.get(e.source), 9.0)
+            lo, hi = sb.x + rx, sb.x + sb.w - rx
+            if lo >= hi:
+                lo = hi = sb.x + sb.w / 2.0
             sx0 = pts[0][0]
             run = 1
             while run < len(pts) - 1 and abs(pts[run][0] - sx0) < 0.5:
                 run += 1
             obstacles = [b for nid, b in res.node_boxes.items() if nid not in (e.source, e.target)]
             y0, y1 = pts[0][1], pts[run - 1][1]
-            nxt_x = pts[run][0] if run < len(pts) else ex
-            if _seg_clear(ex, y0, ex, y1, obstacles) and _seg_clear(ex, y1, nxt_x, y1, obstacles):
-                for k in range(run):
-                    pts[k][0] = ex
+            nxt_x = pts[run][0]
+            # prefer exiting under the target token; else ELK's exit nudged onto the straight border
+            for cand in (min(max(tok, lo), hi), min(max(sx0, lo), hi)):
+                if _seg_clear(cand, y0, cand, y1, obstacles) and _seg_clear(cand, y1, nxt_x, y1, obstacles):
+                    for k in range(run):
+                        pts[k][0] = cand
+                    break
         # land token-targeted edges vertically just above their specific token
         if anchor is not None:
             tx = anchor.x + anchor.w / 2.0
