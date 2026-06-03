@@ -33,6 +33,13 @@ _PLATE_PADDING = "[top=14.0,left=14.0,bottom=28.0,right=14.0]"  # bottom: room f
 # straight part of the border, not the cut corner; deterministic nodes draw no border (exempt).
 _CORNER_RX = {"latent": 9.0, "observed": 9.0, "data": 11.0, "potential": 3.0, "factor": 3.0}
 
+
+def _has_border(role: str) -> bool:
+    """A node draws a visible border unless it's a deterministic equation (transparent, no stroke —
+    see render_svg._node_chrome). Edges land a standoff above the box border for bordered nodes, and
+    on the token glyph itself for borderless ones."""
+    return role != "deterministic"
+
 # Synchronous in-process worker: run the GWT engine in its own `self` (inheriting
 # Error/Math from globalThis) and expose a Worker-like handle the elk-api talks to.
 _WORKER_SHIM = r"""
@@ -165,7 +172,9 @@ def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
             if bb is None:
                 continue
             fx, _fy, fw, _fh = bb
-            px = max(1.0, min(w - 1.0, label_ox + (fx + fw / 2.0) * lw))  # token center x
+            # token center x — must equal common.node_token_anchors' cx so ELK routes to the exact
+            # token column (clamp only to the node, never narrow it off the token)
+            px = max(0.0, min(w, label_ox + (fx + fw / 2.0) * lw))
             pid = _port_id(n.id, tok)
             port_ids.add(pid)
             ports.append(
@@ -260,12 +269,68 @@ def _seg_clear(x0: float, y0: float, x1: float, y1: float, boxes: list) -> bool:
     return True
 
 
+_RUN_TOL = 1.0  # treat points within this x of each other as one vertical run (absorbs ELK's 0.5px
+# NORTH-port half-offset so a snapped terminal run is exactly one column)
+
+
+def _attach_source(pts: list, e, res: LayoutResult, roles: dict, anchor) -> None:
+    """Exit the source aligned under the target token (a clean vertical when the token is over the
+    source, otherwise the box edge nearest it). The exit stays on the source's STRAIGHT bottom
+    border (>= its corner radius from the ends, deterministics exempt) so a rounded box doesn't
+    leave the edge floating off its cut corner; the whole leading vertical run is shifted, and only
+    if the moved drop + its connector stay clear of every other node (never creates a through-node)."""
+    sb = res.node_boxes.get(e.source)
+    if sb is None or abs(pts[1][0] - pts[0][0]) >= _RUN_TOL:
+        return
+    tb = res.node_boxes.get(e.target)
+    tok = (anchor.x + anchor.w / 2.0) if anchor is not None else (
+        tb.x + tb.w / 2.0 if tb is not None else pts[0][0]
+    )
+    rx = 0.0 if roles.get(e.source) == "deterministic" else _CORNER_RX.get(roles.get(e.source), 9.0)
+    lo, hi = sb.x + rx, sb.x + sb.w - rx
+    if lo >= hi:
+        lo = hi = sb.x + sb.w / 2.0
+    sx0 = pts[0][0]
+    run = 1
+    while run < len(pts) - 1 and abs(pts[run][0] - sx0) < _RUN_TOL:
+        run += 1
+    obstacles = [b for nid, b in res.node_boxes.items() if nid not in (e.source, e.target)]
+    y0, y1, nxt_x = pts[0][1], pts[run - 1][1], pts[run][0]
+    for cand in (min(max(tok, lo), hi), min(max(sx0, lo), hi)):
+        if _seg_clear(cand, y0, cand, y1, obstacles) and _seg_clear(cand, y1, nxt_x, y1, obstacles):
+            for k in range(run):
+                pts[k][0] = cand
+            break
+
+
+def _attach_target(pts: list, e, res: LayoutResult, roles: dict, anchor) -> None:
+    """Land the arrow a standoff above the target's VISIBLE surface, in the token's column: the box
+    border for a bordered node (arrowhead clears the border) or the token glyph for a borderless
+    equation node. Snap the WHOLE trailing vertical run to the token column (mirror of the source
+    side) so the final approach is exactly vertical, then collapse any same-column point that would
+    sit below the landing so the last segment always descends cleanly."""
+    tb = res.node_boxes.get(e.target)
+    if anchor is None or tb is None:
+        return
+    tx = anchor.x + anchor.w / 2.0
+    ex0 = pts[-1][0]
+    j = len(pts) - 1
+    while j > 0 and abs(pts[j - 1][0] - ex0) < _RUN_TOL:  # back over ELK's trailing vertical run
+        j -= 1
+    for k in range(j, len(pts)):
+        pts[k][0] = tx
+    surface_y = tb.y if _has_border(roles.get(e.target)) else anchor.y
+    pts[-1][1] = surface_y - geometry.STANDOFF
+    # drop same-column points at/below the landing so the final segment never reverses
+    while len(pts) > 2 and abs(pts[-2][0] - tx) < 0.5 and pts[-2][1] >= pts[-1][1] - 0.5:
+        del pts[-2]
+
+
 def _collect_edges(ir: ModelIR, data: dict, res: LayoutResult) -> None:
     """Consume ELK's native orthogonal edge routes. Each ELK edge (id ``e{i}`` -> ``ir.edges[i]``)
     carries a ``container`` whose absolute position offsets the section's relative points; the
-    polyline is ``[startPoint] + bendPoints + [endPoint]``. For a token-targeted edge we drop the
-    arrow vertically onto its token (a standoff above the glyph). The polyline is emitted as a
-    rounded right-angle cubic chain."""
+    polyline is ``[startPoint] + bendPoints + [endPoint]``. Both terminals are then attached
+    symmetrically (``_attach_source``/``_attach_target``) and emitted as a rounded cubic chain."""
     offsets = _container_offsets(data)
     by_eid = {e.get("id"): e for e in data.get("edges", [])}
     roles = {n.id: n.role for n in ir.nodes}
@@ -291,41 +356,8 @@ def _collect_edges(ir: ModelIR, data: dict, res: LayoutResult) -> None:
             if e.target_token_id
             else None
         )
-        # Recenter the source exit under the target: a clean vertical when the target token sits
-        # over the source, otherwise the box edge nearest it. ELK otherwise exits a wide / in-plate
-        # node off to one side, away from where the edge is heading. We shift only the leading
-        # vertical run, and only if the moved drop + its connector stay clear of every other node.
-        sb = res.node_boxes.get(e.source)
-        if sb is not None and abs(pts[1][0] - pts[0][0]) < 0.5:
-            tb = res.node_boxes.get(e.target)
-            tok = (anchor.x + anchor.w / 2.0) if anchor is not None else (
-                tb.x + tb.w / 2.0 if tb is not None else pts[0][0]
-            )
-            # exits must stay on the source's STRAIGHT bottom border (>= its corner radius from the
-            # ends), or a rounded box leaves the edge floating off its cut corner; deterministics
-            # draw no border so they're exempt.
-            rx = 0.0 if roles.get(e.source) == "deterministic" else _CORNER_RX.get(roles.get(e.source), 9.0)
-            lo, hi = sb.x + rx, sb.x + sb.w - rx
-            if lo >= hi:
-                lo = hi = sb.x + sb.w / 2.0
-            sx0 = pts[0][0]
-            run = 1
-            while run < len(pts) - 1 and abs(pts[run][0] - sx0) < 0.5:
-                run += 1
-            obstacles = [b for nid, b in res.node_boxes.items() if nid not in (e.source, e.target)]
-            y0, y1 = pts[0][1], pts[run - 1][1]
-            nxt_x = pts[run][0]
-            # prefer exiting under the target token; else ELK's exit nudged onto the straight border
-            for cand in (min(max(tok, lo), hi), min(max(sx0, lo), hi)):
-                if _seg_clear(cand, y0, cand, y1, obstacles) and _seg_clear(cand, y1, nxt_x, y1, obstacles):
-                    for k in range(run):
-                        pts[k][0] = cand
-                    break
-        # land token-targeted edges vertically just above their specific token
-        if anchor is not None:
-            tx = anchor.x + anchor.w / 2.0
-            pts[-1] = [tx, pts[-1][1]]
-            pts.append([tx, anchor.y - geometry.STANDOFF])  # vertical drop onto the token
+        _attach_source(pts, e, res, roles, anchor)
+        _attach_target(pts, e, res, roles, anchor)
         res.edge_paths[f"{e.source}|{e.target}"] = common.orthogonal_path(pts, radius=5.0)
 
 
