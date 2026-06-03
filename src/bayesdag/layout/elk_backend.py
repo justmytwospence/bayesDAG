@@ -297,8 +297,13 @@ def _collect_edges(ir: ModelIR, data: dict, res: LayoutResult) -> None:
             ex = (anchor.x + anchor.w / 2.0) if anchor is not None else (
                 tb.x + tb.w / 2.0 if tb is not None else pts[0][0]
             )
-            m = min(8.0, sb.w * 0.25)
-            ex = min(max(ex, sb.x + m), sb.x + sb.w - m)  # keep the exit on the source's bottom edge
+            # token over (or at the edge of) the source -> exit exactly under it (clean vertical);
+            # a genuinely-distant token -> exit at the near box edge, pulled a touch off the corner
+            lo, hi, mgn = sb.x, sb.x + sb.w, min(8.0, sb.w * 0.25)
+            if ex < lo:
+                ex = lo if lo - ex <= 10.0 else lo + mgn
+            elif ex > hi:
+                ex = hi if ex - hi <= 10.0 else hi - mgn
             sx0 = pts[0][0]
             run = 1
             while run < len(pts) - 1 and abs(pts[run][0] - sx0) < 0.5:
