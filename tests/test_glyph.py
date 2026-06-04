@@ -7,6 +7,17 @@ from bayesdag.ir import Box
 def test_registry_has_density_and_nonunivariate_kinds():
     ks = glyph.registered_kinds()
     assert {"density", "histogram", "hist_overlay", "bars", "schematic", "heatmap"} <= ks
+    assert {"fan", "pairplot", "mixture", "cutpoints", "simplex", "censored"} <= ks  # special-construct kinds
+
+
+def test_special_glyph_kinds_render():
+    b = Box(0, 0, 80, 40)
+    assert "<path" in glyph.render("fan", {"mid": [0.5, 0.5, 0.5], "lo": [0.4, 0.3, 0.2], "hi": [0.6, 0.7, 0.8]}, b)
+    assert "<ellipse" in glyph.render("pairplot", {"cov": [[1.0, 0.6], [0.6, 1.0]]}, b)
+    assert glyph.render("mixture", {"curves": [{"xs": [0, 1, 2], "ys": [0, 1, 0]}], "spike": 0.3}, b)
+    assert "<rect" in glyph.render("cutpoints", {"probs": [0.2, 0.5, 0.3], "cutpoints": [-1.0, 1.0]}, b)
+    assert "<path" in glyph.render("simplex", {"curves": [{"xs": [0, 0.5, 1], "ys": [0, 1, 0]}]}, b)
+    assert "<rect" in glyph.render("censored", {"xs": [0, 1, 2], "ys": [0.2, 1, 0.2], "spikes": [{"x": 0.0, "h": 0.5}]}, b)
 
 
 def test_glyph_sources(eight_schools_ir):
