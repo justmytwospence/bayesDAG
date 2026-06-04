@@ -15,3 +15,33 @@ without re-doing the research. The decision *log* is the "Foundational decisions
 - **Uncertainty-viz / glyph design** — [Padilla, Kay & Hullman 2022, *Uncertainty Visualization*](http://space.ucmerced.edu/Downloads/publications/Uncertainty_Visualization_Padilla_Kay_Hullman_2022.pdf); [quantile dotplots, Fernandes et al. CHI 2018](https://idl.uw.edu/papers/uncertainty-bus); HOPs (Hullman et al.); [arviz-plots visuals](https://python.arviz.org/projects/plots/en/latest/) (light naming alignment only); bayesplot (naming cross-check); [Petek et al. 2025, arXiv:2508.00937](https://arxiv.org/html/2508.00937v1) (distribution-as-functional view incl. bivariate/simplex/function-valued). *Takeaway:* shape-first (density is the primary mark); an open glyph-kind registry with `interval`/`point` as optional annotations; non-univariate kinds + HOPs/ridgeline are first-class; **design the glyph vocabulary on its own terms, not pinned to any plotting grammar.**
 - **Packaging** — [uv build backend](https://docs.astral.sh/uv/concepts/build-backend/) + [package guide](https://docs.astral.sh/uv/guides/package/) + [deps/extras](https://docs.astral.sh/uv/concepts/projects/dependencies/); [anywidget bundling](https://anywidget.dev/en/bundling/) + [getting started](https://anywidget.dev/en/getting-started/); [hatch-jupyter-builder config](https://hatch-jupyter-builder.readthedocs.io/en/latest/source/get_started/config.html); [create-anywidget](https://github.com/manzt/anywidget/blob/main/packages/create-anywidget/create.js); [marimo anywidget](https://docs.marimo.io/api/inputs/anywidget/). *Takeaway:* `uv` + `hatchling` + `hatch-jupyter-builder` + `esbuild`; Node build-time-only; `mo.ui.anywidget` for marimo.
 - **Posterior geometry / diagnostics** — Betancourt ["Diagnosing Biased Inference with Divergences"](https://betanalpha.github.io/assets/case_studies/divergences_and_bias.html) ([PyMC port](https://www.pymc.io/projects/examples/en/latest/diagnostics_and_criticism/Diagnosing_biased_Inference_with_Divergences.html)); Betancourt & Girolami 2015; Neal's funnel; ArviZ [`plot_pair`](https://python.arviz.org/en/stable/api/generated/arviz.plot_pair.html)/`plot_parallel`/`plot_energy`/`bfmi`/`ess`; bayesplot `mcmc_pairs`/`mcmc_parcoord`; [Gorinova et al. 2020, arXiv:1906.03028](https://arxiv.org/abs/1906.03028) + [`pymc_extras…vip_reparametrize`](https://www.pymc.io/projects/extras/en/stable/generated/pymc_extras.model.transforms.autoreparam.vip_reparametrize.html); ArviZ `unconstrained_posterior` group; [Mosaic, TVCG 2024](https://idl.cs.washington.edu/files/2024-Mosaic-TVCG.pdf). *Takeaway:* funnels are joint + live in unconstrained space; structure-aware pair-selection + auto-`log(τ)` axis is the wedge; VIP gives reparameterization suggestions; Mosaic only if SPLOM brushing must scale.
+
+## Decision log — full distribution coverage (2026-06)
+
+Goal: every PyMC distribution renders correctly + honestly. Co-designed per-family representations
+(the agreed table) and findings verified by introspecting the installed **PyMC 6.0.1** (not docs/training).
+
+- **Verified PyMC-6.0.1 facts that shaped the implementation** (introspection, not assumption):
+  - Detect by **RV class** (`type(op).__name__`), not the op print-name: the print-name aliases/collapses —
+    `MvNormal→"MultivariateNormal"` (so the old `DIST_SYMBOLS["MvNormal"]` was a dead key), `LKJCholeskyCov→"_lkjcholeskycov"`,
+    `ChiSquared→"Gamma"`, `PolyaGamma→"PG"`; and `NormalMixture`/`ZeroInflated*`→`MixtureRV`, `GaussianRandomWalk`→`RandomWalkRV`,
+    `OrderedLogistic/Probit`→`CategoricalRV` (these distinctions are lost at the op level).
+  - **Sub-RVs/params are reachable via `var.owner.inputs`** (per-construct layout): Censored `[base, lo, hi]`;
+    generic Truncated `op.base_rv_op`; RandomWalk `[init_dist, innovation_dist, …]`; AR `[rho, sigma, init_dist, …]`;
+    Mixture inputs carry the component RVs (a `DiracDelta` component ⇒ zero-inflation). Filter to actual RVs
+    (`isinstance` RandomVariable/SymbolicRandomVariable) — `MakeVector` weight ops otherwise leak in.
+  - **The op reparametrizes** several families, so analytic shapes must match `logp`, not the public kwargs:
+    Exponential/Gamma expose *scale* (the old code double-inverted → latent bugs), HalfCauchy a single scale param.
+    Every PyMC→scipy translation is locked by a **logp-matching test** (`test_shapes.py`) — `pm.draw` is *not*
+    a safe oracle (it samples Cauchy as `loc=α/β, scale=1/β`; the density via `logp` is the truth).
+  - **Robustness:** `Flat`/`HalfFlat`/`ICAR` raise on shape `.eval()` and crashed `to_ir` via pymc's `get_plates`;
+    guarded with an eval-free plate fallback.
+  - **Ordinal caveat:** `OrderedLogistic` is a `CategoricalRV` with a computed `p` — not reliably distinguishable
+    from a plain Categorical at the op level, so the cutpoints glyph is best-effort.
+- **Representations** (`adapters/constructs.py`): multivariate→pairplot(ellipses)/heatmap, Dirichlet→simplex
+  (marginal Beta), Censored→base+mass-spikes, TruncatedNormal→clipped density, RandomWalk→fan chart,
+  AR→stationary marginal, Interpolated→density-from-points, CAR/ICAR→adjacency heatmap, mixtures/zero-inflated→composite;
+  GARCH/SDE/LKJ/CustomDist/Simulator/Flat→honest `elision_reason` badge (wires the long-dormant `representable` field).
+- **Showcase** (`examples/zoo.py`): 8 canonical models (stochastic volatility, Weibull survival, zero-inflated counts,
+  correlated slopes, ordinal ratings, Gaussian mixture, disease mapping, AR) chosen so the set exercises the rich glyphs
+  with *recognizable* models, not contrived zoos; the long tail is guaranteed by the all-catalog `test_coverage.py`.

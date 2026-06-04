@@ -25,42 +25,54 @@ arrive with a golden test. Tiers and treatments come from the design plan
 
 ## PyMC construct coverage
 
+**Full-catalog status:** every distribution in PyMC 6.0.1 (~82 families) now renders correctly and
+honestly — a real symbol + a shape glyph where one exists, a faithful structural glyph for the rich
+families, or a hedged `elision_reason` badge where a static picture would mislead. Guaranteed by the
+parametrized `tests/test_coverage.py` (all families: convert + layout + render + non-fallback symbol).
+Detection keys on the **RV class** (`type(op).__name__`); sub-RVs/params come from `var.owner.inputs`
+(see `adapters/constructs.py`). Param→scipy translations are locked by logp-matching tests.
+
 ### Easy (canonical `name ~ Dist(params)` + shape glyph)
-- [ ] Scalar continuous (Normal, HalfNormal, Beta, Gamma, Exponential, StudentT, Uniform, …)
-- [ ] Scalar discrete (Bernoulli, Binomial, Poisson, NegativeBinomial, Categorical, …)
-- [ ] Dirichlet, Multinomial
-- [ ] `pm.Data` / `pm.Minibatch`
+- [x] Scalar continuous — **all** univariate families (scipy-backed pdf; closed-form for Kumaraswamy/LogitNormal/HalfStudentT)
+- [x] Scalar discrete — **all** univariate families (analytic pmf bars; class bars for observed)
+- [x] Dirichlet (simplex marginal-Beta glyph) · Multinomial/DirichletMultinomial/StickBreakingWeights (badge)
+- [x] `pm.Data` / `pm.Minibatch`
 - [ ] `pm.Potential` → factor glyph
-- [ ] `Flat` / `HalfFlat` → name + prior-linter badge
+- [x] `Flat` / `HalfFlat` → improper-prior badge (and they no longer crash `to_ir`)
 
 ### Medium
 - [x] `pm.Deterministic` (math-mode rendering with node budget + elision; leaf port-tokens) — basic ops (add/mul/sub/div/pow/exp/log/sqrt); more ops as needed
 - [ ] Transforms (log/logodds/simplex/…) as badges via `rvs_to_transforms`
-- [ ] MvNormal / matrix params → `heatmap` glyph
+- [x] MvNormal / MvStudentT → `pairplot` (low-dim, covariance ellipses) → `heatmap`; matrix dists (Wishart/MatrixNormal/Kronecker) → `heatmap`
 - [ ] Nested / prefixed submodels (group by prefix)
 - [ ] `pm.do` / `pm.observe`
 
 ### Hard (special-cased)
-- [ ] Truncated (`op.base_rv_op`)
-- [ ] Censored
-- [ ] Mixtures / NormalMixture / ZeroInflated* / Hurdle* (nested components; RV weights)
-- [ ] Timeseries: AR, RandomWalk/GaussianRandomWalk, GARCH11, EulerMaruyama (init_dist + scan; sde_fn opaque)
-- [ ] LKJCholeskyCov (→ ≤3 nodes + nested `sd_dist`) / LKJCorr / Wishart
+- [x] Truncated — `TruncatedNormal` clipped+renormalized density; generic `Truncated(X)` → badge
+- [x] Censored — base density + probability-mass spikes at the bounds
+- [x] Mixtures / NormalMixture / ZeroInflated* (composite: overlaid components / base pmf + zero-spike) · Hurdle* → badge
+- [x] Timeseries: RandomWalk/GaussianRandomWalk → `fan` chart · AR → stationary marginal · GARCH11/EulerMaruyama → badge
+- [x] LKJCholeskyCov / LKJCorr → badge · Wishart → `heatmap`
 - [ ] Missing-data imputation (`_observed` + `_unobserved` + join; `PartialObservedRV`)
 
 ### Honest degradation (render what's recoverable + "elided" badge)
-- [ ] CustomDist / DensityDist
-- [ ] Simulator (SMC)
+- [x] CustomDist / DensityDist → badge · Simulator (SMC) → badge
+- [x] Interpolated → density from its `x_points`/`pdf_points` · DiracDelta → point
+- [x] Spatial CAR / ICAR → adjacency `heatmap` of `W`
 - [ ] Oversized Deterministic / ODE (DifferentialEquation)
-- [ ] GPs (Latent/Marginal/HSGP/TP/Kron) — `_rotated_`/`_hsgp_coeffs_` heuristics
+- [ ] GPs (Latent/Marginal/HSGP/TP/Kron) — not in `pm.distributions`; out of scope here
 
-### Scope decision
+### Known limitations / follow-ups
+- In-node `pairplot` is cramped in the 30px glyph strip — a squarer glyph area (or a card-panel
+  upgrade) would let the dimensionality threshold rise on hover (as designed).
+- Multivariate/symbolic labels can be cosmetically ugly (`second(...)`, `cast(...)`) — per-construct
+  param-name templates would clean this up.
 - [ ] Experimental `pymc.dims` xtensor RVs (`XRV`) — best-effort or declared experimental
 
 ## Glyph kinds (registry)
-- [x] `density` (primary mark) · `histogram` · `schematic` — done; `cdf`/`ccdf`/`gradient`/`dotplot`/`quantile_dotplot`/`band` pending
-- [ ] `interval` / `point` annotations
-- [ ] Non-univariate: `kde2d`/`scatter2d`/`contour2d`/`hexbin` · `heatmap`/`corr_ellipses` · `ternary` · `rose`/`polar` · `stem`/`bar`
+- [x] `density` · `histogram` · `schematic` · `heatmap` · `bars` (discrete pmf) · `hist_overlay` (observed data + best-fit family)
+- [x] special-construct kinds: `fan` (random-walk band) · `pairplot` (marginals + covariance ellipses) · `mixture` (overlaid components / zero-spike) · `cutpoints` (ordinal) · `simplex` (Dirichlet marginal Beta) · `censored` (base + bound spikes)
+- [ ] `cdf`/`ccdf`/`gradient`/`dotplot`/`quantile_dotplot`/`band`; `interval`/`point` annotations
 - [ ] Cross-cutting: `transform.animate="hops"` · `layout="ridgeline"`
 
 ## Exporters / interop
