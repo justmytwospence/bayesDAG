@@ -16,11 +16,32 @@
 /* hover-highlight: fade everything not in the focused node's Markov blanket */
 .bayesdag .bd-node,
 .bayesdag .bd-edge {
-  transition: opacity 0.12s ease;
+  transition: opacity 0.12s ease, filter 0.12s ease;
 }
 .bayesdag .bd-node.bd-dim,
 .bayesdag .bd-edge.bd-dim {
   opacity: 0.18;
+}
+
+/* pinned causal trace: directional lineage of the selected node.
+   upstream (ancestors / causes) = blue, downstream (descendants / effects) = amber,
+   the selected node itself = a neutral slate ring. */
+.bayesdag .bd-node.bd-focus {
+  filter: drop-shadow(0 0 3px rgba(17, 24, 39, 0.65));
+}
+.bayesdag .bd-node.bd-up {
+  filter: drop-shadow(0 0 2.5px #2563eb);
+}
+.bayesdag .bd-node.bd-down {
+  filter: drop-shadow(0 0 2.5px #d97706);
+}
+.bayesdag .bd-edge.bd-edge-up {
+  stroke: #2563eb;
+  marker-end: url(#bd-arrow-up);
+}
+.bayesdag .bd-edge.bd-edge-down {
+  stroke: #d97706;
+  marker-end: url(#bd-arrow-down);
 }
 
 /* hover tooltip */
@@ -78,6 +99,14 @@
   font-weight: 400;
   color: #6b7075;
   font-size: 11px;
+}
+/* observed-node histogram + best-fit-family overlay (data vs theory) inside the pinned card */
+.bd-overlay {
+  margin: 8px 0 2px;
+}
+.bd-overlay svg {
+  max-width: 100%;
+  height: auto;
 }
 .bd-ctor {
   margin: 6px 0 2px;

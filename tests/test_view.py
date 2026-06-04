@@ -55,7 +55,13 @@ def test_widget_spec_has_nodes_adjacency_and_tags(eight_schools_model):
     assert "svg" in spec and "nodes" in spec
     assert set(spec["nodes"]) == {"mu", "tau", "eta", "theta", "y_obs"}
     assert "theta" in spec["nodes"]["tau"]["blanket"]  # Markov blanket adjacency
+    # transitive lineage for the directional pin trace (mu -> theta -> y_obs)
+    assert spec["nodes"]["mu"]["descendants"] == ["theta", "y_obs"]
+    assert spec["nodes"]["mu"]["ancestors"] == []
+    assert set(spec["nodes"]["y_obs"]["ancestors"]) == {"mu", "tau", "eta", "theta"}
+    assert spec["nodes"]["y_obs"]["descendants"] == []
     assert spec["nodes"]["y_obs"]["params"]            # per-node detail (loc/scale)
+    assert "<svg" in spec["nodes"]["y_obs"]["panel"]   # observed: histogram + best-fit overlay panel
     assert 'class="bd-node"' in spec["svg"] and 'class="bd-edge"' in spec["svg"]
     assert 'class="bd-plate"' in spec["svg"]
 

@@ -61,16 +61,47 @@ export default {
       const edgeEls = Array.from(svg.querySelectorAll(".bd-edge"));
       let pinned = null;
 
+      const NODE_HL = ["bd-dim", "bd-focus", "bd-up", "bd-down"];
+      const EDGE_HL = ["bd-dim", "bd-edge-up", "bd-edge-down"];
+
+      // hover: fade everything outside the focused node's Markov blanket (local, crisp).
       function highlight(id) {
         const keep = new Set([id, ...((nodes[id] && nodes[id].blanket) || [])]);
-        nodeEls.forEach((n) => n.classList.toggle("bd-dim", !keep.has(n.dataset.node)));
-        edgeEls.forEach((e) =>
-          e.classList.toggle("bd-dim", e.dataset.src !== id && e.dataset.tgt !== id)
-        );
+        nodeEls.forEach((n) => {
+          n.classList.remove("bd-focus", "bd-up", "bd-down");
+          n.classList.toggle("bd-dim", !keep.has(n.dataset.node));
+        });
+        edgeEls.forEach((e) => {
+          e.classList.remove("bd-edge-up", "bd-edge-down");
+          e.classList.toggle("bd-dim", e.dataset.src !== id && e.dataset.tgt !== id);
+        });
+      }
+      // pin (click): directional causal trace — upstream (ancestors) vs downstream
+      // (descendants), so the full lineage reads as a flow instead of one flat dim/undim split.
+      function trace(id) {
+        const n = nodes[id] || {};
+        const up = new Set(n.ancestors || []);
+        const down = new Set(n.descendants || []);
+        nodeEls.forEach((el) => {
+          const k = el.dataset.node;
+          el.classList.remove(...NODE_HL);
+          if (k === id) el.classList.add("bd-focus");
+          else if (up.has(k)) el.classList.add("bd-up");
+          else if (down.has(k)) el.classList.add("bd-down");
+          else el.classList.add("bd-dim");
+        });
+        edgeEls.forEach((e) => {
+          const s = e.dataset.src;
+          const t = e.dataset.tgt;
+          e.classList.remove(...EDGE_HL);
+          if (up.has(s) && (up.has(t) || t === id)) e.classList.add("bd-edge-up");
+          else if (down.has(t) && (down.has(s) || s === id)) e.classList.add("bd-edge-down");
+          else e.classList.add("bd-dim");
+        });
       }
       function clearHl() {
-        nodeEls.forEach((n) => n.classList.remove("bd-dim"));
-        edgeEls.forEach((e) => e.classList.remove("bd-dim"));
+        nodeEls.forEach((n) => n.classList.remove(...NODE_HL));
+        edgeEls.forEach((e) => e.classList.remove(...EDGE_HL));
       }
       function showTooltip(id, ev) {
         const n = nodes[id];
@@ -96,6 +127,8 @@ export default {
         if (n.transform) rows.push(`<div>transform: ${esc(n.transform)}</div>`);
         const ctor = constructorText(id, n);
         if (ctor) rows.push(`<pre class="bd-ctor">${esc(ctor)}</pre>`);
+        // observed nodes: the Python-rendered histogram + best-fit-family overlay (data vs theory)
+        if (n.panel) rows.push(`<div class="bd-overlay">${n.panel}</div>`);
         rows.push('<div class="bd-card-hint">click empty space to close</div>');
         card.innerHTML = rows.join("");
         card.style.display = "block";
@@ -124,7 +157,7 @@ export default {
           pinned = id;
           model.set("selected_node", id);
           model.save_changes();
-          highlight(id);
+          trace(id);
           tooltip.style.display = "none";
           panel.style.display = "none";
           showCard(id);

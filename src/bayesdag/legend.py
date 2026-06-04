@@ -39,6 +39,8 @@ def build(ir: ModelIR) -> list[LegendItem]:
     for src in ("prior_analytic", "posterior_kde", "observed_hist", "prior_family_only"):
         if any(n.glyph and n.glyph.source == src for n in ir.nodes):
             items.append(LegendItem(f"glyph:{src}", _SOURCE_LABELS[src]))
+    if any(n.glyph and n.glyph.kind == "hist_overlay" for n in ir.nodes):
+        items.append(LegendItem("glyph:best_fit", "best-fit family (shape check)"))
 
     if any(n.role in ("latent", "observed") for n in ir.nodes):
         items.append(LegendItem("symbol:~", "“~”  distributed as"))

@@ -6,7 +6,7 @@ from bayesdag.ir import Box
 
 def test_registry_has_density_and_nonunivariate_kinds():
     ks = glyph.registered_kinds()
-    assert {"density", "histogram", "schematic", "heatmap"} <= ks
+    assert {"density", "histogram", "hist_overlay", "bars", "schematic", "heatmap"} <= ks
 
 
 def test_glyph_sources(eight_schools_ir):
@@ -14,7 +14,8 @@ def test_glyph_sources(eight_schools_ir):
     assert g["mu"].source == "prior_analytic" and g["mu"].kind == "density"
     assert g["tau"].source == "prior_analytic"
     assert g["eta"].source == "prior_analytic"  # iid vector prior resolves to a single shape
-    assert g["y_obs"].source == "observed_hist" and g["y_obs"].kind == "histogram"
+    # continuous observed likelihood -> data histogram + MLE best-fit family overlay
+    assert g["y_obs"].source == "observed_hist" and g["y_obs"].kind == "hist_overlay"
     assert g["theta"] is None  # deterministic -> no shape glyph in M0
 
 
@@ -29,6 +30,48 @@ def test_density_and_histogram_render(eight_schools_ir):
     h = glyph.render("histogram", eight_schools_ir.node("y_obs").glyph_data, box)
     assert d.count("<path") >= 2  # filled area + line
     assert "<rect" in h
+
+
+def test_observed_overlay_shared_scale(eight_schools_ir):
+    gd = eight_schools_ir.node("y_obs").glyph_data
+    assert "overlay" in gd and gd["overlay"]["xs"] and gd["overlay"]["ys"]
+    # the best-fit curve spans exactly the histogram's x-range...
+    assert gd["overlay"]["xs"][0] == gd["edges"][0]
+    assert gd["overlay"]["xs"][-1] == gd["edges"][-1]
+    # ...and both sit on ONE shared vertical scale: each peaks <=1, the taller one hits ~1
+    assert max(gd["counts"]) <= 1.0 + 1e-9
+    assert max(gd["overlay"]["ys"]) <= 1.0 + 1e-9
+    assert abs(max(max(gd["counts"]), max(gd["overlay"]["ys"])) - 1.0) < 1e-9
+
+
+def test_discrete_observed_renders_as_class_bars():
+    from conftest import MODEL_BUILDERS
+
+    from bayesdag.convert import to_ir
+
+    for name in ("irt", "mrp"):
+        ir = to_ir(MODEL_BUILDERS[name]())
+        y = ir.node("y")  # Bernoulli likelihood -> one bar per class, no continuous overlay
+        assert y.glyph.source == "observed_hist" and y.glyph.kind == "bars"
+        gd = y.glyph_data or {}
+        assert "overlay" not in gd
+        assert gd.get("cats") == [0, 1] and len(gd["heights"]) == 2
+
+
+def test_bars_render_is_slot_centered():
+    import re
+
+    out = glyph.render("bars", {"cats": [0, 1], "heights": [0.6, 1.0]}, Box(0, 0, 40, 30))
+    assert out.count("<rect") == 2  # one bar per class
+    # bars sit centered in their slots, not pinned to the box edges
+    xs = sorted(float(x) for x in re.findall(r'<rect x="([\d.]+)"', out))
+    assert xs[0] > 0.0
+
+
+def test_hist_overlay_renders_bars_and_curve(eight_schools_ir):
+    out = glyph.render("hist_overlay", eight_schools_ir.node("y_obs").glyph_data, Box(0, 0, 60, 30))
+    assert "<rect" in out  # data bars
+    assert "<path" in out  # best-fit family curve
 
 
 def test_nonunivariate_kind_renders_via_same_registry():

@@ -12,7 +12,7 @@ from . import render_static
 from .convert import to_ir
 from .ir import ModelIR
 from .layout import layout
-from .render_svg import to_svg
+from .render_svg import render_observed_panel, to_svg
 
 
 def _in_marimo() -> bool:
@@ -73,6 +73,7 @@ class ModelGraphView:
 
             moral = nx.moral_graph(g)
         except Exception:
+            nx = None
             moral = None
         parents: dict[str, list] = {n.id: [] for n in self.ir.nodes}
         children: dict[str, list] = {n.id: [] for n in self.ir.nodes}
@@ -82,6 +83,12 @@ class ModelGraphView:
         nodes = {}
         for n in self.ir.nodes:
             blanket = sorted(moral.neighbors(n.id)) if (moral is not None and n.id in moral) else []
+            # Transitive lineage for the directional causal trace shown on pin (click): every
+            # node that flows INTO this one (ancestors) vs. every node it flows into
+            # (descendants). Computed here so the JS layer stays graph-algorithm-free.
+            in_graph = nx is not None and n.id in g
+            ancestors = sorted(nx.ancestors(g, n.id)) if in_graph else []
+            descendants = sorted(nx.descendants(g, n.id)) if in_graph else []
             nodes[n.id] = {
                 "role": n.role,
                 "dist": n.dist,
@@ -92,10 +99,18 @@ class ModelGraphView:
                 "parents": parents.get(n.id, []),
                 "children": children.get(n.id, []),
                 "blanket": blanket,
+                "ancestors": ancestors,
+                "descendants": descendants,
                 # the SAME MathJax SVG embedded in the diagram -> the tooltip/card show real
                 # rendered math (parity), not raw LaTeX source.
                 "label_svg": n.label_svg,
             }
+            # observed nodes get a larger histogram + best-fit-family overlay for the pinned card
+            # (built straight from the precomputed glyph_data; JS just injects this SVG).
+            if n.role == "observed" and n.glyph_data:
+                panel = render_observed_panel(n.id, n.dist, n.glyph_data)
+                if panel:
+                    nodes[n.id]["panel"] = panel
         plates: dict = {}
         if self._model is not None and self.ir.plates:
             try:

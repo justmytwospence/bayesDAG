@@ -101,6 +101,125 @@ def _histogram(values, max_bins: int = 30) -> Optional[dict]:
     return {"edges": [float(e) for e in edges], "counts": [float(c / m) for c in counts]}
 
 
+# Discrete likelihoods: a continuous best-fit overlay is meaningless (a best-fit Bernoulli is
+# degenerate), so observed nodes with these families fall back to the plain histogram.
+_DISCRETE = {
+    "Bernoulli",
+    "Binomial",
+    "Poisson",
+    "NegativeBinomial",
+    "Categorical",
+    "DiscreteUniform",
+    "Geometric",
+}
+
+# PyMC family name -> (scipy class, fixed-param kwargs for `.fit`). Support-constrained families
+# are fit with the location pinned (floc=0) — and Beta on the unit interval — so the MLE respects
+# the family's domain. Mirrors the continuous coverage of `_scipy_frozen` above.
+def _fitters():
+    import scipy.stats as st
+
+    return {
+        "Normal": (st.norm, {}),
+        "StudentT": (st.t, {}),
+        "Cauchy": (st.cauchy, {}),
+        "Laplace": (st.laplace, {}),
+        "Uniform": (st.uniform, {}),
+        "Exponential": (st.expon, {"floc": 0.0}),
+        "HalfNormal": (st.halfnorm, {"floc": 0.0}),
+        "HalfCauchy": (st.halfcauchy, {"floc": 0.0}),
+        "LogNormal": (st.lognorm, {"floc": 0.0}),
+        "Gamma": (st.gamma, {"floc": 0.0}),
+        "InverseGamma": (st.invgamma, {"floc": 0.0}),
+        "Weibull": (st.weibull_min, {"floc": 0.0}),
+        "Beta": (st.beta, {"floc": 0.0, "fscale": 1.0}),
+    }
+
+
+def _fit_frozen(dist: str, v):
+    """MLE-fit the continuous family ``dist`` to data ``v``; return a scipy frozen dist or None.
+
+    This is the *best the chosen family can do* on the data — it isolates whether the FAMILY is a
+    reasonable shape, independent of the model's priors. Any non-convergence / domain error yields
+    ``None`` (caller falls back to the plain histogram)."""
+    try:
+        fam = _fitters().get(dist)
+        if fam is None:
+            return None
+        cls, kw = fam
+        params = cls.fit(v, **kw)  # (shapes..., loc, scale)
+        return cls(*params)
+    except Exception:
+        return None
+
+
+def _fit_label(frozen, dist: str) -> str:
+    """Short, family-agnostic summary of the fit for the card title (empty if no finite moments)."""
+    try:
+        mean, sd = float(frozen.mean()), float(frozen.std())
+        if np.isfinite(mean) and np.isfinite(sd):
+            return f"mean={mean:.3g}, sd={sd:.3g}"
+    except Exception:
+        pass
+    return ""
+
+
+def _observed_overlay(vals, dist: Optional[str], max_bins: int = 30) -> Optional[dict]:
+    """Empirical density histogram + MLE best-fit family curve on ONE SHARED vertical scale.
+
+    The histogram is area-normalized (``density=True``) and the best-fit pdf is sampled over the
+    same x-span, then BOTH are divided by a single max so they are directly comparable (a naive
+    overlay of two independently peak-normalized curves would not line up). Returns None when no
+    continuous fit is possible (discrete family / unmapped / degenerate data) so the caller can
+    fall back to the plain max-normalized histogram."""
+    v = np.asarray(vals, float).ravel()
+    v = v[np.isfinite(v)]
+    if v.size < 2 or np.allclose(v, v[0]):
+        return None
+    if not dist or dist in _DISCRETE:
+        return None
+    frozen = _fit_frozen(dist, v)
+    if frozen is None:
+        return None
+    edges = np.histogram_bin_edges(v, bins="auto")
+    if len(edges) > max_bins + 1:
+        edges = np.histogram_bin_edges(v, bins=max_bins)
+    dens, edges = np.histogram(v, bins=edges, density=True)
+    xs = np.linspace(float(edges[0]), float(edges[-1]), _GRID)
+    try:
+        ys = np.asarray(frozen.pdf(xs), float)
+    except Exception:
+        return None
+    if not np.all(np.isfinite(ys)):
+        return None
+    m = max(float(dens.max()) if dens.size else 0.0, float(ys.max()) if ys.size else 0.0) or 1.0
+    return {
+        "edges": [float(e) for e in edges],
+        "counts": [float(d / m) for d in dens],
+        "overlay": {"xs": [float(x) for x in xs], "ys": [float(y / m) for y in ys]},
+        "fit": {"family": dist, "n": int(v.size), "params": _fit_label(frozen, dist)},
+    }
+
+
+def _discrete_bars(values, max_cats: int = 30) -> Optional[dict]:
+    """Observed proportions for an integer/categorical likelihood (Bernoulli/Binomial/Poisson/...)
+    as ONE bar per class — the honest representation of a pmf. Avoids the continuous auto-histogram,
+    which scatters binary data into edge-pinned bins with empty gaps between. Returns None when the
+    value range is too wide to be categorical (caller falls back to a continuous histogram)."""
+    v = np.asarray(values, float).ravel()
+    v = v[np.isfinite(v)]
+    if v.size == 0:
+        return None
+    vi = np.rint(v).astype(int)
+    lo, hi = int(vi.min()), int(vi.max())
+    cats = list(range(lo, hi + 1))  # include empty interior classes so a pmf's gaps stay visible
+    if len(cats) > max_cats:
+        return None
+    counts = np.array([float(np.count_nonzero(vi == c)) for c in cats])
+    m = float(counts.max()) or 1.0
+    return {"cats": cats, "heights": [float(c / m) for c in counts], "n": int(v.size)}
+
+
 def _numeric_params(var) -> Optional[list]:
     node = var.owner
     op = node.op
@@ -151,7 +270,18 @@ def glyph_for(var, role: str, dist: Optional[str], model, idata=None) -> tuple[O
 
     if role == "observed":
         vals = _observed_values(var, model)
-        data = _histogram(vals) if vals is not None else None
+        if vals is None:
+            return None, None
+        # discrete likelihood -> per-class proportion bars (Bernoulli/Binomial/Poisson/...)
+        if dist and dist in _DISCRETE:
+            bars = _discrete_bars(vals)
+            if bars is not None:
+                return GlyphSpec(kind="bars", source="observed_hist"), bars
+        # continuous: best-fit family curve overlaid on the data histogram; else plain histogram
+        overlay = _observed_overlay(vals, dist)
+        if overlay is not None:
+            return GlyphSpec(kind="hist_overlay", source="observed_hist"), overlay
+        data = _histogram(vals)
         if data is not None:
             return GlyphSpec(kind="histogram", source="observed_hist"), data
         return None, None

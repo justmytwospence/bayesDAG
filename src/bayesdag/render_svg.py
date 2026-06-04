@@ -13,6 +13,7 @@ from xml.sax.saxutils import escape
 
 from . import geometry, glyph
 from . import legend as _legend
+from .glyph.kinds import bar_layout as glyph_bar_layout
 from .ir import Box, LayoutResult, ModelIR, NodeIR
 
 _LEGEND_GAP = 14.0
@@ -34,11 +35,27 @@ _GLYPH_COLORS = {
     "posterior_kde": ("#d2691e", "#d2691e"),
     "observed_hist": ("#3a5f95", "#5a7fb5"),
 }
+# MLE best-fit family curve drawn over an observed histogram (the conventional "fitted curve" red;
+# distinct from data=blue, prior=green, posterior=orange).
+_OVERLAY = "#c0392b"
 
+def _arrow(mid: str, color: str) -> str:
+    return (
+        f'<marker id="{mid}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5.5" '
+        f'markerHeight="5.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" '
+        f'fill="{color}"/></marker>'
+    )
+
+
+# Default grey arrowhead + the two tinted heads the widget swaps in (via CSS marker-end) for
+# the directional causal trace: upstream = blue, downstream = amber. The static renderer never
+# applies the trace classes, so it always shows the grey head — parity is unaffected.
 _DEFS = (
-    '<defs><marker id="bd-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5.5" '
-    'markerHeight="5.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" '
-    'fill="#555"/></marker></defs>'
+    "<defs>"
+    + _arrow("bd-arrow", "#555")
+    + _arrow("bd-arrow-up", "#2563eb")
+    + _arrow("bd-arrow-down", "#d97706")
+    + "</defs>"
 )
 
 
@@ -148,6 +165,86 @@ def render_plate_panel(expansion: dict) -> str:
     return "".join(out)
 
 
+def render_observed_panel(node_id: str, dist: str | None, glyph_data: dict) -> str:
+    """Standalone SVG for the widget's pinned card. Continuous likelihoods show the data histogram
+    with the MLE best-fit family density overlaid (a HEDGED shape comparison, never a goodness-of-fit
+    verdict); discrete likelihoods show per-class proportion bars. Both carry an x-axis + an n/fit
+    summary."""
+    heights = glyph_data.get("heights")  # discrete pmf bars
+    edges, counts = glyph_data.get("edges"), glyph_data.get("counts")  # continuous histogram
+    if not heights and not (edges and counts):
+        return ""
+    overlay = glyph_data.get("overlay")
+    fit = glyph_data.get("fit") or {}
+    n = fit.get("n") or glyph_data.get("n")
+    pad, title_h, ph, axis_h, text_h = 12.0, 20.0, 96.0, 18.0, 14.0
+    pw = 300.0
+    w = pw + 2 * pad
+    plot = Box(pad, pad + title_h, pw, ph)
+    sub_y = plot.y + ph + axis_h + 11
+    cap_y = sub_y + text_h
+    h = cap_y + pad - 4
+    n_str = f" (n={n})" if n else ""
+
+    def _fmt(v) -> str:
+        return str(int(v)) if float(v).is_integer() else f"{float(v):.3g}"
+
+    if heights:  # discrete: one bar per class
+        kind = "bars"
+        title = f"{escape(node_id)} — observed data{n_str}"
+        sub = "discrete likelihood — observed class proportions"
+        caption = ""
+        cats = glyph_data.get("cats") or list(range(len(heights)))
+        k = len(cats)
+        _, centers = glyph_bar_layout(k, plot)  # tick under each bar center (kept in sync)
+        idxs = range(k) if k <= 10 else (0, k // 2, k - 1)
+        ticks = [((centers[i] - plot.x) / plot.w, cats[i]) for i in idxs]
+    elif overlay and (fit.get("family") or dist):  # continuous + best-fit curve
+        kind = "hist_overlay"
+        fam = fit.get("family") or dist
+        title = f"{escape(node_id)} — best-fit {escape(fam)}{n_str}"
+        sub = fit.get("params") or ""
+        caption = "shape check: data vs best-fit family — not a goodness-of-fit test"
+        x0, x1 = float(edges[0]), float(edges[-1])
+        ticks = [(0.0, x0), (0.5, 0.5 * (x0 + x1)), (1.0, x1)]
+    else:  # continuous, no fit available
+        kind = "histogram"
+        title = f"{escape(node_id)} — observed data{n_str}"
+        sub = "best-fit overlay n/a (unfittable likelihood)"
+        caption = ""
+        x0, x1 = float(edges[0]), float(edges[-1])
+        ticks = [(0.0, x0), (0.5, 0.5 * (x0 + x1)), (1.0, x1)]
+
+    bstroke, bfill = _GLYPH_COLORS["observed_hist"]
+    axis_y = plot.y + plot.h
+    out = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w:.0f}" height="{h:.0f}" '
+        f'viewBox="0 0 {w:.0f} {h:.0f}" font-family="system-ui, sans-serif">',
+        f'<rect width="{w:.0f}" height="{h:.0f}" rx="8" fill="#ffffff" stroke="#c7c7cc"/>',
+        f'<text x="{pad:.0f}" y="{pad + 12:.0f}" font-size="12" font-weight="600" fill="#333">{title}</text>',
+        f'<rect x="{plot.x:.1f}" y="{plot.y:.1f}" width="{plot.w:.1f}" height="{plot.h:.1f}" '
+        'fill="#fafafa" stroke="#eeeeee"/>',
+        glyph.render(kind, glyph_data, plot, stroke=bstroke, fill=bfill, overlay=_OVERLAY),
+    ]
+    for frac, val in ticks:
+        px = plot.x + frac * plot.w
+        anchor = "start" if frac < 0.05 else ("end" if frac > 0.95 else "middle")
+        out.append(
+            f'<line x1="{px:.1f}" y1="{axis_y:.1f}" x2="{px:.1f}" y2="{axis_y + 4:.1f}" '
+            'stroke="#999" stroke-width="0.8"/>'
+        )
+        out.append(
+            f'<text x="{px:.1f}" y="{axis_y + 14:.1f}" text-anchor="{anchor}" font-size="9" '
+            f'fill="#777">{_fmt(val)}</text>'
+        )
+    if sub:
+        out.append(f'<text x="{pad:.0f}" y="{sub_y:.1f}" font-size="10" fill="#555">{escape(sub)}</text>')
+    if caption:
+        out.append(f'<text x="{pad:.0f}" y="{cap_y:.1f}" font-size="9" fill="#9aa0a6">{caption}</text>')
+    out.append("</svg>")
+    return "".join(out)
+
+
 def _legend_swatch(kind: str, b: Box) -> str:
     if kind.startswith("role:"):
         role = kind.split(":", 1)[1]
@@ -160,6 +257,8 @@ def _legend_swatch(kind: str, b: Box) -> str:
     if kind.startswith("glyph:"):
         src = kind.split(":", 1)[1]
         stroke, fill = _GLYPH_COLORS.get(src, ("#2a8a55", "#2a8a55"))
+        if src == "best_fit":
+            return glyph.render("density", {"xs": _BELL[0], "ys": _BELL[1]}, b, stroke=_OVERLAY, fill=_OVERLAY)
         if src == "observed_hist":
             data = {"edges": [0, 1, 2, 3], "counts": [0.6, 1.0, 0.45]}
             return glyph.render("histogram", data, b, fill=fill, stroke=stroke)
