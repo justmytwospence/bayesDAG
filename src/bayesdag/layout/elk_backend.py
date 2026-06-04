@@ -25,6 +25,7 @@ from typing import Optional
 
 from .. import geometry
 from ..ir import Box, LayoutResult, ModelIR
+from ..labels import LHS_TOKEN
 from . import common
 
 _DIRECTION = {"TB": "DOWN", "BT": "UP", "LR": "RIGHT", "RL": "LEFT"}
@@ -157,6 +158,7 @@ def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
     for e in ir.edges:
         if e.target_token_id:
             targeted.setdefault(e.target, set()).add(e.target_token_id)
+    edge_sources = {e.source for e in ir.edges}
 
     port_ids: set[str] = set()
 
@@ -181,6 +183,19 @@ def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
                 {"id": pid, "x": px, "y": 0.0, "width": 1.0, "height": 1.0,
                  "layoutOptions": {"elk.port.side": "NORTH"}}
             )
+        # a deterministic equation's value flows out of its LHS variable: give it a SOUTH port at
+        # that variable's x so ELK routes the outgoing edge from the variable, not the box edge.
+        if n.role == "deterministic" and n.id in edge_sources:
+            bb = bboxes.get(LHS_TOKEN)
+            if bb is not None:
+                fx, _fy, fw, _fh = bb
+                px = max(0.0, min(w, label_ox + (fx + fw / 2.0) * lw))
+                pid = _port_id(n.id, LHS_TOKEN)
+                port_ids.add(pid)
+                ports.append(
+                    {"id": pid, "x": px, "y": float(h), "width": 1.0, "height": 1.0,
+                     "layoutOptions": {"elk.port.side": "SOUTH"}}
+                )
         if ports:
             d["ports"] = ports
             d["layoutOptions"] = {"elk.portConstraints": "FIXED_POS"}
@@ -203,9 +218,11 @@ def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
     ordered = sorted(enumerate(ir.edges), key=lambda ie: (ie[1].target, _tok_x(ie[1])))
     edges = []
     for i, e in ordered:
+        spid = _port_id(e.source, LHS_TOKEN)
+        src = spid if spid in port_ids else e.source  # deterministic sources exit via their LHS port
         pid = _port_id(e.target, e.target_token_id) if e.target_token_id else None
         tgt = pid if pid in port_ids else e.target
-        edges.append({"id": f"e{i}", "sources": [e.source], "targets": [tgt]})
+        edges.append({"id": f"e{i}", "sources": [src], "targets": [tgt]})
     return {
         "id": "root",
         "layoutOptions": {
@@ -273,7 +290,7 @@ _RUN_TOL = 1.0  # treat points within this x of each other as one vertical run (
 # NORTH-port half-offset so a snapped terminal run is exactly one column)
 
 
-def _attach_source(pts: list, e, res: LayoutResult, roles: dict, anchor) -> None:
+def _attach_source(pts: list, e, res: LayoutResult, roles: dict, nodes: dict, anchor) -> None:
     """Exit the source aligned under the target token (a clean vertical when the token is over the
     source, otherwise the box edge nearest it). The exit stays on the source's STRAIGHT bottom
     border (>= its corner radius from the ends, deterministics exempt) so a rounded box doesn't
@@ -281,6 +298,18 @@ def _attach_source(pts: list, e, res: LayoutResult, roles: dict, anchor) -> None
     if the moved drop + its connector stay clear of every other node (never creates a through-node)."""
     sb = res.node_boxes.get(e.source)
     if sb is None or abs(pts[1][0] - pts[0][0]) >= _RUN_TOL:
+        return
+    # A deterministic equation's value flows out of its LHS variable: ELK already exits from that
+    # variable's SOUTH port, so just lift the start up to the variable's bottom (the edge begins at
+    # the variable, not the invisible padded box bottom below it). No target-alignment here.
+    if not _has_border(roles.get(e.source)):
+        lhs = res.node_token_anchors.get(e.source, {}).get(LHS_TOKEN)
+        n = nodes.get(e.source)
+        ey = (lhs.y + lhs.h) if lhs is not None else (
+            sb.y + geometry.PAD + (geometry.label_px_size(n.label_svg)[1] if n else 16.0)
+        )
+        if ey < pts[0][1]:  # raise the start up to the variable (never push it down)
+            pts[0][1] = ey
         return
     tb = res.node_boxes.get(e.target)
     tok = (anchor.x + anchor.w / 2.0) if anchor is not None else (
@@ -334,6 +363,7 @@ def _collect_edges(ir: ModelIR, data: dict, res: LayoutResult) -> None:
     offsets = _container_offsets(data)
     by_eid = {e.get("id"): e for e in data.get("edges", [])}
     roles = {n.id: n.role for n in ir.nodes}
+    nodes = {n.id: n for n in ir.nodes}
     for i, e in enumerate(ir.edges):
         elk_e = by_eid.get(f"e{i}")
         if elk_e is None:
@@ -356,7 +386,7 @@ def _collect_edges(ir: ModelIR, data: dict, res: LayoutResult) -> None:
             if e.target_token_id
             else None
         )
-        _attach_source(pts, e, res, roles, anchor)
+        _attach_source(pts, e, res, roles, nodes, anchor)
         _attach_target(pts, e, res, roles, anchor)
         res.edge_paths[f"{e.source}|{e.target}"] = common.orthogonal_path(pts, radius=5.0)
 

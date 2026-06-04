@@ -77,6 +77,10 @@ def dist_symbol(dist_name: Optional[str]) -> str:
     return DIST_SYMBOLS.get(dist_name, rf"\operatorname{{{dist_name}}}")
 
 
+LHS_TOKEN = "__lhs__"  # reserved token id for a deterministic equation's left-hand-side variable,
+# so its outgoing edge can originate from the variable it defines (never a port-edge target)
+
+
 def _cssid(token_id: str, content: str) -> str:
     return rf"\cssId{{tok-{token_id}}}{{{content}}}"
 
@@ -96,8 +100,12 @@ def assemble_stochastic(
 
 def assemble_deterministic(node_name: str, expr_tex: str, leaf_tokens: list[str]) -> tuple[str, TokenIR]:
     sym = symbol_for(node_name)
-    label = f"{sym} = {expr_tex}"
-    tree = TokenIR(token_id="root", tex=label, children=[TokenIR(t, t) for t in leaf_tokens])
+    # wrap the LHS variable so it's anchorable — its outgoing edge originates from the variable
+    label = f"{_cssid(LHS_TOKEN, sym)} = {expr_tex}"
+    tree = TokenIR(
+        token_id="root", tex=label,
+        children=[TokenIR(LHS_TOKEN, sym), *[TokenIR(t, t) for t in leaf_tokens]],
+    )
     return label, tree
 
 

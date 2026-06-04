@@ -32,7 +32,8 @@ def test_assemble_stochastic_wraps_tokens():
 def test_eight_schools_labels(eight_schools_ir):
     nd = {n.id: n for n in eight_schools_ir.nodes}
     # deterministic rendered as real math, each leaf anchorable
-    assert nd["theta"].label_tex.startswith(r"\theta =")
+    # the LHS variable is wrapped so it's anchorable (its outgoing edge originates from it)
+    assert nd["theta"].label_tex.startswith(rf"\cssId{{tok-{labels.LHS_TOKEN}}}{{\theta}} = ")
     for tok in (r"\cssId{tok-mu}", r"\cssId{tok-tau}", r"\cssId{tok-eta}"):
         assert tok in nd["theta"].label_tex
     # observed likelihood: loc slot shows the parent symbol
