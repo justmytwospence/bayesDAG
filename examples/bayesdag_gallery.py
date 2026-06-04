@@ -17,7 +17,7 @@ def _(mo):
     # bayesdag
 
     Shape-first, posterior-aware, interactive visualization of PyMC models. Run from the
-    project root: `uv run marimo edit examples/tour.py`.
+    project root: `uv run marimo edit examples/bayesdag_gallery.py`.
     """)
     return
 
