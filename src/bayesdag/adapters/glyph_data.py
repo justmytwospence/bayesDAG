@@ -20,40 +20,133 @@ from ..ir import GlyphSpec
 _GRID = 64
 
 
+def _scalars(p) -> list:
+    # representative scalar per param (iid vector priors broadcast params to arrays)
+    return [float(np.asarray(x).reshape(-1)[0]) for x in (p or [])]
+
+
 def _scipy_frozen(dist: str, p: list):
+    """A scipy frozen continuous distribution for a prior whose params are numeric, in the OP's
+    parameter order (verified against PyMC 6.x via logp). Returns None for discrete / custom /
+    unmapped families. NB: the op already reparametrizes several families (Exponential/Gamma expose
+    SCALE, HalfCauchy a single scale) — these translations match the model's density, not the
+    public ``dist()`` kwargs."""
     import scipy.stats as st
 
-    def f(x):  # representative scalar (iid vector priors broadcast params to arrays)
-        return float(np.asarray(x).reshape(-1)[0])
-
+    q = _scalars(p)
+    builders = {
+        # location-scale & friends
+        "Normal": lambda: st.norm(q[0], q[1]),
+        "HalfNormal": lambda: st.halfnorm(q[0], q[1]),
+        "Cauchy": lambda: st.cauchy(q[0], q[1]),
+        "HalfCauchy": lambda: st.halfcauchy(scale=q[0]),
+        "Laplace": lambda: st.laplace(q[0], q[1]),
+        "AsymmetricLaplace": lambda: st.laplace_asymmetric(q[1], loc=q[2], scale=1.0 / q[0]),
+        "Logistic": lambda: st.logistic(q[0], q[1]),
+        "Gumbel": lambda: st.gumbel_r(q[0], q[1]),
+        "Moyal": lambda: st.moyal(q[0], q[1]),
+        "StudentT": lambda: st.t(df=q[0], loc=q[1], scale=q[2]),
+        "SkewNormal": lambda: st.skewnorm(a=q[2], loc=q[0], scale=q[1]),
+        "ExGaussian": lambda: st.exponnorm(K=q[2] / q[1], loc=q[0], scale=q[1]),
+        "VonMises": lambda: st.vonmises(kappa=q[1], loc=q[0]),
+        # positive support
+        "Exponential": lambda: st.expon(scale=q[0]),  # op exposes scale, not rate
+        "Gamma": lambda: st.gamma(q[0], scale=q[1]),  # op exposes [alpha, scale]
+        "InverseGamma": lambda: st.invgamma(q[0], scale=q[1]),
+        "LogNormal": lambda: st.lognorm(s=q[1], scale=np.exp(q[0])),
+        "Weibull": lambda: st.weibull_min(c=q[0], scale=q[1]),
+        "Pareto": lambda: st.pareto(b=q[0], scale=q[1]),
+        "Rice": lambda: st.rice(q[0], scale=q[1]),  # op exposes [b=nu/sigma, sigma]
+        "Wald": lambda: st.invgauss(mu=q[0] / q[1], loc=q[2], scale=q[1]),
+        # bounded
+        "Beta": lambda: st.beta(q[0], q[1]),
+        "Uniform": lambda: st.uniform(q[0], q[1] - q[0]),
+        "Triangular": lambda: st.triang(c=(q[1] - q[0]) / (q[2] - q[0]), loc=q[0], scale=q[2] - q[0]),
+    }
+    fn = builders.get(dist)
+    if fn is None:
+        return None
     try:
-        if dist == "Normal":
-            return st.norm(loc=f(p[0]), scale=f(p[1]))
-        if dist == "HalfNormal":
-            return st.halfnorm(loc=f(p[0]), scale=f(p[1]))
-        if dist == "Uniform":
-            return st.uniform(loc=f(p[0]), scale=f(p[1]) - f(p[0]))
-        if dist == "Exponential":
-            return st.expon(scale=1.0 / f(p[0]))  # pymc param is rate
-        if dist == "Beta":
-            return st.beta(f(p[0]), f(p[1]))
-        if dist == "Gamma":
-            return st.gamma(a=f(p[0]), scale=1.0 / f(p[1]))  # pymc Gamma(alpha, rate)
-        if dist == "InverseGamma":
-            return st.invgamma(a=f(p[0]), scale=f(p[1]))
-        if dist == "StudentT":
-            return st.t(df=f(p[0]), loc=f(p[1]), scale=f(p[2]))
-        if dist == "Cauchy":
-            return st.cauchy(loc=f(p[0]), scale=f(p[1]))
-        if dist == "HalfCauchy":
-            return st.halfcauchy(loc=f(p[0]), scale=f(p[1]))
-        if dist == "Laplace":
-            return st.laplace(loc=f(p[0]), scale=f(p[1]))
-        if dist == "LogNormal":
-            return st.lognorm(s=f(p[1]), scale=np.exp(f(p[0])))
+        return fn()
     except Exception:
         return None
-    return None
+
+
+def _discrete_frozen(dist: str, p: list):
+    """A scipy frozen discrete distribution (verified op-order param translations)."""
+    import scipy.stats as st
+
+    q = _scalars(p)
+    builders = {
+        "Poisson": lambda: st.poisson(q[0]),
+        "Bernoulli": lambda: st.bernoulli(q[0]),
+        "Binomial": lambda: st.binom(int(q[0]), q[1]),
+        "Geometric": lambda: st.geom(q[0]),
+        "NegativeBinomial": lambda: st.nbinom(q[0], q[1]),  # op exposes [n, p]
+        "DiscreteUniform": lambda: st.randint(int(q[0]), int(q[1]) + 1),
+        "BetaBinomial": lambda: st.betabinom(int(q[0]), q[1], q[2]),  # op [n, a, b]
+        "HyperGeometric": lambda: st.hypergeom(int(q[0] + q[1]), int(q[0]), int(q[2])),  # [good, bad, draws]
+    }
+    fn = builders.get(dist)
+    if fn is None:
+        return None
+    try:
+        return fn()
+    except Exception:
+        return None
+
+
+def _pmf(dist: str, p: list, max_cats: int = 40) -> Optional[dict]:
+    """Analytic pmf for a discrete prior with numeric params -> ``{cats, heights}`` (bar glyph)."""
+    try:
+        if dist == "Categorical":  # the prob vector IS the pmf
+            probs = np.asarray(p[0], float).ravel()
+            cats, heights = list(range(probs.size)), probs
+        else:
+            fr = _discrete_frozen(dist, p)
+            if fr is None:
+                return None
+            lo, hi = int(fr.ppf(0.001)), int(fr.ppf(0.999))
+            hi = min(hi, lo + max_cats - 1)
+            cats = list(range(lo, hi + 1))
+            heights = np.asarray(fr.pmf(np.array(cats)), float)
+        if heights.size == 0 or not np.all(np.isfinite(heights)) or heights.max() <= 0:
+            return None
+        m = float(heights.max()) or 1.0
+        return {"cats": [int(c) for c in cats], "heights": [float(h / m) for h in heights]}
+    except Exception:
+        return None
+
+
+def _custom_density(dist: str, p: list) -> Optional[dict]:
+    """Analytic density for continuous families with no direct scipy frozen (closed-form pdf)."""
+    import scipy.stats as st
+
+    q = _scalars(p)
+    try:
+        if dist == "Kumaraswamy":
+            a, b = q[0], q[1]
+            xs = np.linspace(1e-3, 1 - 1e-3, _GRID)
+            ys = a * b * xs ** (a - 1) * (1 - xs**a) ** (b - 1)
+        elif dist == "LogitNormal":
+            mu, sg = q[0], q[1]
+            xs = np.linspace(1e-3, 1 - 1e-3, _GRID)
+            lg = np.log(xs / (1 - xs))
+            ys = np.exp(-((lg - mu) ** 2) / (2 * sg**2)) / (sg * np.sqrt(2 * np.pi) * xs * (1 - xs))
+        elif dist == "HalfStudentT":  # folded Student-t: 2 * t.pdf on [0, inf)
+            nu, sg = q[0], q[1]
+            base = st.t(df=nu, scale=sg)
+            xs = np.linspace(0.0, base.ppf(0.995), _GRID)
+            ys = 2.0 * base.pdf(xs)
+        else:
+            return None
+        ys = np.asarray(ys, float)
+        if not np.all(np.isfinite(ys)) or ys.max() <= 0:
+            return None
+        m = float(np.max(ys)) or 1.0
+        return {"xs": [float(x) for x in xs], "ys": [float(y / m) for y in ys]}
+    except Exception:
+        return None
 
 
 def _density_from_frozen(frozen) -> Optional[dict]:
@@ -106,11 +199,14 @@ def _histogram(values, max_bins: int = 30) -> Optional[dict]:
 _DISCRETE = {
     "Bernoulli",
     "Binomial",
+    "BetaBinomial",
     "Poisson",
     "NegativeBinomial",
     "Categorical",
     "DiscreteUniform",
+    "DiscreteWeibull",
     "Geometric",
+    "HyperGeometric",
 }
 
 # PyMC family name -> (scipy class, fixed-param kwargs for `.fit`). Support-constrained families
@@ -133,6 +229,12 @@ def _fitters():
         "InverseGamma": (st.invgamma, {"floc": 0.0}),
         "Weibull": (st.weibull_min, {"floc": 0.0}),
         "Beta": (st.beta, {"floc": 0.0, "fscale": 1.0}),
+        "Logistic": (st.logistic, {}),
+        "Gumbel": (st.gumbel_r, {}),
+        "Moyal": (st.moyal, {}),
+        "SkewNormal": (st.skewnorm, {}),
+        "Pareto": (st.pareto, {"floc": 0.0}),
+        "ChiSquared": (st.chi2, {"floc": 0.0}),
     }
 
 
@@ -289,8 +391,17 @@ def glyph_for(var, role: str, dist: Optional[str], model, idata=None) -> tuple[O
     if role == "latent" and dist:
         params = _numeric_params(var)
         if params is not None:
+            # continuous analytic pdf
             frozen = _scipy_frozen(dist, params)
             data = _density_from_frozen(frozen) if frozen is not None else None
+            if data is not None:
+                return GlyphSpec(kind="density", source="prior_analytic"), data
+            # discrete analytic pmf -> bars
+            data = _pmf(dist, params)
+            if data is not None:
+                return GlyphSpec(kind="bars", source="prior_analytic"), data
+            # closed-form pdf for families with no scipy frozen (Kumaraswamy/LogitNormal/HalfStudentT)
+            data = _custom_density(dist, params)
             if data is not None:
                 return GlyphSpec(kind="density", source="prior_analytic"), data
         # params depend on parents (hierarchical) or unmapped dist -> family/schematic shape
