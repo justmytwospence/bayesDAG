@@ -20,32 +20,88 @@ _GREEK_LOWER = {
 }
 _GREEK_UPPER = {"Gamma", "Delta", "Theta", "Lambda", "Xi", "Pi", "Sigma", "Upsilon", "Phi", "Psi", "Omega"}
 
-# Distribution name (from op._print_name[0]) -> LaTeX symbol.
+# Distribution name (the adapter's derived `dist`, i.e. op._print_name[0] or the RV class minus
+# "RV") -> LaTeX symbol. Keys are the VERIFIED derived names for PyMC 6.x; several public dists
+# collapse to a shared op (NormalMixture/ZeroInflated*->"Mixture", GaussianRandomWalk->"RandomWalk",
+# OrderedLogistic/Probit->"Categorical", ChiSquared->"Gamma", MvNormal->"MultivariateNormal").
 DIST_SYMBOLS = {
+    # --- continuous univariate ---
     "Normal": r"\mathcal{N}",
     "HalfNormal": r"\mathcal{N}^{+}",
-    "TruncatedNormal": r"\mathcal{N}_{[\,]}",
-    "MvNormal": r"\mathcal{N}",
     "Uniform": r"\mathrm{U}",
     "Beta": r"\mathrm{Beta}",
+    "Kumaraswamy": r"\mathrm{Kumaraswamy}",
     "Gamma": r"\mathrm{Gamma}",
     "InverseGamma": r"\mathrm{InvGamma}",
+    "ChiSquared": r"\chi^{2}",
     "Exponential": r"\mathrm{Exp}",
     "Laplace": r"\mathrm{Laplace}",
+    "AsymmetricLaplace": r"\mathrm{AL}",
     "StudentT": r"\mathrm{StudentT}",
     "HalfStudentT": r"\mathrm{StudentT}^{+}",
+    "SkewStudentT": r"\mathrm{SkewT}",
     "Cauchy": r"\mathrm{Cauchy}",
     "HalfCauchy": r"\mathrm{HalfCauchy}",
     "LogNormal": r"\mathrm{LogNormal}",
+    "LogitNormal": r"\mathrm{LogitN}",
+    "Logistic": r"\mathrm{Logistic}",
+    "Weibull": r"\mathrm{Weibull}",
+    "Gumbel": r"\mathrm{Gumbel}",
+    "Moyal": r"\mathrm{Moyal}",
+    "Pareto": r"\mathrm{Pareto}",
+    "Rice": r"\mathrm{Rice}",
+    "SkewNormal": r"\mathrm{SkewN}",
+    "Triangular": r"\mathrm{Tri}",
+    "VonMises": r"\mathrm{VonMises}",
+    "Wald": r"\mathrm{Wald}",  # a.k.a. InverseGaussian
+    "ExGaussian": r"\mathrm{ExGauss}",
+    "PG": r"\mathrm{PG}",  # PolyaGamma (op _print_name = "PG")
+    # --- discrete univariate ---
     "Poisson": r"\mathrm{Pois}",
     "Bernoulli": r"\mathrm{Bern}",
     "Binomial": r"\mathrm{Bin}",
+    "BetaBinomial": r"\mathrm{BetaBin}",
     "NegativeBinomial": r"\mathrm{NegBin}",
+    "Geometric": r"\mathrm{Geom}",
+    "HyperGeometric": r"\mathrm{HyperGeom}",
+    "DiscreteUniform": r"\mathrm{U}_{d}",
+    "DiscreteWeibull": r"\mathrm{Weibull}_{d}",
     "Categorical": r"\mathrm{Cat}",
+    "DiracDelta": r"\delta",
+    # --- multivariate / matrix / simplex ---
+    "MultivariateNormal": r"\mathcal{N}",  # MvNormal's op print-name
+    "MvNormal": r"\mathcal{N}",  # defensive alias
+    "MvStudentT": r"\mathcal{T}",
     "Dirichlet": r"\mathrm{Dir}",
     "Multinomial": r"\mathrm{Mult}",
-    "Weibull": r"\mathrm{Weibull}",
-    "Gumbel": r"\mathrm{Gumbel}",
+    "DirichletMultinomial": r"\mathrm{DirMult}",
+    "StickBreakingWeights": r"\mathrm{SBW}",
+    "Wishart": r"\mathcal{W}",
+    "MatrixNormal": r"\mathcal{MN}",
+    "KroneckerNormal": r"\mathcal{N}_{\otimes}",
+    "LKJCorr": r"\mathrm{LKJ}",
+    "LKJCorrRV": r"\mathrm{LKJ}",  # op exposes the RV class name here
+    "_lkjcholeskycov": r"\mathrm{LKJ}_{\mathrm{chol}}",
+    # --- mixtures / inflated ---
+    "Mixture": r"\mathrm{Mix}",  # also NormalMixture / ZeroInflated*
+    "Hurdle": r"\mathrm{Hurdle}",
+    # --- bounded ---
+    "TruncatedNormal": r"\mathcal{N}_{[\,]}",
+    "Censored": r"\mathrm{Censored}",
+    # --- time series ---
+    "RandomWalk": r"\mathrm{RW}",  # also GaussianRandomWalk
+    "AR": r"\mathrm{AR}",
+    "GARCH11": r"\mathrm{GARCH}",
+    # --- spatial ---
+    "CAR": r"\mathrm{CAR}",
+    "ICAR": r"\mathrm{ICAR}",
+    # --- meta / custom ---
+    "Interpolated": r"\mathrm{Interp}",
+    "Flat": r"\mathrm{Flat}",
+    "HalfFlat": r"\mathrm{Flat}^{+}",
+    "CustomDist": r"\operatorname{Custom}",
+    "DensityDist": r"\operatorname{Custom}",
+    "Simulator": r"\operatorname{Simulator}",
 }
 
 
@@ -74,7 +130,15 @@ def symbol_for(name: str) -> str:
 def dist_symbol(dist_name: Optional[str]) -> str:
     if not dist_name:
         return r"\operatorname{?}"
-    return DIST_SYMBOLS.get(dist_name, rf"\operatorname{{{dist_name}}}")
+    if dist_name in DIST_SYMBOLS:
+        return DIST_SYMBOLS[dist_name]
+    # A generic Truncated(<Base>) collapses to a dynamic op name like "TruncatedGamma": render the
+    # base distribution's symbol with a truncation subscript.
+    if dist_name.startswith("Truncated"):
+        base = dist_name[len("Truncated") :]
+        base_sym = DIST_SYMBOLS.get(base, rf"\operatorname{{{base}}}")
+        return base_sym + r"_{[\,]}"
+    return rf"\operatorname{{{dist_name}}}"
 
 
 LHS_TOKEN = "__lhs__"  # reserved token id for a deterministic equation's left-hand-side variable,

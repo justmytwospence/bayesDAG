@@ -19,6 +19,15 @@ def test_dist_symbol():
     assert dist_symbol("Normal") == r"\mathcal{N}"
     assert dist_symbol("HalfNormal") == r"\mathcal{N}^{+}"
     assert dist_symbol("Womble") == r"\operatorname{Womble}"
+    # full-catalog coverage: derived op names (incl. the collapsed/aliased ones) resolve
+    assert dist_symbol("MultivariateNormal") == r"\mathcal{N}"  # MvNormal's op print-name (was a dead key)
+    assert dist_symbol("Mixture") == r"\mathrm{Mix}"  # also NormalMixture/ZeroInflated*
+    assert dist_symbol("Hurdle") == r"\mathrm{Hurdle}"
+    assert dist_symbol("VonMises") == r"\mathrm{VonMises}"
+    assert dist_symbol("PG") == r"\mathrm{PG}"  # PolyaGamma
+    assert dist_symbol("RandomWalk") == r"\mathrm{RW}"  # also GaussianRandomWalk
+    # a generic Truncated(<Base>) renders the base symbol with a truncation subscript
+    assert dist_symbol("TruncatedGamma") == r"\mathrm{Gamma}_{[\,]}"
 
 
 def test_assemble_stochastic_wraps_tokens():
