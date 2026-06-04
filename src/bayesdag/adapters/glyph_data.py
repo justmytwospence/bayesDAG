@@ -362,49 +362,61 @@ def _posterior_samples(name: str, idata):
     return None
 
 
-def glyph_for(var, role: str, dist: Optional[str], model, idata=None) -> tuple[Optional[GlyphSpec], Optional[dict]]:
+def glyph_for(
+    var, role: str, dist: Optional[str], model, idata=None
+) -> tuple[Optional[GlyphSpec], Optional[dict], Optional[str]]:
+    """Return ``(GlyphSpec, glyph_data, elision_reason)``. ``elision_reason`` is non-None only for
+    honestly-undrawable constructs (it sets ``NodeIR.representable = False`` and shows a badge)."""
     # Posterior overlay wins when available (fitted result).
     samples = _posterior_samples(getattr(var, "name", ""), idata)
     if samples is not None:
         data = _density_from_samples(samples)
         if data is not None:
-            return GlyphSpec(kind="density", source="posterior_kde"), data
+            return GlyphSpec(kind="density", source="posterior_kde"), data, None
 
     if role == "observed":
         vals = _observed_values(var, model)
         if vals is None:
-            return None, None
+            return None, None, None
         # discrete likelihood -> per-class proportion bars (Bernoulli/Binomial/Poisson/...)
         if dist and dist in _DISCRETE:
             bars = _discrete_bars(vals)
             if bars is not None:
-                return GlyphSpec(kind="bars", source="observed_hist"), bars
+                return GlyphSpec(kind="bars", source="observed_hist"), bars, None
         # continuous: best-fit family curve overlaid on the data histogram; else plain histogram
         overlay = _observed_overlay(vals, dist)
         if overlay is not None:
-            return GlyphSpec(kind="hist_overlay", source="observed_hist"), overlay
+            return GlyphSpec(kind="hist_overlay", source="observed_hist"), overlay, None
         data = _histogram(vals)
         if data is not None:
-            return GlyphSpec(kind="histogram", source="observed_hist"), data
-        return None, None
+            return GlyphSpec(kind="histogram", source="observed_hist"), data, None
+        return None, None, None
 
     if role == "latent" and dist:
+        # special constructs (multivariate / matrix / mixture / time-series / bounded / spatial /
+        # meta) get a faithful structural glyph or an honest badge before the univariate path.
+        from .constructs import special_glyph
+
+        spec, data, elision = special_glyph(var)
+        if spec is not None or elision is not None:
+            return spec, data, elision
+
         params = _numeric_params(var)
         if params is not None:
             # continuous analytic pdf
             frozen = _scipy_frozen(dist, params)
             data = _density_from_frozen(frozen) if frozen is not None else None
             if data is not None:
-                return GlyphSpec(kind="density", source="prior_analytic"), data
+                return GlyphSpec(kind="density", source="prior_analytic"), data, None
             # discrete analytic pmf -> bars
             data = _pmf(dist, params)
             if data is not None:
-                return GlyphSpec(kind="bars", source="prior_analytic"), data
+                return GlyphSpec(kind="bars", source="prior_analytic"), data, None
             # closed-form pdf for families with no scipy frozen (Kumaraswamy/LogitNormal/HalfStudentT)
             data = _custom_density(dist, params)
             if data is not None:
-                return GlyphSpec(kind="density", source="prior_analytic"), data
+                return GlyphSpec(kind="density", source="prior_analytic"), data, None
         # params depend on parents (hierarchical) or unmapped dist -> family/schematic shape
-        return GlyphSpec(kind="schematic", source="prior_family_only"), None
+        return GlyphSpec(kind="schematic", source="prior_family_only"), None, None
 
-    return None, None  # deterministic / data / potential -> no shape glyph in M0
+    return None, None, None  # deterministic / data / potential -> no shape glyph in M0

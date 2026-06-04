@@ -38,7 +38,7 @@ def _glyph(build):
     with pm.Model() as m:
         v = build()
     dist, _ = _rv_dist_and_params(v, {})
-    spec, data = glyph_for(v, "latent", dist, m)
+    spec, data, _elision = glyph_for(v, "latent", dist, m)
     return v, spec, data
 
 

@@ -340,6 +340,12 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, overlay_mode: str = "prior", le
             if gr:
                 stroke, fill = _GLYPH_COLORS.get(n.glyph.source, ("#2a8a55", "#2a8a55"))
                 parts.append(glyph.render(n.glyph.kind, n.glyph_data, gr, stroke=stroke, fill=fill))
+        if getattr(n, "elision_reason", None):  # honesty badge: undrawable construct
+            reason = n.elision_reason if len(n.elision_reason) <= 30 else n.elision_reason[:29] + "…"
+            parts.append(
+                f'<text x="{b.x + 7:.1f}" y="{b.y + b.h - 5:.1f}" font-size="8" fill="#8a6d3b" '
+                f'font-style="italic">⚠ {escape(reason)}</text>'
+            )
         body.append(f'<g class="bd-node" data-node="{escape(n.id)}">' + "".join(parts) + "</g>")
     # edges on top so token-anchored arrowheads into equations are visible
     for e in ir.edges:

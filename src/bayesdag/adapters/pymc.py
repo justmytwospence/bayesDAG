@@ -158,7 +158,7 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
         tr = transforms.get(var) if hasattr(transforms, "get") else None
         tname = getattr(tr, "name", None) if tr is not None else None
         unconstrained = f"{name}_{tname}__" if tname else None
-        glyph_spec, glyph_data = glyph_for(var, role, dist, model, idata)
+        glyph_spec, glyph_data, elision = glyph_for(var, role, dist, model, idata)
         nodes.append(
             NodeIR(
                 id=name,
@@ -175,6 +175,8 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
                 glyph=glyph_spec,
                 glyph_data=glyph_data,
                 overlays=_overlays(name, role, dims, idata),
+                representable=elision is None,
+                elision_reason=elision,
             )
         )
 
