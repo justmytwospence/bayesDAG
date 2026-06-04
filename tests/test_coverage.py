@@ -135,3 +135,17 @@ def test_every_distribution_has_a_symbol(name):
 def test_catalog_size_is_substantial():
     # guardrail so the catalog doesn't silently shrink
     assert len(CATALOG) >= 70
+
+
+def test_showcase_models_render():
+    """The canonical gallery models (examples/zoo.py) all convert + render."""
+    import pathlib
+    import sys
+
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "examples"))
+    from zoo import ZOO_MODELS
+
+    assert len(ZOO_MODELS) == 8
+    for name, build in ZOO_MODELS.items():
+        ir = to_ir(build())
+        assert "<svg" in to_svg(ir, layout(ir)), name

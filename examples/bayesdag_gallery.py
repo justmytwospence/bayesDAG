@@ -437,6 +437,120 @@ def _(graphviz_fit, jm_model, mo, pm):
 @app.cell
 def _(mo):
     mo.md(r"""
+    # Distribution showcase
+
+    Canonical models (from `examples/zoo.py`) chosen so the set exercises bayesdag's richer glyphs:
+    random-walk **fan charts**, **Weibull / censored** survival, **zero-inflated** counts,
+    multivariate **pairplots** + **LKJ** correlation priors, **ordinal** scales, **Gaussian
+    mixtures**, spatial **adjacency heatmaps**, and the **AR** stationary marginal. Each appears
+    beside PyMC's `model_to_graphviz` for comparison.
+    """)
+    return
+
+
+@app.cell
+def _():
+    import zoo
+
+    return (zoo,)
+
+
+@app.cell
+def _(bayesdag, graphviz_fit, mo, pm):
+    def show(model, title, blurb):
+        return mo.vstack([
+            mo.md(f"### {title}\n\n{blurb}"),
+            mo.ui.anywidget(bayesdag.view(model).widget()),
+            mo.md("**PyMC `model_to_graphviz`:**"),
+            graphviz_fit(pm.model_to_graphviz(model)),
+        ])
+
+    return (show,)
+
+
+@app.cell
+def _(show, zoo):
+    show(
+        zoo.build_stochastic_volatility(),
+        "Stochastic volatility (finance)",
+        "Heavy-tailed returns with a Gaussian-random-walk log-volatility — note the **fan chart** on `log_vol`.",
+    )
+    return
+
+
+@app.cell
+def _(show, zoo):
+    show(
+        zoo.build_weibull_survival(),
+        "Weibull survival with right-censoring (biostat)",
+        "A `Censored` Weibull time-to-event likelihood; censored observations pile mass at the bound.",
+    )
+    return
+
+
+@app.cell
+def _(show, zoo):
+    show(
+        zoo.build_zero_inflated_counts(),
+        "Zero-inflated counts (ecology)",
+        "Excess-zero catch counts via `ZeroInflatedPoisson` with a `Beta` mixing weight.",
+    )
+    return
+
+
+@app.cell
+def _(show, zoo):
+    show(
+        zoo.build_correlated_slopes(),
+        "Correlated varying slopes (multilevel)",
+        "Per-group intercept+slope drawn `MvNormal` with an **LKJ** Cholesky correlation prior — see the **pairplot** on `ab`.",
+    )
+    return
+
+
+@app.cell
+def _(show, zoo):
+    show(
+        zoo.build_ordinal_ratings(),
+        "Ordinal ratings (survey)",
+        "An `OrderedLogistic` response over a latent scale partitioned by ordered `cutpoints`.",
+    )
+    return
+
+
+@app.cell
+def _(show, zoo):
+    show(
+        zoo.build_gaussian_mixture(),
+        "Gaussian mixture (clustering)",
+        "A two-component `NormalMixture` with `Dirichlet` weights — note the **simplex** glyph on `w`.",
+    )
+    return
+
+
+@app.cell
+def _(show, zoo):
+    show(
+        zoo.build_disease_mapping(),
+        "Disease mapping (epidemiology)",
+        "Areal counts with an intrinsic spatial effect (`ICAR`) — its neighbourhood matrix renders as an **adjacency heatmap**.",
+    )
+    return
+
+
+@app.cell
+def _(show, zoo):
+    show(
+        zoo.build_ar_forecast(),
+        "Autoregressive series (econometrics)",
+        "A second-order `AR` process — bayesdag shows its **stationary marginal** density.",
+    )
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""
     ## Notes
 
     Each model fits quickly (`pm.sample` with small `draws`); pass `idata=` to `view(...)` to turn
