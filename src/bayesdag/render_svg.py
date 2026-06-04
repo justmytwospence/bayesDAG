@@ -336,7 +336,7 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, overlay_mode: str = "prior", le
             ]
         if n.glyph and n.glyph_data:
             _, lh = geometry.label_px_size(n.label_svg)
-            gr = geometry.glyph_rect(b, n.role, lh)
+            gr = geometry.glyph_rect(b, n.role, lh, n.glyph.kind)
             if gr:
                 stroke, fill = _GLYPH_COLORS.get(n.glyph.source, ("#2a8a55", "#2a8a55"))
                 parts.append(glyph.render(n.glyph.kind, n.glyph_data, gr, stroke=stroke, fill=fill))

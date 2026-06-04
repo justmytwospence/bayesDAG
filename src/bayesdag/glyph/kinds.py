@@ -142,13 +142,17 @@ def render_heatmap(data: dict[str, Any], box: Box, **_):
     if not cols:
         return ""
     cw, ch = box.w / cols, box.h / rows
-    cells = []
+    cells = [  # subtle frame so the matrix reads as a block
+        f'<rect x="{box.x:.1f}" y="{box.y:.1f}" width="{box.w:.1f}" height="{box.h:.1f}" '
+        'fill="none" stroke="#cfcfcf" stroke-width="0.5"/>'
+    ]
     for i, row in enumerate(m):
         for j, v in enumerate(row):
-            g = int(max(0.0, min(1.0, v)) * 255)
+            t = max(0.0, min(1.0, v))  # sequential white -> blue ramp
+            r, g, b = int(255 - 213 * t), int(255 - 162 * t), int(255 - 112 * t)
             cells.append(
-                f'<rect x="{box.x + j * cw:.1f}" y="{box.y + i * ch:.1f}" width="{cw:.1f}" height="{ch:.1f}" '
-                f'fill="rgb({255 - g},{255 - g},{g})"/>'
+                f'<rect x="{box.x + j * cw:.1f}" y="{box.y + i * ch:.1f}" width="{cw + 0.3:.1f}" '
+                f'height="{ch + 0.3:.1f}" fill="rgb({r},{g},{b})"/>'
             )
     return "".join(cells)
 

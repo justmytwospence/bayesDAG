@@ -164,7 +164,7 @@ def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
 
     def node_json(n) -> dict:
         lw, lh = info[n.id]["w"], info[n.id]["h"]
-        w, h = geometry.node_size(lw, lh, n.role)
+        w, h = geometry.node_size(lw, lh, n.role, n.glyph.kind if n.glyph else None)
         d: dict = {"id": n.id, "width": float(w), "height": float(h)}
         ports = []
         bboxes = info[n.id]["bboxes"]

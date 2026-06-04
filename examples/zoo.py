@@ -57,7 +57,8 @@ def build_zero_inflated_counts():
     with pm.Model(coords={"obs": np.arange(n)}) as model:
         psi = pm.Beta("psi", 2.0, 2.0)
         b0 = pm.Normal("b0", 0, 1)
-        b1 = pm.Normal("b1", 0, 1)
+        # spike-and-slab (sparsity) prior on the slope — a latent Mixture → composite glyph
+        b1 = pm.Mixture("b1", w=[0.8, 0.2], comp_dists=[pm.Normal.dist(0, 0.1), pm.Normal.dist(0, 2.0)])
         xx = pm.Data("x", x, dims="obs")
         lam = pm.Deterministic("lam", pm.math.exp(b0 + b1 * xx), dims="obs")
         pm.ZeroInflatedPoisson("y", psi=psi, mu=lam, observed=y, dims="obs")
@@ -140,16 +141,20 @@ def build_disease_mapping():
 
 
 def build_ar_forecast():
-    """Econometrics: a second-order autoregressive series (AR; stationary-marginal glyph)."""
+    """Econometrics: a latent second-order autoregressive trend behind noisy observations
+    (state-space) — the latent `level` shows the AR **stationary-marginal** glyph."""
     rng = np.random.default_rng(7)
     T = 120
-    y = np.zeros(T)
+    trend = np.zeros(T)
     for t in range(2, T):
-        y[t] = 0.5 * y[t - 1] - 0.2 * y[t - 2] + rng.normal(0, 0.5)
+        trend[t] = 0.6 * trend[t - 1] + 0.2 * trend[t - 2] + rng.normal(0, 0.4)
+    y = trend + rng.normal(0, 0.5, T)
     with pm.Model(coords={"t": np.arange(T)}) as model:
-        rho = pm.Normal("rho", 0, 0.5, shape=2)
-        sigma = pm.HalfNormal("sigma", 1.0)
-        pm.AR("y", rho=rho, sigma=sigma, init_dist=pm.Normal.dist(0, 1), constant=False, observed=y, dims="t")
+        sigma_obs = pm.HalfNormal("sigma_obs", 1.0)
+        level = pm.AR(
+            "level", rho=[0.6, 0.2], sigma=0.4, init_dist=pm.Normal.dist(0, 1), constant=False, dims="t"
+        )
+        pm.Normal("y", level, sigma_obs, observed=y, dims="t")
     return model
 
 

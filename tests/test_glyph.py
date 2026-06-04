@@ -87,7 +87,22 @@ def test_hist_overlay_renders_bars_and_curve(eight_schools_ir):
 
 def test_nonunivariate_kind_renders_via_same_registry():
     out = glyph.render("heatmap", {"matrix": [[0.1, 0.9], [0.9, 0.1]]}, Box(0, 0, 40, 28))
-    assert out.count("<rect") == 4
+    assert out.count("<rect") == 5  # 4 cells + a framing rect
+
+
+def test_2d_glyphs_get_a_square_area():
+    """heatmap/pairplot need a near-square block, not the thin 1-D strip."""
+    from bayesdag import geometry
+
+    b = Box(0, 0, 140, 130)
+    strip = geometry.glyph_rect(b, "latent", 16.0, "density")
+    square = geometry.glyph_rect(b, "latent", 16.0, "heatmap")
+    assert strip.h == geometry.GLYPH_H
+    assert square.h > strip.h and abs(square.w - square.h) < 1.0
+    # and the node reserves the taller area
+    _, h_strip = geometry.node_size(120, 16, "latent", "density")
+    _, h_square = geometry.node_size(120, 16, "latent", "pairplot")
+    assert h_square > h_strip
 
 
 def test_unknown_or_empty_render_is_blank():

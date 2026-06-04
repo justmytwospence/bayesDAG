@@ -435,20 +435,6 @@ def _(graphviz_fit, jm_model, mo, pm):
 
 
 @app.cell
-def _(mo):
-    mo.md(r"""
-    # Distribution showcase
-
-    Canonical models (from `examples/zoo.py`) chosen so the set exercises bayesdag's richer glyphs:
-    random-walk **fan charts**, **Weibull / censored** survival, **zero-inflated** counts,
-    multivariate **pairplots** + **LKJ** correlation priors, **ordinal** scales, **Gaussian
-    mixtures**, spatial **adjacency heatmaps**, and the **AR** stationary marginal. Each appears
-    beside PyMC's `model_to_graphviz` for comparison.
-    """)
-    return
-
-
-@app.cell
 def _():
     import zoo
 
@@ -459,9 +445,9 @@ def _():
 def _(bayesdag, graphviz_fit, mo, pm):
     def show(model, title, blurb):
         return mo.vstack([
-            mo.md(f"### {title}\n\n{blurb}"),
+            mo.md(f"## {title}\n\n{blurb}"),
             mo.ui.anywidget(bayesdag.view(model).widget()),
-            mo.md("**PyMC `model_to_graphviz`:**"),
+            mo.md("**PyMC `model_to_graphviz` for the same model:**"),
             graphviz_fit(pm.model_to_graphviz(model)),
         ])
 
@@ -472,8 +458,9 @@ def _(bayesdag, graphviz_fit, mo, pm):
 def _(show, zoo):
     show(
         zoo.build_stochastic_volatility(),
-        "Stochastic volatility (finance)",
-        "Heavy-tailed returns with a Gaussian-random-walk log-volatility — note the **fan chart** on `log_vol`.",
+        "7 · Stochastic volatility (finance)",
+        "Heavy-tailed `StudentT` returns over a latent Gaussian-random-walk log-volatility — the "
+        "**fan chart** on `log_vol` is the random walk's widening uncertainty band.",
     )
     return
 
@@ -482,8 +469,9 @@ def _(show, zoo):
 def _(show, zoo):
     show(
         zoo.build_weibull_survival(),
-        "Weibull survival with right-censoring (biostat)",
-        "A `Censored` Weibull time-to-event likelihood; censored observations pile mass at the bound.",
+        "8 · Weibull survival with right-censoring (biostatistics)",
+        "A `Censored` Weibull time-to-event likelihood (observations censored at t=8); the observed "
+        "times render as a data histogram with the censored events piled at the bound.",
     )
     return
 
@@ -492,8 +480,9 @@ def _(show, zoo):
 def _(show, zoo):
     show(
         zoo.build_zero_inflated_counts(),
-        "Zero-inflated counts (ecology)",
-        "Excess-zero catch counts via `ZeroInflatedPoisson` with a `Beta` mixing weight.",
+        "9 · Zero-inflated counts (ecology)",
+        "Excess-zero catch counts via `ZeroInflatedPoisson`; the slope `b1` carries a spike-and-slab "
+        "`Mixture` prior — its **composite glyph** shows the narrow spike over the wide slab.",
     )
     return
 
@@ -502,8 +491,9 @@ def _(show, zoo):
 def _(show, zoo):
     show(
         zoo.build_correlated_slopes(),
-        "Correlated varying slopes (multilevel)",
-        "Per-group intercept+slope drawn `MvNormal` with an **LKJ** Cholesky correlation prior — see the **pairplot** on `ab`.",
+        "10 · Correlated varying slopes (multilevel)",
+        "Per-café intercept+slope drawn `MvNormal` with an **LKJ** Cholesky correlation prior — `ab` "
+        "shows the **pairplot** (marginals + covariance ellipse); the LKJ prior carries an honest badge.",
     )
     return
 
@@ -512,8 +502,9 @@ def _(show, zoo):
 def _(show, zoo):
     show(
         zoo.build_ordinal_ratings(),
-        "Ordinal ratings (survey)",
-        "An `OrderedLogistic` response over a latent scale partitioned by ordered `cutpoints`.",
+        "11 · Ordinal ratings (survey)",
+        "An `OrderedLogistic` response over a latent scale cut by ordered `cutpoints`; the ordinal "
+        "data renders as per-class bars.",
     )
     return
 
@@ -522,8 +513,9 @@ def _(show, zoo):
 def _(show, zoo):
     show(
         zoo.build_gaussian_mixture(),
-        "Gaussian mixture (clustering)",
-        "A two-component `NormalMixture` with `Dirichlet` weights — note the **simplex** glyph on `w`.",
+        "12 · Gaussian mixture (clustering)",
+        "A two-component `NormalMixture` with `Dirichlet` weights — the **simplex** glyph on `w` shows "
+        "the components' marginal Beta densities.",
     )
     return
 
@@ -532,8 +524,9 @@ def _(show, zoo):
 def _(show, zoo):
     show(
         zoo.build_disease_mapping(),
-        "Disease mapping (epidemiology)",
-        "Areal counts with an intrinsic spatial effect (`ICAR`) — its neighbourhood matrix renders as an **adjacency heatmap**.",
+        "13 · Disease mapping (epidemiology)",
+        "Areal disease counts with an intrinsic spatial effect (`ICAR`) — its neighbourhood matrix "
+        "renders as an **adjacency heatmap**.",
     )
     return
 
@@ -542,8 +535,9 @@ def _(show, zoo):
 def _(show, zoo):
     show(
         zoo.build_ar_forecast(),
-        "Autoregressive series (econometrics)",
-        "A second-order `AR` process — bayesdag shows its **stationary marginal** density.",
+        "14 · Autoregressive trend (econometrics)",
+        "A latent second-order `AR` trend behind noisy observations (state-space) — `level` shows the "
+        "AR **stationary-marginal** density.",
     )
     return
 
