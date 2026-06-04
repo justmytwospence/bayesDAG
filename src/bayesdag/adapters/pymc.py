@@ -187,15 +187,32 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
             edges.append(EdgeIR(source=parent, target=child, target_token_id=token))
 
     plates: list[PlateIR] = []
-    for plate in g.get_plates():
-        di = plate.dim_info
-        if not di.names:  # the empty-dims group is just ungrouped scalars, not a plate
-            continue
-        label = " x ".join(
-            f"{nm} ({ln})" if nm else f"{ln}" for nm, ln in zip(di.names, di.lengths)
-        )
-        pid = "plate_" + "_".join(str(nm) for nm in di.names)
-        plates.append(PlateIR(id=pid, label=label, members=[ni.var.name for ni in plate.variables]))
+    try:
+        raw_plates = list(g.get_plates())  # pymc evals each var's shape here
+    except Exception:
+        raw_plates = None
+    if raw_plates is not None:
+        for plate in raw_plates:
+            di = plate.dim_info
+            if not di.names:  # the empty-dims group is just ungrouped scalars, not a plate
+                continue
+            label = " x ".join(
+                f"{nm} ({ln})" if nm else f"{ln}" for nm, ln in zip(di.names, di.lengths)
+            )
+            pid = "plate_" + "_".join(str(nm) for nm in di.names)
+            plates.append(PlateIR(id=pid, label=label, members=[ni.var.name for ni in plate.variables]))
+    else:
+        # A non-samplable RV (Flat/HalfFlat/ICAR, …) broke pymc's shape eval. Derive plates
+        # eval-free from the named dims + coords we already hold, grouping by dim signature.
+        groups: dict[tuple, list[str]] = {}
+        for nm in var_names:
+            dims = tuple(d for d in n2d.get(nm, ()) if d)
+            if dims and all(d in coords for d in dims):
+                groups.setdefault(dims, []).append(nm)
+        for dims, members in groups.items():
+            label = " x ".join(f"{d} ({len(coords[d])})" for d in dims)
+            pid = "plate_" + "_".join(str(d) for d in dims)
+            plates.append(PlateIR(id=pid, label=label, members=members))
 
     meta = Meta.stamp(source_ppl="pymc", model_name=getattr(model, "name", None) or None)
     return ModelIR(nodes=nodes, edges=edges, plates=plates, meta=meta)
