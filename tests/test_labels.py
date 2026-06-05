@@ -1,9 +1,33 @@
 """Label engine: symbols, distribution templates, assembly, and the 8-schools labels."""
 
+import numpy as np
+import pymc as pm
 import pytest
 
 from bayesdag import labels, mathsvg
+from bayesdag.convert import to_ir
 from bayesdag.labels import dist_symbol, symbol_for
+
+
+def _label(model, node_id):
+    return next(n.label_tex for n in to_ir(model).nodes if n.id == node_id)
+
+
+def test_label_polish():
+    """Regression for the rendering warts: reciprocal->fraction, rounded numbers, infinite bounds,
+    and elision of auto-generated nested-op (matrix plumbing) deterministics."""
+    with pm.Model(coords={"k": range(3)}) as m:
+        pm.Exponential("e", 0.1)  # op exposes scale = 1/rate -> a fraction, not reciprocal(...)
+        pm.Normal("c", mu=np.array([-2.0, -2.0 / 3, 2.0]), sigma=1, dims="k")  # rounded numbers
+        pm.Censored("z", pm.Normal.dist(0, 1), lower=-np.inf, upper=2, observed=np.zeros(4))
+    assert r"\frac{1}{0.1}" in _label(m, "e") and "reciprocal" not in _label(m, "e")
+    assert "-0.6667" in _label(m, "c") and "0.666667" not in _label(m, "c")
+    assert r"-\infty" in _label(m, "z")
+    # an LKJCholeskyCov's auto-generated corr/stds deterministics are illegible matrix plumbing -> elided
+    with pm.Model() as m2:
+        pm.LKJCholeskyCov("L", n=3, eta=2, sd_dist=pm.Exponential.dist(1), compute_corr=True)
+    corr = _label(m2, "L_corr")
+    assert r"\cdots" in corr and r"f\!\left(f\!\left" not in corr
 
 
 def test_symbol_for():

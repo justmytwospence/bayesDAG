@@ -30,9 +30,16 @@ def _scalar_op_name(op: Any) -> Optional[str]:
 
 
 def _fmt_scalar(v: Any) -> str:
-    if isinstance(v, float) and v.is_integer():
-        return str(int(v))
-    return f"{v:g}" if isinstance(v, (int, float)) else str(v)
+    if isinstance(v, float):
+        if v != v:
+            return r"\mathrm{nan}"
+        if v == float("inf"):
+            return r"\infty"
+        if v == float("-inf"):
+            return r"-\infty"
+        if v.is_integer():
+            return str(int(v))
+    return f"{v:.4g}" if isinstance(v, (int, float)) else str(v)  # ~4 sig figs (no -0.666667)
 
 
 def _const_tex(var: Any) -> Optional[str]:
@@ -121,6 +128,8 @@ def render_value(
             return rf"\log\!\left({parts[0]}\right)", used
         if sname == "Sqrt":
             return rf"\sqrt{{{parts[0]}}}", used
+        if sname == "Reciprocal":  # PyMC exposes Exp/Gamma scale as reciprocal(rate) -> show 1/rate
+            return rf"\frac{{1}}{{{parts[0]}}}", used
         if sname == "Second" and len(parts) >= 2:  # second(a, b) broadcasts b to a's shape -> b
             return parts[1], used
         if sname in ("Cast", "Identity") and parts:  # type-cast wrappers are invisible to the math
