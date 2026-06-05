@@ -66,6 +66,33 @@ def test_special_construct_glyphs(name, build, kind, representable):
     assert (n.elision_reason is None) is representable, name
 
 
+def test_ar_pacf_real_only_when_coefficients_are_known():
+    """Fixed AR coefficients -> the true theoretical PACF; prior coefficients -> an honest, DETERMINISTIC
+    order schematic (no random per-render draw of the unknown coefficients)."""
+
+    def fixed():
+        with pm.Model(coords={"t": range(8)}) as m:
+            pm.AR("level", rho=[0.6, 0.2], sigma=0.4, init_dist=pm.Normal.dist(0, 1), constant=False, dims="t")
+        return m
+
+    def prior():
+        with pm.Model(coords={"t": range(8)}) as m:
+            rho = pm.Normal("rho", 0, 0.5, shape=2)
+            pm.AR("level", rho=rho, sigma=pm.HalfNormal("sigma", 1), init_dist=pm.Normal.dist(0, 1), constant=False, dims="t")
+        return m
+
+    f = to_ir(fixed()).node("level")
+    assert f.glyph.kind == "stem" and f.glyph.source == "prior_analytic"
+    assert [round(v, 2) for v in f.glyph_data["values"][:2]] == [0.75, 0.2]  # real PACF of AR(2)
+
+    runs = [to_ir(prior()).node("level").glyph_data["values"] for _ in range(2)]
+    assert runs[0] == runs[1]  # deterministic — not a random coefficient draw
+    pn = to_ir(prior()).node("level")
+    assert pn.glyph.source == "prior_family_only"  # schematic (order only)
+    vals = pn.glyph_data["values"]
+    assert vals[0] > 0 and vals[1] > 0 and all(v == 0 for v in vals[2:])  # p=2 lags then cutoff
+
+
 def test_special_constructs_render_without_error():
     """Every special construct must compose into a valid SVG (badge or glyph), never crash."""
     for _name, build, _k, _r in _SPECIAL:

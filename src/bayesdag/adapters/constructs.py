@@ -31,6 +31,37 @@ def _ev(t) -> Optional[np.ndarray]:
         return None
 
 
+def _op_is_rv(op) -> bool:
+    try:
+        from pytensor.tensor.random.op import RandomVariable
+
+        if isinstance(op, RandomVariable):
+            return True
+    except Exception:
+        pass
+    try:
+        from pymc.distributions.distribution import SymbolicRandomVariable
+
+        return isinstance(op, SymbolicRandomVariable)
+    except Exception:
+        return False
+
+
+def _depends_on_rv(t) -> bool:
+    """True if a tensor's value is governed by a random variable (a prior) rather than fixed
+    constants — i.e. `.eval()` would return an arbitrary random draw, not the real value."""
+    try:
+        from pytensor.graph.basic import ancestors
+
+        for a in ancestors([t]):
+            op = getattr(getattr(a, "owner", None), "op", None)
+            if op is not None and _op_is_rv(op):
+                return True
+    except Exception:
+        return False
+    return False
+
+
 def _dist_name(rv) -> Optional[str]:
     op = getattr(getattr(rv, "owner", None), "op", None)
     if op is None:
@@ -242,15 +273,26 @@ def _levinson_pacf(acf: list[float], nlags: int) -> list[float]:
 
 
 def _ar(var):
-    rho = _ev(var.owner.inputs[0])  # AR coefficients; PACF is derived from these alone
+    rho_in = var.owner.inputs[0]  # AR coefficients
+    rho = _ev(rho_in)
     if rho is None:
         return None
     rho = np.atleast_1d(rho).ravel().astype(float)
-    p = rho.size
-    if p == 0 or np.sum(rho**2) >= 1.0:  # non-stationary -> no honest stationary signature
-        return _badge("autoregressive — non-stationary")[:2]
+    p = rho.size  # the order is structural (known even when the coefficient VALUES are a prior)
+    if p == 0:
+        return None
     nlags = min(10, p + 4)
-    try:
+    if _depends_on_rv(rho_in):
+        # the coefficients are a prior: their .eval() is a meaningless random draw. Don't fake a
+        # PACF — show the AR ORDER honestly (p schematic lags, then the cutoff), in schematic style.
+        vals = [0.7 if i < p else 0.0 for i in range(nlags)]
+        return GlyphSpec(kind="stem", source="prior_family_only"), {
+            "lags": list(range(1, nlags + 1)),
+            "values": vals,
+        }
+    if np.sum(rho**2) >= 1.0:  # known but non-stationary
+        return _badge("autoregressive — non-stationary")[:2]
+    try:  # known, stationary coefficients -> the true theoretical PACF
         pacf = _levinson_pacf(_ar_acf(rho, nlags), nlags)
     except Exception:
         return None
