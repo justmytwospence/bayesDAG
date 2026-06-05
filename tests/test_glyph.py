@@ -6,7 +6,7 @@ from bayesdag.ir import Box
 
 def test_registry_has_density_and_nonunivariate_kinds():
     ks = glyph.registered_kinds()
-    assert {"density", "histogram", "hist_overlay", "bars", "schematic", "heatmap"} <= ks
+    assert {"density", "histogram", "hist_overlay", "bars", "schematic", "heatmap", "curve"} <= ks
     assert {"fan", "pairplot", "mixture", "cutpoints", "simplex", "censored", "stem"} <= ks  # special-construct kinds
 
 
@@ -131,13 +131,16 @@ def test_2d_glyphs_get_a_square_area():
     from bayesdag import geometry
 
     b = Box(0, 0, 140, 130)
-    strip = geometry.glyph_rect(b, "latent", 16.0, "density")
-    square = geometry.glyph_rect(b, "latent", 16.0, "heatmap")
+    dens = {"xs": [0, 1], "ys": [0, 1]}
+    mat = {"matrix": [[1.0, 0.0], [0.0, 1.0]]}
+    cov = {"cov": [[1.0, 0.0], [0.0, 1.0]]}
+    strip = geometry.glyph_rect(b, "latent", 16.0, "density", dens)
+    square = geometry.glyph_rect(b, "latent", 16.0, "heatmap", mat)
     assert strip.h == geometry.GLYPH_H
     assert square.h > strip.h and abs(square.w - square.h) < 1.0
     # and the node reserves the taller area
-    _, h_strip = geometry.node_size(120, 16, "latent", "density")
-    _, h_square = geometry.node_size(120, 16, "latent", "pairplot")
+    _, h_strip = geometry.node_size(120, 16, "latent", "density", dens)
+    _, h_square = geometry.node_size(120, 16, "latent", "pairplot", cov)
     assert h_square > h_strip
 
 

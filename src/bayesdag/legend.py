@@ -20,6 +20,7 @@ _SOURCE_LABELS = {
     "prior_family_only": "prior shape (depends on parents)",
     "posterior_kde": "posterior (from idata)",
     "observed_hist": "observed data (histogram)",
+    "deterministic_fn": "transfer function (canonical shape)",
 }
 
 
@@ -36,7 +37,7 @@ def build(ir: ModelIR) -> list[LegendItem]:
         if any(n.role == role for n in ir.nodes):
             items.append(LegendItem(f"role:{role}", _ROLE_LABELS[role]))
 
-    for src in ("prior_analytic", "posterior_kde", "observed_hist", "prior_family_only"):
+    for src in ("prior_analytic", "posterior_kde", "observed_hist", "prior_family_only", "deterministic_fn"):
         if any(n.glyph and n.glyph.source == src for n in ir.nodes):
             items.append(LegendItem(f"glyph:{src}", _SOURCE_LABELS[src]))
     if any(n.glyph and n.glyph.kind == "hist_overlay" for n in ir.nodes):

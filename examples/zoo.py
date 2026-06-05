@@ -3,7 +3,9 @@
 Each is a small but *recognizable* Bayesian model (the kind people actually write), chosen so the
 set collectively exercises the special-construct glyphs: random-walk fan charts, Weibull/censored
 survival, zero-inflated composites, multivariate pairplots + LKJ correlation priors, ordinal
-cutpoints, Gaussian-mixture overlays, spatial adjacency heatmaps, and the AR stationary marginal.
+cutpoints, Gaussian-mixture overlays, spatial adjacency heatmaps, the AR stationary marginal, and the
+deterministic **transfer-function** glyphs (a logistic S-curve, a log-link exponential, a softmax
+simplex, and affine-predictor lines).
 
 Importable from the gallery notebook (``examples/`` is on ``sys.path``) and re-exported to the test
 suite via ``conftest``. Builders are pure (seeded) functions returning a ``pm.Model``.
@@ -158,6 +160,57 @@ def build_ar_forecast():
     return model
 
 
+def build_logistic_regression():
+    """Classification: a logistic regression with the linear predictor and inverse-link made explicit —
+    `eta` shows the **line** transfer glyph, `p` the **logistic S-curve** (invlogit)."""
+    rng = np.random.default_rng(8)
+    n = 100
+    x = rng.normal(0, 1, n)
+    y = rng.binomial(1, 1.0 / (1.0 + np.exp(-(0.4 + 1.5 * x))))
+    with pm.Model(coords={"obs": np.arange(n)}) as model:
+        a = pm.Normal("a", 0, 1)
+        b = pm.Normal("b", 0, 1)
+        eta = pm.Deterministic("eta", a + b * x, dims="obs")
+        p = pm.Deterministic("p", pm.math.invlogit(eta), dims="obs")
+        pm.Bernoulli("y", p=p, observed=y, dims="obs")
+    return model
+
+
+def build_poisson_loglink():
+    """Counts: a Poisson GLM with an explicit log link — `eta` is the **line**, `rate` the
+    **exponential** transfer glyph (exp)."""
+    rng = np.random.default_rng(9)
+    n = 100
+    x = rng.normal(0, 1, n)
+    y = rng.poisson(np.exp(0.5 + 0.7 * x))
+    with pm.Model(coords={"obs": np.arange(n)}) as model:
+        a = pm.Normal("a", 0, 1)
+        b = pm.Normal("b", 0, 1)
+        eta = pm.Deterministic("eta", a + b * x, dims="obs")
+        rate = pm.Deterministic("rate", pm.math.exp(eta), dims="obs")
+        pm.Poisson("y", mu=rate, observed=y, dims="obs")
+    return model
+
+
+def build_softmax_categorical():
+    """Multinomial choice: a softmax (multinomial-logit) classifier — `p` shows the **simplex**
+    transfer glyph over the K categories."""
+    rng = np.random.default_rng(10)
+    n, K = 120, 3
+    x = rng.normal(0, 1, n)
+    beta = np.array([-1.0, 0.0, 1.0])
+    logits = np.outer(x, beta)
+    p_true = np.exp(logits) / np.exp(logits).sum(1, keepdims=True)
+    y = np.array([rng.choice(K, p=row) for row in p_true])
+    with pm.Model(coords={"obs": np.arange(n), "cat": np.arange(K)}) as model:
+        a = pm.Normal("a", 0, 1, dims="cat")
+        b = pm.Normal("b", 0, 1, dims="cat")
+        eta = pm.Deterministic("eta", a + b * x[:, None], dims=("obs", "cat"))
+        p = pm.Deterministic("p", pm.math.softmax(eta, axis=-1), dims=("obs", "cat"))
+        pm.Categorical("y", p=p, observed=y, dims="obs")
+    return model
+
+
 ZOO_MODELS = {
     "stochastic_volatility": build_stochastic_volatility,
     "weibull_survival": build_weibull_survival,
@@ -167,4 +220,7 @@ ZOO_MODELS = {
     "gaussian_mixture": build_gaussian_mixture,
     "disease_mapping": build_disease_mapping,
     "ar_forecast": build_ar_forecast,
+    "logistic_regression": build_logistic_regression,
+    "poisson_loglink": build_poisson_loglink,
+    "softmax_categorical": build_softmax_categorical,
 }

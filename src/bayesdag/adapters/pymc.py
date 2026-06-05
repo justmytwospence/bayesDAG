@@ -178,7 +178,12 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
         tr = transforms.get(var) if hasattr(transforms, "get") else None
         tname = getattr(tr, "name", None) if tr is not None else None
         unconstrained = f"{name}_{tname}__" if tname else None
-        glyph_spec, glyph_data, elision = glyph_for(var, role, dist, model, idata)
+        glyph_spec, glyph_data, elision = glyph_for(var, role, dist, model, idata, named=named)
+        # A deterministic whose equation was elided to illegible matrix plumbing ([⋯]) shouldn't carry a
+        # transfer glyph either (the function isn't a meaningful modeling transform — e.g. LKJ corr/stds).
+        # Match ONLY the plumbing marker \cdots; \ldots is a legitimate long-vector/budget abbreviation.
+        if role == "deterministic" and glyph_spec is not None and r"\cdots" in label_tex:
+            glyph_spec, glyph_data = None, None
         nodes.append(
             NodeIR(
                 id=name,

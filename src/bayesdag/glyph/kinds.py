@@ -4,7 +4,8 @@
 ``histogram``    data = {"edges": [...], "counts": [...]}  (counts normalized to 0..1)
 ``hist_overlay`` data = {"edges","counts","overlay":{"xs","ys"}}  (histogram + best-fit curve, shared scale)
 ``bars``         data = {"cats":[...], "heights":[...]}  (discrete pmf: one slot-centered bar per class)
-``schematic``    data = {"xs","ys"} drawn faint/dashed (family shape only)
+``schematic``    data = {"xs","ys"} drawn grey (conditional-latent family shape only)
+``curve``        data = {"xs","ys"} unfilled polyline + baseline (a deterministic's transfer function)
 ``heatmap``      data = {"matrix": [[...]]}  (covariance/correlation/adjacency matrices)
 ``fan``          data = {"mid","lo","hi"}  (random-walk diffusion band)
 ``pairplot``     data = {"cov": [[...]]}  (low-dim multivariate: marginals + covariance ellipses)
@@ -92,6 +93,23 @@ def _bars(edges, counts, box: Box, fill, stroke) -> str:
         bh = max(0.0, min(1.0, c)) * box.h
         out.append(f'<rect x="{bx:.1f}" y="{base - bh:.1f}" width="{bw:.1f}" height="{bh:.1f}" fill="{fill}" stroke="{stroke}" stroke-width="0.4"/>')
     return "".join(out)
+
+
+def render_curve(data: dict[str, Any], box: Box, *, stroke="#7a5bd0", fill="#7a5bd0", **_):
+    """A deterministic's transfer function: an UNFILLED polyline (it depicts a *function*, not a density,
+    so no area fill — that's the visual distinction from ``render_density``), over a faint baseline that
+    tethers the curve under the borderless equation."""
+    xs, ys = data.get("xs"), data.get("ys")
+    if not xs or not ys:
+        return ""
+    pts = _poly(xs, ys, box)
+    base = box.y + box.h
+    return (
+        _zero_marker(box, min(xs), max(xs))
+        + f'<line x1="{box.x:.1f}" y1="{base:.1f}" x2="{box.x + box.w:.1f}" y2="{base:.1f}" '
+        'stroke="#d8d8d8" stroke-width="0.6"/>'
+        + f'<path d="{_path(pts)}" fill="none" stroke="{stroke}" stroke-width="1.3"/>'
+    )
 
 
 def render_histogram(data: dict[str, Any], box: Box, *, fill="#5a7fb5", stroke="#3a5f95", **_):
@@ -334,6 +352,7 @@ def render_censored(data: dict[str, Any], box: Box, *, stroke="#2a8a55", fill="#
 
 register("density", render_density)
 register("schematic", render_schematic)
+register("curve", render_curve)
 register("histogram", render_histogram)
 register("hist_overlay", render_hist_overlay)
 register("bars", render_bars)

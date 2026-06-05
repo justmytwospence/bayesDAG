@@ -54,6 +54,36 @@ Goal: every PyMC distribution renders correctly + honestly. Co-designed per-fami
   (marginal Beta), Censored→base+mass-spikes, TruncatedNormal→clipped density, RandomWalk→fan chart,
   AR→stationary marginal, Interpolated→density-from-points, CAR/ICAR→adjacency heatmap, mixtures/zero-inflated→composite;
   GARCH/SDE/LKJ/CustomDist/Simulator/Flat→honest `elision_reason` badge (wires the long-dormant `representable` field).
-- **Showcase** (`examples/zoo.py`): 8 canonical models (stochastic volatility, Weibull survival, zero-inflated counts,
-  correlated slopes, ordinal ratings, Gaussian mixture, disease mapping, AR) chosen so the set exercises the rich glyphs
-  with *recognizable* models, not contrived zoos; the long tail is guaranteed by the all-catalog `test_coverage.py`.
+- **Showcase** (`examples/zoo.py`): canonical models (stochastic volatility, Weibull survival, zero-inflated counts,
+  correlated slopes, ordinal ratings, Gaussian mixture, disease mapping, AR, + logistic regression, Poisson log-link,
+  softmax classifier) chosen so the set exercises the rich glyphs with *recognizable* models, not contrived zoos; the
+  long tail is guaranteed by the all-catalog `test_coverage.py`.
+
+## Decision log — deterministic transfer-function glyphs (2026-06)
+
+A `pm.Deterministic("y", f(parents))` now gets a small **canonical glyph of the function `f` itself** — a
+logistic S-curve for `invlogit`, an exponential for `exp`, a line for an affine predictor, bars for `softmax`.
+The design constraint (user's) was **zero false positives, argued from first principles, not from test examples**:
+
+- **A glyph is emitted only when its shape is a *mathematical consequence* of the op graph.** (1) A transfer
+  curve `T` is drawn only when, after stripping value-preserving wrappers (ViewOp/DimShuffle/Identity; a
+  `float→int` Cast is NOT value-preserving) and **scalar-constant** affine framing (sign-tracked; this also reaches
+  `Erf` inside the standard probit `0.5(1+erf(·))`), the core op IS an `Elemwise{T}` — elementwise application
+  *means* `yᵢ=T(zᵢ)` pointwise, so the shape is true by definition, and the framing is shape-preserving by the
+  normalization identity `normalize(c·T+d) ≡ normalize(±T)`. (2) A **line** is drawn only when `is_affine` holds —
+  a whitelist closed under the degree-preserving ops with a `Mul`/`Dot` "≤1 parent-dependent factor" guard, so by
+  structural induction the expression is degree ≤1 in the parent RVs (rejects `tau*eta`, `a*(θ−b)` — bilinear).
+  (3) Everything else (`TrueDiv` ⇒ manual-sigmoid/reciprocal/mean ambiguity, reductions, gather, non-constant
+  `Pow`, vector framing, fused `Composite`, unknown ops) falls through to **skip**. The rule is a conservative
+  whitelist, so the only failure mode is a false *negative*; a false positive is structurally impossible.
+- **First-principles analysis caught what an example sweep didn't:** `cumsum` was dropped (a staircase is only
+  monotone for non-negative summands — a real FP on signed values); curves must be evaluated from the true
+  function (not hand-stylized) so the drawn shape *is* `T`. Verified pytensor op signatures: `invlogit→Elemwise/Sigmoid`,
+  `softplus→Softplus`, `erf→Erf`, `x**k→Pow`, `softmax→Softmax`, and `1/x`/manual-sigmoid/`mean` all `→TrueDiv`.
+- **Leaf set = the `named` model vars** (RVs + deterministics + data), mirroring `pytensor_latex.render_value` — so a
+  linear predictor referencing *other* deterministics (mrp `p`) resolves to a line, not over-descended.
+- **Determinism/parity:** curves are parameter-free (fixed grid + closed form), never `.eval()`-ing a parent-bearing
+  tensor — identical on every render (the same contract as the `_canonical_bell` conditional-latent schematic).
+- **Edge anchoring:** a glyph-bearing deterministic exits its outgoing edge from the node box (below the glyph), like
+  a distribution-glyph node; an equation-only deterministic keeps the LHS-token exit. Geometry reserves the strip by
+  glyph **presence**, not role.

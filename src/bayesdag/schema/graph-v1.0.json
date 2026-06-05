@@ -284,7 +284,8 @@
             "prior_analytic",
             "prior_family_only",
             "posterior_kde",
-            "observed_hist"
+            "observed_hist",
+            "deterministic_fn"
           ]
         },
         "interval": {

@@ -145,7 +145,7 @@ def test_showcase_models_render():
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "examples"))
     from zoo import ZOO_MODELS
 
-    assert len(ZOO_MODELS) == 8
+    assert len(ZOO_MODELS) == 11
     for name, build in ZOO_MODELS.items():
         ir = to_ir(build())
         assert "<svg" in to_svg(ir, layout(ir)), name

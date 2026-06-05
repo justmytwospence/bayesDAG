@@ -34,6 +34,7 @@ _GLYPH_COLORS = {
     "prior_family_only": ("#999999", "#999999"),
     "posterior_kde": ("#d2691e", "#d2691e"),
     "observed_hist": ("#3a5f95", "#5a7fb5"),
+    "deterministic_fn": ("#7a5bd0", "#7a5bd0"),  # transfer-function curve (a 4th hue: a computed transform)
 }
 # MLE best-fit family curve drawn over an observed histogram (the conventional "fitted curve" red;
 # distinct from data=blue, prior=green, posterior=orange).
@@ -262,6 +263,9 @@ def _legend_swatch(kind: str, b: Box) -> str:
         if src == "observed_hist":
             data = {"edges": [0, 1, 2, 3], "counts": [0.6, 1.0, 0.45]}
             return glyph.render("histogram", data, b, fill=fill, stroke=stroke)
+        if src == "deterministic_fn":
+            scurve = {"xs": [0.0, 0.25, 0.5, 0.75, 1.0], "ys": [0.05, 0.2, 0.5, 0.8, 0.95]}
+            return glyph.render("curve", scurve, b, stroke=stroke, fill=fill)
         kindname = "schematic" if src == "prior_family_only" else "density"
         return glyph.render(kindname, {"xs": _BELL[0], "ys": _BELL[1]}, b, stroke=stroke, fill=fill)
     if kind == "plate":

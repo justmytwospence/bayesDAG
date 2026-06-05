@@ -385,10 +385,20 @@ def _posterior_samples(name: str, idata):
 
 
 def glyph_for(
-    var, role: str, dist: Optional[str], model, idata=None
+    var, role: str, dist: Optional[str], model, idata=None, named: Optional[dict] = None
 ) -> tuple[Optional[GlyphSpec], Optional[dict], Optional[str]]:
     """Return ``(GlyphSpec, glyph_data, elision_reason)``. ``elision_reason`` is non-None only for
-    honestly-undrawable constructs (it sets ``NodeIR.representable = False`` and shows a badge)."""
+    honestly-undrawable constructs (it sets ``NodeIR.representable = False`` and shows a badge).
+    ``named`` is the ``id(var)->name`` leaf map (used by the deterministic transfer-function path)."""
+    # Deterministics depict their TRANSFER FUNCTION (a structural, parameter-free shape), NOT a
+    # posterior — the function shape is the point; falls to equation-only when not provably depictable.
+    if role == "deterministic":
+        if getattr(var, "owner", None) is None:
+            return None, None, None
+        from .deterministic import transform_glyph  # lazy: deterministic <-> glyph_data cycle
+
+        return transform_glyph(var, named)
+
     # Posterior overlay wins when available (fitted result).
     samples = _posterior_samples(getattr(var, "name", ""), idata)
     if samples is not None:

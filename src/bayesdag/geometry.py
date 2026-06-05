@@ -33,6 +33,13 @@ def has_glyph(role: str) -> bool:
     return role in ("latent", "observed")
 
 
+def has_glyph_data(glyph_kind: str | None, glyph_data: dict | None) -> bool:
+    """Whether a node actually carries a drawable glyph. Sizing/placement gate on THIS (presence),
+    not on role — so a deterministic with a transfer-function glyph reserves a strip, while an
+    equation-only deterministic (and any glyph-less node) stays compact."""
+    return glyph_kind is not None and bool(glyph_data)
+
+
 def label_px_size(svg: str | None) -> tuple[float, float]:
     """(width, height) in px for a MathJax SVG (from its ``ex`` dimensions)."""
     if not svg:
@@ -64,7 +71,7 @@ def glyph_area(glyph_kind: str | None, glyph_data: dict | None = None) -> tuple[
 def node_size(
     label_w: float, label_h: float, role: str, glyph_kind: str | None = None, glyph_data: dict | None = None
 ) -> tuple[float, float]:
-    if has_glyph(role):
+    if has_glyph_data(glyph_kind, glyph_data):
         gmin_w, gh = glyph_area(glyph_kind, glyph_data)
         block = gh + GAP
     else:
@@ -82,7 +89,7 @@ def label_origin(box: Box, label_w: float, label_h: float) -> tuple[float, float
 def glyph_rect(
     box: Box, role: str, label_h: float, glyph_kind: str | None = None, glyph_data: dict | None = None
 ) -> Box | None:
-    if not has_glyph(role):
+    if not has_glyph_data(glyph_kind, glyph_data):
         return None
     top = box.y + PAD + label_h + GAP
     _, gh = glyph_area(glyph_kind, glyph_data)

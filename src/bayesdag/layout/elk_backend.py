@@ -305,8 +305,12 @@ def _attach_source(pts: list, e, res: LayoutResult, roles: dict, nodes: dict, an
     # variable's SOUTH port, so just lift the start up to the variable's bottom (the edge begins at
     # the variable, not the invisible padded box bottom below it). No target-alignment here.
     if not _has_border(roles.get(e.source)):
-        lhs = res.node_token_anchors.get(e.source, {}).get(LHS_TOKEN)
         n = nodes.get(e.source)
+        # A glyph-bearing deterministic exits from its box bottom (below the transfer-function glyph),
+        # like a distribution-glyph node — NOT lifted up into the equation (which would cross the glyph).
+        if n is not None and geometry.has_glyph_data(n.glyph.kind if n.glyph else None, n.glyph_data):
+            return
+        lhs = res.node_token_anchors.get(e.source, {}).get(LHS_TOKEN)
         ey = (lhs.y + lhs.h) if lhs is not None else (
             sb.y + geometry.PAD + (geometry.label_px_size(n.label_svg)[1] if n else 16.0)
         )

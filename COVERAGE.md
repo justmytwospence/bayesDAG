@@ -42,6 +42,7 @@ Detection keys on the **RV class** (`type(op).__name__`); sub-RVs/params come fr
 
 ### Medium
 - [x] `pm.Deterministic` (math-mode rendering with node budget + elision; leaf port-tokens) — basic ops (add/mul/sub/div/pow/exp/log/sqrt); more ops as needed
+- [x] `pm.Deterministic` **transfer-function glyph** (`curve`): canonical, parameter-free shape of the function — logistic/probit/tanh S-curves, exp/log/softplus/sqrt/abs, `x**k` (constant exponent), affine→line, softmax→bars. Drawn ONLY when provable from the op graph (zero false positives); equation-only otherwise. Glyph-bearing deterministics exit their outgoing edge from the node box; equation-only ones from the LHS token.
 - [ ] Transforms (log/logodds/simplex/…) as badges via `rvs_to_transforms`
 - [x] MvNormal / MvStudentT → `pairplot` (low-dim, covariance ellipses) → `heatmap`; matrix dists (Wishart/MatrixNormal/Kronecker) → `heatmap`
 - [ ] Nested / prefixed submodels (group by prefix)
@@ -67,10 +68,14 @@ Detection keys on the **RV class** (`type(op).__name__`); sub-RVs/params come fr
   upgrade) would let the dimensionality threshold rise on hover (as designed).
 - Multivariate/symbolic labels can be cosmetically ugly (`second(...)`, `cast(...)`) — per-construct
   param-name templates would clean this up.
+- Deterministic transfer glyphs are intentionally conservative (zero false positives): a hand-written
+  sigmoid `1/(1+e^-x)` (looks like `TrueDiv`), cloglog, probit via non-`erf` helpers, `mean`, `cumsum`
+  (non-monotone on signed summands), and multi-transfer composites are NOT detected — they render
+  equation-only. Softmax/affine shapes are schematic (canonical), not the node's actual values.
 - [ ] Experimental `pymc.dims` xtensor RVs (`XRV`) — best-effort or declared experimental
 
 ## Glyph kinds (registry)
-- [x] `density` · `histogram` · `schematic` · `heatmap` · `bars` (discrete pmf) · `hist_overlay` (observed data + best-fit family)
+- [x] `density` · `histogram` · `schematic` · `curve` (deterministic transfer function) · `heatmap` · `bars` (discrete pmf) · `hist_overlay` (observed data + best-fit family)
 - [x] special-construct kinds: `fan` (random-walk band) · `pairplot` (marginals + covariance ellipses) · `mixture` (overlaid components / zero-spike) · `cutpoints` (ordinal) · `simplex` (Dirichlet marginal Beta) · `censored` (base + bound spikes)
 - [ ] `cdf`/`ccdf`/`gradient`/`dotplot`/`quantile_dotplot`/`band`; `interval`/`point` annotations
 - [ ] Cross-cutting: `transform.animate="hops"` · `layout="ridgeline"`

@@ -29,6 +29,15 @@ def _scalar_op_name(op: Any) -> Optional[str]:
     return None
 
 
+def _is_wrapper(op: Any) -> bool:
+    """A value-preserving structural wrapper that a label or glyph can see through: ``ViewOp``
+    (``pm.Deterministic``), ``DimShuffle`` (transpose/broadcast), or ``Identity``. NOT ``Cast`` — a
+    ``float->int`` cast is a step function (value-changing), so glyph callers must handle it explicitly."""
+    if type(op).__name__ in ("ViewOp", "DimShuffle"):
+        return True
+    return _scalar_op_name(op) == "Identity"
+
+
 def _fmt_scalar(v: Any) -> str:
     if isinstance(v, float):
         if v != v:
@@ -135,6 +144,10 @@ def render_value(
         if sname in ("Cast", "Identity") and parts:  # type-cast wrappers are invisible to the math
             return parts[0], used
         return rf"\operatorname{{{sname.lower()}}}\!\left({', '.join(parts)}\right)", used
+
+    if type(op).__name__ == "Softmax":  # non-Elemwise but a recognizable transfer -> name it
+        t, u = R(owner.inputs[0])
+        return rf"\operatorname{{softmax}}\!\left({t}\right)", u
 
     # Unknown op: render named-bearing inputs as f(...), else elide.
     sub = []

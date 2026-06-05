@@ -551,6 +551,41 @@ def _(show, zoo):
 
 
 @app.cell
+def _(show, zoo):
+    show(
+        zoo.build_logistic_regression(),
+        "15 · Logistic regression (classification)",
+        "The linear predictor and inverse-link are explicit deterministics: `eta` shows the affine "
+        "**line** transfer glyph, and `p = sigmoid(eta)` the **logistic S-curve** — drawn only because "
+        "each function is provable from the op graph (a hand-written `1/(1+exp(-eta))` would stay "
+        "equation-only).",
+    )
+    return
+
+
+@app.cell
+def _(show, zoo):
+    show(
+        zoo.build_poisson_loglink(),
+        "16 · Poisson regression with a log link (counts)",
+        "An explicit log link: `eta` is the **line**, `rate = exp(eta)` the **exponential** "
+        "transfer-function curve (distinct from the logistic S above).",
+    )
+    return
+
+
+@app.cell
+def _(show, zoo):
+    show(
+        zoo.build_softmax_categorical(),
+        "17 · Softmax classifier (multinomial choice)",
+        "A multinomial-logit model: `p = softmax(eta)` renders as the **k-category bars** of its simplex "
+        "output (one probability vector over the categories).",
+    )
+    return
+
+
+@app.cell
 def _(mo):
     mo.md(r"""
     ## Notes
