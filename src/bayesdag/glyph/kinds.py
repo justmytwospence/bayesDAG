@@ -75,8 +75,10 @@ def render_density(data: dict[str, Any], box: Box, *, stroke="#2a7", fill="#2a7"
 
 
 def render_schematic(data: dict[str, Any], box: Box, **_):
-    # Family shape only: faint + dashed, with an "approx" cue.
-    return render_density(data, box, stroke="#999", fill="#999", fill_opacity=0.08, dashed=True)
+    # Family shape only (a conditional latent whose params depend on parents): the same solid bell as a
+    # real density, but GREY — colour + the legend ("prior shape (depends on parents)") carry the
+    # "shape depends on parents" meaning, no dashing.
+    return render_density(data, box, stroke="#999", fill="#999")
 
 
 def _bars(edges, counts, box: Box, fill, stroke) -> str:

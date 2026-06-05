@@ -36,6 +36,18 @@ Goal: every PyMC distribution renders correctly + honestly. Co-designed per-fami
     a safe oracle (it samples Cauchy as `loc=α/β, scale=1/β`; the density via `logp` is the truth).
   - **Robustness:** `Flat`/`HalfFlat`/`ICAR` raise on shape `.eval()` and crashed `to_ir` via pymc's `get_plates`;
     guarded with an eval-free plate fallback.
+  - **`.eval()` silently samples through parent RVs** (the second face of the `pm.draw` hazard): `_numeric_params`
+    used to `.eval()` every distribution param, which *succeeds* for a conditional latent by drawing a random value
+    through its parents. So `mu ~ N(0,5)` (root prior) and `x ~ N(mu, sigma)` (conditional latent) both came back
+    `prior_analytic` and rendered as identical green densities — and `x`'s "shape" jumped randomly every build
+    (centre −14→+6 across renders), breaking the prior-vs-latent distinction, the honesty contract, and determinism
+    (static ≠ static, let alone static == widget). Fix: gate every param `.eval()` on `_depends_on_rv` — a **root
+    prior** (all params fixed constants) renders the analytic shape; a **conditional latent** (any param governed by a
+    parent RV) falls to the family-only grey schematic, deterministically. Constructs that need only a numeric
+    *subset* read it via `_lead_numeric` so a legitimate prior sub-param doesn't nuke a knowable shape: LKJCholeskyCov's
+    correlation marginal needs only `n, eta` (not its `sd_dist` prior); a **driftless** random walk's normalized fan is
+    scale-invariant (the prior innovation `sigma` cancels). Only a shape that *genuinely* depends on a prior — an
+    MvNormal whose covariance is the LKJ draw — honestly badges rather than fabricating a random pairplot.
   - **Ordinal caveat:** `OrderedLogistic` is a `CategoricalRV` with a computed `p` — not reliably distinguishable
     from a plain Categorical at the op level, so the cutpoints glyph is best-effort.
 - **Representations** (`adapters/constructs.py`): multivariate→pairplot(ellipses)/heatmap, Dirichlet→simplex

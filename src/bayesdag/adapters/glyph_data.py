@@ -25,6 +25,16 @@ def _scalars(p) -> list:
     return [float(np.asarray(x).reshape(-1)[0]) for x in (p or [])]
 
 
+def _canonical_bell() -> dict:
+    """A fixed, parameter-free bell on [0, 1] for the family-only *schematic* — a conditional latent
+    whose true shape depends on parent draws. We show this illustrative shape (rendered grey + dashed)
+    rather than sampling a misleading one through the parents. On [0, 1] it never straddles x=0, so the
+    zero-reference marker correctly stays off an axis that carries no real values."""
+    xs = [i / 40.0 for i in range(41)]
+    ys = [float(np.exp(-0.5 * ((x - 0.5) / 0.16) ** 2)) for x in xs]
+    return {"xs": xs, "ys": ys}
+
+
 def _scipy_frozen(dist: str, p: list):
     """A scipy frozen continuous distribution for a prior whose params are numeric, in the OP's
     parameter order (verified against PyMC 6.x via logp). Returns None for discrete / custom /
@@ -325,6 +335,14 @@ def _discrete_bars(values, max_cats: int = 30) -> Optional[dict]:
 
 
 def _numeric_params(var) -> Optional[list]:
+    """The node's distribution parameters as numpy arrays — but ONLY for a root prior, i.e. one
+    whose every parameter is a fixed constant. Returns None for a conditional latent (any parameter
+    governed by a parent RV): there ``.eval()`` would silently draw a random sample rather than read
+    a value, yielding a different (misleading) shape on every render. None routes such a node to the
+    family-only schematic — restoring the prior (analytic) vs latent (schematic) distinction and
+    keeping the glyph deterministic (static == widget == itself across builds)."""
+    from .constructs import _depends_on_rv  # lazy: avoids the glyph_data<->constructs import cycle
+
     node = var.owner
     op = node.op
     try:
@@ -333,6 +351,8 @@ def _numeric_params(var) -> Optional[list]:
         dparams = list(node.inputs[2:])
     out = []
     for dp in dparams:
+        if _depends_on_rv(dp):  # parent RV governs this slot -> not a root prior; never a random draw
+            return None
         try:
             out.append(np.asarray(dp.eval()))
         except Exception:
@@ -418,7 +438,8 @@ def glyph_for(
             data = _custom_density(dist, params)
             if data is not None:
                 return GlyphSpec(kind="density", source="prior_analytic"), data, None
-        # params depend on parents (hierarchical) or unmapped dist -> family/schematic shape
-        return GlyphSpec(kind="schematic", source="prior_family_only"), None, None
+        # params depend on parents (hierarchical) or unmapped dist -> a parameter-free family/schematic
+        # shape (grey + dashed); never a value sampled through the parents.
+        return GlyphSpec(kind="schematic", source="prior_family_only"), _canonical_bell(), None
 
     return None, None, None  # deterministic / data / potential -> no shape glyph in M0

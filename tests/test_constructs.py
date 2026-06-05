@@ -66,6 +66,41 @@ def test_special_construct_glyphs(name, build, kind, representable):
     assert (n.elision_reason is None) is representable, name
 
 
+def test_constructs_with_a_prior_subparam_keep_their_deterministic_glyph():
+    """A construct needing only a NUMERIC SUBSET of params keeps its real, deterministic glyph even
+    when a trailing param is a prior: an LKJCholeskyCov's correlation marginal needs only n & eta (not
+    its sd_dist prior), and a driftless random walk's normalized fan is scale-invariant (the prior
+    innovation scale cancels). A construct whose shape GENUINELY depends on a prior — an MvNormal whose
+    covariance is the LKJ draw — honestly badges instead of fabricating a random pairplot."""
+
+    def lkj_chol():
+        with pm.Model() as m:
+            pm.LKJCholeskyCov("L", n=3, eta=2.0, sd_dist=pm.Exponential.dist(1.0), compute_corr=True)
+        return m
+
+    def driftless_rw():
+        with pm.Model(coords={"t": range(8)}) as m:
+            pm.GaussianRandomWalk("w", sigma=pm.HalfNormal("s", 1.0), init_dist=pm.Normal.dist(0, 1), dims="t")
+        return m
+
+    def mvn_lkj_cov():
+        with pm.Model() as m:
+            chol, _, _ = pm.LKJCholeskyCov("C", n=2, eta=2.0, sd_dist=pm.Exponential.dist(1.0), compute_corr=True)
+            pm.MvNormal("ab", mu=[0.0, 0.0], chol=chol)
+        return m
+
+    lkj = to_ir(lkj_chol()).node("L")
+    assert lkj.glyph.kind == "density" and lkj.glyph.source == "prior_analytic"  # not re-broken to a badge
+    assert to_ir(lkj_chol()).node("L").glyph_data == lkj.glyph_data  # deterministic: sd_dist never sampled
+
+    rw = to_ir(driftless_rw()).node("w")
+    assert rw.glyph.kind == "fan" and rw.glyph.source == "prior_analytic"
+    assert to_ir(driftless_rw()).node("w").glyph_data == rw.glyph_data  # deterministic: scale-invariant
+
+    ab = to_ir(mvn_lkj_cov()).node("ab")
+    assert ab.glyph.kind == "schematic" and ab.representable is False  # covariance is a genuine prior
+
+
 def test_ar_pacf_real_only_when_coefficients_are_known():
     """Fixed AR coefficients -> the true theoretical PACF; prior coefficients -> an honest, DETERMINISTIC
     order schematic (no random per-render draw of the unknown coefficients)."""

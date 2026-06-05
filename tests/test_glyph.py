@@ -22,6 +22,30 @@ def test_zero_reference_marker():
     assert 'stroke-dasharray="2,2"' not in far  # 0 far outside -> no marker
 
 
+def test_conditional_latent_is_schematic_not_a_random_draw():
+    """The prior-vs-latent distinction: a ROOT prior (all params fixed) gets an analytic shape; a
+    CONDITIONAL latent (any param is a parent RV) must fall to the family-only schematic rather than
+    being silently sampled into a misleading, non-deterministic green density (the old bug, where
+    ``.eval()`` drew a random value through the parents)."""
+    import pymc as pm
+
+    from bayesdag.convert import to_ir
+
+    def build(scale=1.0):
+        with pm.Model() as m:
+            mu = pm.Normal("mu", 0, 5)             # root prior
+            sigma = pm.HalfNormal("sigma", scale)  # root prior
+            pm.Normal("x", mu, sigma)              # conditional latent: params depend on parents
+        return m
+
+    g = {n.id: n.glyph for n in to_ir(build()).nodes}
+    assert g["mu"].source == "prior_analytic" and g["sigma"].source == "prior_analytic"
+    assert g["x"].source == "prior_family_only" and g["x"].kind == "schematic"
+    # the schematic is a fixed, parameter-FREE shape: it must be identical regardless of the parent
+    # scale (proving it's canonical, never a value sampled through the parents at render time).
+    assert to_ir(build(1.0)).node("x").glyph_data == to_ir(build(100.0)).node("x").glyph_data
+
+
 def test_special_glyph_kinds_render():
     b = Box(0, 0, 80, 40)
     assert "<path" in glyph.render("fan", {"mid": [0.5, 0.5, 0.5], "lo": [0.4, 0.3, 0.2], "hi": [0.6, 0.7, 0.8]}, b)

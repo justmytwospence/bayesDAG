@@ -24,7 +24,10 @@ _GRID = 64
 
 
 def _ev(t) -> Optional[np.ndarray]:
-    """Evaluate a (usually constant) tensor input to a numpy array, or None if it can't sample."""
+    """Evaluate a (usually constant) tensor input to a numpy array, or None if it can't sample OR
+    is governed by a parent RV (whose ``.eval()`` would be a random draw, not the real value)."""
+    if _depends_on_rv(t):
+        return None
     try:
         return np.asarray(t.eval(), dtype=float)
     except Exception:
@@ -51,7 +54,10 @@ def _depends_on_rv(t) -> bool:
     """True if a tensor's value is governed by a random variable (a prior) rather than fixed
     constants — i.e. `.eval()` would return an arbitrary random draw, not the real value."""
     try:
-        from pytensor.graph.basic import ancestors
+        try:
+            from pytensor.graph.traversal import ancestors  # pytensor >= 2.x new location
+        except Exception:
+            from pytensor.graph.basic import ancestors  # older pytensor
 
         for a in ancestors([t]):
             op = getattr(getattr(a, "owner", None), "op", None)
@@ -68,6 +74,29 @@ def _dist_name(rv) -> Optional[str]:
         return None
     pn = getattr(op, "_print_name", None)
     return pn[0] if pn else type(op).__name__.removesuffix("RV")
+
+
+def _lead_numeric(var, k: int) -> Optional[list]:
+    """The first k distribution params as numeric arrays — for constructs that need only a LEADING
+    subset (e.g. LKJ's n & eta, a random walk's drift) whose TRAILING params may legitimately be
+    priors that must never be sampled (an LKJCholeskyCov's sd_dist, an innovation's scale). Returns
+    None if any of the first k is itself a prior or non-evaluable."""
+    node = getattr(var, "owner", None)
+    if node is None:
+        return None
+    try:
+        dparams = list(node.op.dist_params(node))
+    except Exception:
+        dparams = list(node.inputs[2:])
+    out = []
+    for dp in dparams[:k]:
+        if _depends_on_rv(dp):
+            return None
+        try:
+            out.append(np.asarray(dp.eval()))
+        except Exception:
+            return None
+    return out
 
 
 def _base_frozen(rv):
@@ -192,12 +221,24 @@ def _truncated_normal(var, params):
 def _random_walk(var):
     ins = var.owner.inputs
     innov = next((i for i in ins[1:] if getattr(i, "owner", None) is not None and _dist_name(i)), None)
-    p = gd._numeric_params(innov) if innov is not None else None
-    if not p:
+    if innov is None:
         return None
-    q = [float(np.asarray(x).reshape(-1)[0]) for x in p]
-    drift = q[0] if len(q) > 1 else 0.0
-    sd = q[-1]
+    p = gd._numeric_params(innov)
+    if p:
+        q = [float(np.asarray(x).reshape(-1)[0]) for x in p]
+        drift = q[0] if len(q) > 1 else 0.0
+        sd = q[-1]
+    else:
+        # the innovation SCALE is a prior: the fan's absolute width is unknown. But a DRIFTLESS walk's
+        # normalized fan (the characteristic sqrt-t spread) is scale-invariant — the sd cancels — so
+        # draw it canonically. With drift, the drift/scale balance matters, so honest-badge instead.
+        lead = _lead_numeric(innov, 1)  # the innovation mean (drift); trailing scale may be a prior
+        if lead is None:
+            return None
+        drift = float(np.asarray(lead[0]).reshape(-1)[0])
+        if drift != 0.0:
+            return None
+        sd = 1.0
     T = 20
     t = np.arange(T + 1)
     mean = drift * t
@@ -212,10 +253,13 @@ def _random_walk(var):
     return GlyphSpec(kind="fan", source="prior_analytic"), {"mid": norm(mean), "lo": norm(lo), "hi": norm(hi)}
 
 
-def _lkj(var, params):
+def _lkj(var):
     """LKJ prior over correlation matrices -> the marginal density of a single pairwise correlation
     on [-1, 1] (a symmetric Beta whose concentration encodes eta — the AR-style 'how much
-    correlation is plausible' signature). Params are [n (dim), eta]."""
+    correlation is plausible' signature). Params are [n (dim), eta]; an LKJCholeskyCov also carries a
+    trailing sd_dist that may be a prior (and is irrelevant to the correlation marginal), so read ONLY
+    the leading n, eta and never sample sd_dist."""
+    params = _lead_numeric(var, 2)
     if not params or len(params) < 2:
         return None
     import scipy.stats as st
@@ -272,24 +316,45 @@ def _levinson_pacf(acf: list[float], nlags: int) -> list[float]:
     return pacf
 
 
+def _ar_order(rho_in) -> Optional[int]:
+    """The AR order = number of coefficients. It's STRUCTURAL (the coefficient vector's length), so
+    it's knowable from the static shape even when the coefficient VALUES are a prior we must not
+    sample — i.e. without ``.eval()``-ing the (random) tensor."""
+    st = getattr(getattr(rho_in, "type", None), "shape", None)
+    if st is not None:
+        if len(st) == 0:
+            return 1  # scalar coefficient -> AR(1)
+        if st[-1] is not None:
+            return int(st[-1])
+    try:
+        sh = np.asarray(rho_in.shape.eval())  # shape graph is RNG-independent, unlike the value
+        return int(sh[-1]) if sh.size else 1
+    except Exception:
+        return None
+
+
 def _ar(var):
     rho_in = var.owner.inputs[0]  # AR coefficients
-    rho = _ev(rho_in)
-    if rho is None:
-        return None
-    rho = np.atleast_1d(rho).ravel().astype(float)
-    p = rho.size  # the order is structural (known even when the coefficient VALUES are a prior)
-    if p == 0:
-        return None
-    nlags = min(10, p + 4)
     if _depends_on_rv(rho_in):
         # the coefficients are a prior: their .eval() is a meaningless random draw. Don't fake a
         # PACF — show the AR ORDER honestly (p schematic lags, then the cutoff), in schematic style.
+        p = _ar_order(rho_in)
+        if not p:
+            return None
+        nlags = min(10, p + 4)
         vals = [0.7 if i < p else 0.0 for i in range(nlags)]
         return GlyphSpec(kind="stem", source="prior_family_only"), {
             "lags": list(range(1, nlags + 1)),
             "values": vals,
         }
+    rho = _ev(rho_in)
+    if rho is None:
+        return None
+    rho = np.atleast_1d(rho).ravel().astype(float)
+    p = rho.size
+    if p == 0:
+        return None
+    nlags = min(10, p + 4)
     if np.sum(rho**2) >= 1.0:  # known but non-stationary
         return _badge("autoregressive — non-stationary")[:2]
     try:  # known, stationary coefficients -> the true theoretical PACF
@@ -372,7 +437,7 @@ def special_glyph(var):
             r = _matrix_only(var, params)
             return (*r, None) if r else _badge("matrix-valued — params not numeric")
         if cls in ("LKJCorrRV", "_LKJCholeskyCovRV"):
-            r = _lkj(var, params)
+            r = _lkj(var)
             return (*r, None) if r else _badge("correlation-matrix prior")
         if cls == "DirichletRV":
             r = _dirichlet(var, params)
