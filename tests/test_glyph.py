@@ -10,6 +10,18 @@ def test_registry_has_density_and_nonunivariate_kinds():
     assert {"fan", "pairplot", "mixture", "cutpoints", "simplex", "censored", "stem"} <= ks  # special-construct kinds
 
 
+def test_zero_reference_marker():
+    """A faint x=0 line appears on value-axis glyphs only when 0 is inside the (self-scaled) range —
+    restoring sign/centering for ZeroSumNormal, coefficients, correlations, etc."""
+    b = Box(0, 0, 100, 40)
+    centered = glyph.render("density", {"xs": [-2, -1, 0, 1, 2], "ys": [0.1, 0.6, 1, 0.6, 0.1]}, b)
+    positive = glyph.render("density", {"xs": [0.1, 1, 2, 3], "ys": [1, 0.6, 0.3, 0.1]}, b)
+    far = glyph.render("density", {"xs": [7, 9, 11], "ys": [0.2, 1, 0.2]}, b)
+    assert 'stroke-dasharray="2,2"' in centered  # 0 in range -> marker
+    assert 'stroke-dasharray="2,2"' not in positive  # 0 at/below left edge -> no marker
+    assert 'stroke-dasharray="2,2"' not in far  # 0 far outside -> no marker
+
+
 def test_special_glyph_kinds_render():
     b = Box(0, 0, 80, 40)
     assert "<path" in glyph.render("fan", {"mid": [0.5, 0.5, 0.5], "lo": [0.4, 0.3, 0.2], "hi": [0.6, 0.7, 0.8]}, b)

@@ -41,6 +41,19 @@ def _poly(xs, ys, box: Box):
     return [(sx(x), sy(y)) for x, y in zip(xs, ys)]
 
 
+def _zero_marker(box: Box, x0: float, x1: float) -> str:
+    """A faint dashed vertical reference at x=0, when 0 falls inside the rendered range. Glyphs are
+    self-scaled, so this restores the key landmark — sign / centering (e.g. ZeroSumNormal, a
+    coefficient straddling 0, an LKJ correlation on [-1, 1])."""
+    if x1 <= x0 or not (x0 < 0.0 < x1):
+        return ""
+    px = box.x + (0.0 - x0) / (x1 - x0) * box.w
+    return (
+        f'<line x1="{px:.1f}" y1="{box.y:.1f}" x2="{px:.1f}" y2="{box.y + box.h:.1f}" '
+        'stroke="#b0b0b0" stroke-width="0.6" stroke-dasharray="2,2"/>'
+    )
+
+
 def render_density(data: dict[str, Any], box: Box, *, stroke="#2a7", fill="#2a7", fill_opacity=0.18, dashed=False, **_):
     xs, ys = data.get("xs"), data.get("ys")
     if not xs or not ys:
@@ -55,8 +68,9 @@ def render_density(data: dict[str, Any], box: Box, *, stroke="#2a7", fill="#2a7"
     )
     dash = ' stroke-dasharray="3,2"' if dashed else ""
     return (
-        f'<path d="{area}" fill="{fill}" fill-opacity="{fill_opacity}" stroke="none"/>'
-        f'<path d="{line}" fill="none" stroke="{stroke}" stroke-width="1.3"{dash}/>'
+        _zero_marker(box, min(xs), max(xs))
+        + f'<path d="{area}" fill="{fill}" fill-opacity="{fill_opacity}" stroke="none"/>'
+        + f'<path d="{line}" fill="none" stroke="{stroke}" stroke-width="1.3"{dash}/>'
     )
 
 
@@ -82,7 +96,7 @@ def render_histogram(data: dict[str, Any], box: Box, *, fill="#5a7fb5", stroke="
     edges, counts = data.get("edges"), data.get("counts")
     if not edges or not counts:
         return ""
-    return _bars(edges, counts, box, fill, stroke)
+    return _zero_marker(box, edges[0], edges[-1]) + _bars(edges, counts, box, fill, stroke)
 
 
 def render_hist_overlay(data: dict[str, Any], box: Box, *, fill="#5a7fb5", stroke="#3a5f95", overlay="#c0392b", **_):
@@ -91,7 +105,7 @@ def render_hist_overlay(data: dict[str, Any], box: Box, *, fill="#5a7fb5", strok
     edges, counts = data.get("edges"), data.get("counts")
     if not edges or not counts:
         return ""
-    out = _bars(edges, counts, box, fill, stroke)
+    out = _zero_marker(box, edges[0], edges[-1]) + _bars(edges, counts, box, fill, stroke)
     ov = data.get("overlay") or {}
     xs, ys = ov.get("xs"), ov.get("ys")
     if xs and ys:
@@ -224,7 +238,11 @@ def render_mixture(data: dict[str, Any], box: Box, *, stroke="#2a8a55", fill="#2
     base = data.get("base")
     if base:
         out.append(render_bars(base, box, fill=fill, stroke=stroke))
-    for comp in data.get("curves", []):
+    curves = data.get("curves", [])
+    if curves and curves[0].get("xs"):  # shared x-range across overlaid components
+        xs0 = curves[0]["xs"]
+        out.append(_zero_marker(box, min(xs0), max(xs0)))
+    for comp in curves:
         xs, ys = comp.get("xs"), comp.get("ys")
         if xs and ys:
             out.append(f'<path d="{_path(_poly(xs, ys, box))}" fill="none" stroke="{stroke}" stroke-width="1.0" opacity="0.8"/>')

@@ -46,6 +46,8 @@ def _scipy_frozen(dist: str, p: list):
         "Gumbel": lambda: st.gumbel_r(q[0], q[1]),
         "Moyal": lambda: st.moyal(q[0], q[1]),
         "StudentT": lambda: st.t(df=q[0], loc=q[1], scale=q[2]),
+        # ZeroSumNormal: each element is marginally Normal(0, sigma*sqrt((n-1)/n)) — centered at 0
+        "ZeroSumNormal": lambda: st.norm(0.0, q[0] * np.sqrt(max(q[1] - 1, 1) / q[1]) if len(q) >= 2 else q[0]),
         "SkewNormal": lambda: st.skewnorm(a=q[2], loc=q[0], scale=q[1]),
         "ExGaussian": lambda: st.exponnorm(K=q[2] / q[1], loc=q[0], scale=q[1]),
         "VonMises": lambda: st.vonmises(kappa=q[1], loc=q[0]),
