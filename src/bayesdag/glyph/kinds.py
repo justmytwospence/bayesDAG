@@ -10,7 +10,8 @@
 ``pairplot``     data = {"cov": [[...]]}  (low-dim multivariate: marginals + covariance ellipses)
 ``mixture``      data = {"curves":[{xs,ys}], "base":{cats,heights}, "spike": float}  (mixtures / zero-inflated)
 ``cutpoints``    data = {"probs":[...], "cutpoints":[...]}  (ordinal)
-``simplex``      data = {"curves":[{xs,ys}]}  (Dirichlet marginal Beta curves)
+``simplex``      data = {"curves":[{xs,ys}]}  (Dirichlet marginal Beta curves, filled)
+``stem``         data = {"lags":[...], "values":[...]}  (PACF / autocorrelation stems, +/-)
 ``censored``     data = {"xs","ys","spikes":[{x,h}]}  (base density + bound mass-spikes)
 """
 
@@ -254,15 +255,46 @@ def render_cutpoints(data: dict[str, Any], box: Box, *, fill="#5a7fb5", stroke="
 
 
 def render_simplex(data: dict[str, Any], box: Box, *, stroke="#2a8a55", fill="#2a8a55", **_):
-    """Dirichlet & friends: overlaid marginal Beta curves (one per component) on [0, 1]."""
+    """Dirichlet & friends: overlaid marginal Beta curves (one per component) on [0, 1], each lightly
+    filled so even a flat (uniform) marginal reads as a density band rather than a bare line."""
     curves = data.get("curves")
     if not curves:
         return ""
+    base = box.y + box.h
     out = []
     for crv in curves:
         xs, ys = crv.get("xs"), crv.get("ys")
-        if xs and ys:
-            out.append(f'<path d="{_path(_poly(xs, ys, box))}" fill="none" stroke="{stroke}" stroke-width="0.9" opacity="0.75"/>')
+        if not (xs and ys):
+            continue
+        pts = _poly(xs, ys, box)
+        area = (
+            f"M{pts[0][0]:.1f},{base:.1f} L"
+            + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+            + f" L{pts[-1][0]:.1f},{base:.1f} Z"
+        )
+        out.append(f'<path d="{area}" fill="{fill}" fill-opacity="0.12" stroke="none"/>')
+        out.append(f'<path d="{_path(pts)}" fill="none" stroke="{stroke}" stroke-width="0.9" opacity="0.85"/>')
+    return "".join(out)
+
+
+def render_stem(data: dict[str, Any], box: Box, *, stroke="#3a5f95", fill="#3a5f95", **_):
+    """Stem plot (e.g. an AR partial-autocorrelation function): one stem per lag from a zero
+    baseline, handling +/- values. The AR(p) fingerprint is a sharp cutoff after lag p."""
+    vals = data.get("values")
+    if not vals:
+        return ""
+    n = len(vals)
+    mx = max(1e-9, max(abs(v) for v in vals))
+    base = box.y + box.h / 2.0
+    out = [
+        f'<line x1="{box.x:.1f}" y1="{base:.1f}" x2="{box.x + box.w:.1f}" y2="{base:.1f}" '
+        'stroke="#bbb" stroke-width="0.5"/>'
+    ]
+    for i, v in enumerate(vals):
+        cx = box.x + (i + 0.5) / n * box.w
+        y = base - (v / mx) * (box.h / 2.0 - 2.0)
+        out.append(f'<line x1="{cx:.1f}" y1="{base:.1f}" x2="{cx:.1f}" y2="{y:.1f}" stroke="{stroke}" stroke-width="1.4"/>')
+        out.append(f'<circle cx="{cx:.1f}" cy="{y:.1f}" r="1.5" fill="{stroke}"/>')
     return "".join(out)
 
 
@@ -291,4 +323,5 @@ register("pairplot", render_pairplot)
 register("mixture", render_mixture)
 register("cutpoints", render_cutpoints)
 register("simplex", render_simplex)
+register("stem", render_stem)
 register("censored", render_censored)

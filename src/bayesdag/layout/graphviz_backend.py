@@ -35,7 +35,9 @@ def _build_dot(ir: ModelIR, info: dict[str, dict], rankdir: str) -> str:
             member_of[m] = p.id
 
     def node_line(n) -> str:
-        w, h = geometry.node_size(info[n.id]["w"], info[n.id]["h"], n.role, n.glyph.kind if n.glyph else None)
+        w, h = geometry.node_size(
+            info[n.id]["w"], info[n.id]["h"], n.role, n.glyph.kind if n.glyph else None, n.glyph_data if n.glyph else None
+        )
         return f'    {json.dumps(n.id)} [width={w / 72.0:.4f}, height={h / 72.0:.4f}];'
 
     by_id = {n.id: n for n in ir.nodes}

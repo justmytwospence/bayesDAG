@@ -181,20 +181,83 @@ def _random_walk(var):
     return GlyphSpec(kind="fan", source="prior_analytic"), {"mid": norm(mean), "lo": norm(lo), "hi": norm(hi)}
 
 
-def _ar(var):
-    ins = var.owner.inputs
-    rho, sigma = _ev(ins[0]), _ev(ins[1])
-    if rho is None or sigma is None:
+def _lkj(var, params):
+    """LKJ prior over correlation matrices -> the marginal density of a single pairwise correlation
+    on [-1, 1] (a symmetric Beta whose concentration encodes eta — the AR-style 'how much
+    correlation is plausible' signature). Params are [n (dim), eta]."""
+    if not params or len(params) < 2:
         return None
-    rho = np.atleast_1d(rho).ravel()
-    s = float(np.atleast_1d(sigma).ravel()[0])
-    ss = float(np.sum(rho**2))
-    if ss >= 1.0:  # non-stationary: no honest static marginal
-        return _badge("AR — non-stationary (|rho| sum >= 1)")[:2]
     import scipy.stats as st
 
-    fr = st.norm(0.0, s / np.sqrt(1.0 - ss))
-    return GlyphSpec(kind="density", source="prior_analytic"), gd._density_from_frozen(fr)
+    n = int(np.asarray(params[0]).ravel()[0])
+    eta = float(np.asarray(params[1]).ravel()[0])
+    if n < 2:
+        return None
+    alpha = eta + (n - 2) / 2.0  # marginal of an off-diagonal r: (r+1)/2 ~ Beta(alpha, alpha)
+    rs = np.linspace(-0.999, 0.999, _GRID)
+    ys = st.beta(alpha, alpha).pdf((rs + 1) / 2.0) / 2.0
+    if not np.all(np.isfinite(ys)) or ys.max() <= 0:
+        return None
+    m = float(ys.max()) or 1.0
+    return GlyphSpec(kind="density", source="prior_analytic"), {
+        "xs": [float(x) for x in rs],
+        "ys": [float(y / m) for y in ys],
+    }
+
+
+def _ar_acf(rho: np.ndarray, k: int) -> list[float]:
+    """Theoretical ACF rho(0..k) of a stationary AR(p) via Yule-Walker (first p) then recursion."""
+    p = len(rho)
+    mat = np.zeros((p, p))
+    c = np.zeros(p)
+    for kk in range(1, p + 1):
+        mat[kk - 1, kk - 1] += 1.0
+        for j in range(1, p + 1):
+            m = abs(kk - j)
+            if m == 0:
+                c[kk - 1] += rho[j - 1]
+            else:
+                mat[kk - 1, m - 1] -= rho[j - 1]
+    acf = [1.0] + list(np.linalg.solve(mat, c))
+    for kk in range(p + 1, k + 1):
+        acf.append(float(sum(rho[j - 1] * acf[kk - j] for j in range(1, p + 1))))
+    return acf
+
+
+def _levinson_pacf(acf: list[float], nlags: int) -> list[float]:
+    """Partial autocorrelations from the ACF (Durbin-Levinson). For a pure AR(p) the PACF cuts off
+    after lag p — the distinctive AR fingerprint."""
+    phi = np.zeros((nlags + 1, nlags + 1))
+    v = acf[0]
+    pacf = []
+    for k in range(1, nlags + 1):
+        num = acf[k] - sum(phi[k - 1, j] * acf[k - j] for j in range(1, k))
+        pkk = num / v if abs(v) > 1e-12 else 0.0
+        phi[k, k] = pkk
+        for j in range(1, k):
+            phi[k, j] = phi[k - 1, j] - pkk * phi[k - 1, k - j]
+        v *= 1 - pkk * pkk
+        pacf.append(float(pkk))
+    return pacf
+
+
+def _ar(var):
+    rho = _ev(var.owner.inputs[0])  # AR coefficients; PACF is derived from these alone
+    if rho is None:
+        return None
+    rho = np.atleast_1d(rho).ravel().astype(float)
+    p = rho.size
+    if p == 0 or np.sum(rho**2) >= 1.0:  # non-stationary -> no honest stationary signature
+        return _badge("autoregressive — non-stationary")[:2]
+    nlags = min(10, p + 4)
+    try:
+        pacf = _levinson_pacf(_ar_acf(rho, nlags), nlags)
+    except Exception:
+        return None
+    return GlyphSpec(kind="stem", source="prior_analytic"), {
+        "lags": list(range(1, len(pacf) + 1)),
+        "values": pacf,
+    }
 
 
 def _is_rv(i) -> bool:
@@ -267,7 +330,8 @@ def special_glyph(var):
             r = _matrix_only(var, params)
             return (*r, None) if r else _badge("matrix-valued — params not numeric")
         if cls in ("LKJCorrRV", "_LKJCholeskyCovRV"):
-            return _badge("correlation-matrix prior")
+            r = _lkj(var, params)
+            return (*r, None) if r else _badge("correlation-matrix prior")
         if cls == "DirichletRV":
             r = _dirichlet(var, params)
             return (*r, None) if r else _badge("simplex — concentration not numeric")

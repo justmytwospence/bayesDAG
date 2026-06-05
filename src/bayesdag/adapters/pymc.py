@@ -84,8 +84,24 @@ def _rv_dist_and_params(var: Any, named: dict[int, str]) -> tuple[Optional[str],
     for i, (nm, val) in enumerate(zip(names, dparams)):
         parents = _direct_named_parents(val, named, exclude=var.name)
         value_tex, _ = render_value(val, named, wrap_leaves=False)
+        if value_tex.strip() == r"\ldots":  # an elided param that is itself an RV -> show its family
+            sym = _rv_family_symbol(val)
+            if sym:
+                value_tex = sym
         params.append(ParamIR(index=i, name=nm, token_id=nm, parents=parents, value_tex=value_tex))
     return dist, params
+
+
+def _rv_family_symbol(val: Any) -> Optional[str]:
+    """The LaTeX symbol of a param that is itself a random variable (e.g. a mixture's component),
+    so it renders as its family (``\\mathcal{N}``) instead of the bare elision ``\\ldots``."""
+    op = getattr(getattr(val, "owner", None), "op", None)
+    if op is None:
+        return None
+    pn = getattr(op, "_print_name", None)
+    name = pn[0] if pn else type(op).__name__.removesuffix("RV")
+    sym = labels.dist_symbol(name)
+    return sym if "operatorname" not in sym else None
 
 
 def _overlays(name: str, role: str, dims: list, idata: Any) -> list[OverlayRef]:

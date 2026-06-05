@@ -45,12 +45,12 @@ _SPECIAL = [
     ("Censored", lambda: pm.Censored("x", pm.Normal.dist(0, 1), lower=-1, upper=2), "censored", True),
     ("TruncatedNormal", lambda: pm.TruncatedNormal("x", mu=0, sigma=1, lower=-1, upper=2), "density", True),
     ("GRW", lambda: pm.GaussianRandomWalk("x", sigma=1, init_dist=pm.Normal.dist(0, 1), steps=8), "fan", True),
-    ("AR", lambda: pm.AR("x", rho=[0.5], sigma=1, init_dist=pm.Normal.dist(0, 1), steps=8), "density", True),
+    ("AR", lambda: pm.AR("x", rho=[0.5], sigma=1, init_dist=pm.Normal.dist(0, 1), steps=8), "stem", True),
+    ("LKJCorr", lambda: pm.LKJCorr("x", n=3, eta=2), "density", True),  # marginal correlation density
     ("Interpolated", lambda: pm.Interpolated("x", x_points=np.linspace(-3, 3, 40), pdf_points=np.exp(-np.linspace(-3, 3, 40) ** 2 / 2)), "density", True),
     ("NormalMixture", lambda: pm.NormalMixture("x", w=[0.5, 0.5], mu=[-2, 2], sigma=[1, 1]), "mixture", True),
     ("ZeroInflatedPoisson", lambda: pm.ZeroInflatedPoisson("x", psi=0.7, mu=3), "mixture", True),
     # honest badges (undrawable as a single static shape)
-    ("LKJCorr", lambda: pm.LKJCorr("x", n=3, eta=2), "schematic", False),
     ("GARCH11", lambda: pm.GARCH11("x", omega=0.1, alpha_1=0.1, beta_1=0.8, initial_vol=1, steps=8), "schematic", False),
     ("Flat", lambda: pm.Flat("x"), "schematic", False),
 ]

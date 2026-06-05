@@ -493,7 +493,8 @@ def _(show, zoo):
         zoo.build_correlated_slopes(),
         "10 · Correlated varying slopes (multilevel)",
         "Per-café intercept+slope drawn `MvNormal` with an **LKJ** Cholesky correlation prior — `ab` "
-        "shows the **pairplot** (marginals + covariance ellipse); the LKJ prior carries an honest badge.",
+        "shows the **pairplot** (marginals + covariance ellipse) and the LKJ node its **marginal "
+        "correlation density** on [-1, 1].",
     )
     return
 
@@ -537,7 +538,7 @@ def _(show, zoo):
         zoo.build_ar_forecast(),
         "14 · Autoregressive trend (econometrics)",
         "A latent second-order `AR` trend behind noisy observations (state-space) — `level` shows the "
-        "AR **stationary-marginal** density.",
+        "**partial-autocorrelation (PACF)** stem plot, whose spikes cut off after the AR order.",
     )
     return
 

@@ -20,7 +20,14 @@ function paramsText(node) {
 
 function constructorText(id, node) {
   if (!node.dist) return "";
-  const args = (node.params || []).map((p) => (p.value ?? "").replace(/[\\{}]/g, "")).filter(Boolean);
+  // a param whose value carries LaTeX markup (or is long) can't be shown as plain Python — elide it
+  const args = (node.params || [])
+    .map((p) => {
+      const v = (p.value ?? "").trim();
+      if (!v) return "";
+      return /[\\{}^]/.test(v) || v.length > 18 ? "…" : v;
+    })
+    .filter(Boolean);
   const dims = node.dims && node.dims.length ? `, dims=${JSON.stringify(node.dims)}` : "";
   return `pm.${node.dist}("${id}", ${args.join(", ")}${dims})`;
 }

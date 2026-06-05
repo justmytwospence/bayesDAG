@@ -121,6 +121,10 @@ def render_value(
             return rf"\log\!\left({parts[0]}\right)", used
         if sname == "Sqrt":
             return rf"\sqrt{{{parts[0]}}}", used
+        if sname == "Second" and len(parts) >= 2:  # second(a, b) broadcasts b to a's shape -> b
+            return parts[1], used
+        if sname in ("Cast", "Identity") and parts:  # type-cast wrappers are invisible to the math
+            return parts[0], used
         return rf"\operatorname{{{sname.lower()}}}\!\left({', '.join(parts)}\right)", used
 
     # Unknown op: render named-bearing inputs as f(...), else elide.

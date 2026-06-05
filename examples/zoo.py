@@ -113,7 +113,7 @@ def build_gaussian_mixture():
     n = 200
     y = np.concatenate([rng.normal(-3, 1, n // 2), rng.normal(3, 1, n // 2)])
     with pm.Model(coords={"comp": [0, 1], "obs": np.arange(n)}) as model:
-        w = pm.Dirichlet("w", a=np.ones(2), dims="comp")
+        w = pm.Dirichlet("w", a=np.array([4.0, 2.0]), dims="comp")  # informative weights prior
         mu = pm.Normal("mu", 0, 5, dims="comp")
         sigma = pm.HalfNormal("sigma", 2, dims="comp")
         pm.NormalMixture("y", w=w, mu=mu, sigma=sigma, observed=y, dims="obs")
