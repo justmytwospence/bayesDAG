@@ -33,11 +33,18 @@ def _():
 
 
 @app.cell
-def _(mo):
-    def graphviz_fit(gv):
-        """Render a graphviz diagram as an SVG that shrinks to fit the cell width (height
-        auto-scales to preserve the aspect ratio; graphs smaller than the cell stay natural size)."""
-        svg = gv.pipe(format="svg").decode()
+def _(mo, pm):
+    def graphviz_fit(model):
+        """PyMC's `model_to_graphviz` for a model, rendered as an SVG that shrinks to fit the cell
+        width. Degrades to a note when PyMC can't render it — e.g. it can't sample an `ICAR`/`Flat`
+        to infer shapes — which bayesdag handles regardless."""
+        try:
+            svg = pm.model_to_graphviz(model).pipe(format="svg").decode()
+        except Exception as e:  # noqa: BLE001
+            return mo.md(
+                f"*(PyMC's `model_to_graphviz` can't render this model — `{type(e).__name__}`: "
+                f"{e}. bayesdag renders it above.)*"
+            )
         return mo.Html(svg.replace("<svg ", '<svg style="max-width:100%;height:auto;" ', 1))
 
     return (graphviz_fit,)
@@ -97,7 +104,7 @@ def _(bayesdag, es_model, mo):
 def _(es_model, graphviz_fit, mo, pm):
     mo.vstack([
         mo.md("**Baseline — PyMC's built-in `model_to_graphviz` for the same model:**"),
-        graphviz_fit(pm.model_to_graphviz(es_model)),
+        graphviz_fit(es_model),
     ])
     return
 
@@ -185,7 +192,7 @@ def _(bayesdag, mo, radon_model):
 def _(graphviz_fit, mo, pm, radon_model):
     mo.vstack([
         mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
-        graphviz_fit(pm.model_to_graphviz(radon_model)),
+        graphviz_fit(radon_model),
     ])
     return
 
@@ -258,7 +265,7 @@ def _(bayesdag, hr_model, mo):
 def _(graphviz_fit, hr_model, mo, pm):
     mo.vstack([
         mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
-        graphviz_fit(pm.model_to_graphviz(hr_model)),
+        graphviz_fit(hr_model),
     ])
     return
 
@@ -311,7 +318,7 @@ def _(bayesdag, irt_model, mo):
 def _(graphviz_fit, irt_model, mo, pm):
     mo.vstack([
         mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
-        graphviz_fit(pm.model_to_graphviz(irt_model)),
+        graphviz_fit(irt_model),
     ])
     return
 
@@ -371,7 +378,7 @@ def _(bayesdag, mo, mrp_model):
 def _(graphviz_fit, mo, mrp_model, pm):
     mo.vstack([
         mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
-        graphviz_fit(pm.model_to_graphviz(mrp_model)),
+        graphviz_fit(mrp_model),
     ])
     return
 
@@ -429,7 +436,7 @@ def _(bayesdag, jm_model, mo):
 def _(graphviz_fit, jm_model, mo, pm):
     mo.vstack([
         mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
-        graphviz_fit(pm.model_to_graphviz(jm_model)),
+        graphviz_fit(jm_model),
     ])
     return
 
@@ -448,7 +455,7 @@ def _(bayesdag, graphviz_fit, mo, pm):
             mo.md(f"## {title}\n\n{blurb}"),
             mo.ui.anywidget(bayesdag.view(model).widget()),
             mo.md("**PyMC `model_to_graphviz` for the same model:**"),
-            graphviz_fit(pm.model_to_graphviz(model)),
+            graphviz_fit(model),
         ])
 
     return (show,)
