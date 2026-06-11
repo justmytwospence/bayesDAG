@@ -151,6 +151,27 @@ def test_mrp_hyperparam_edges_avoid_foreign_plates():
     assert not bad, f"edges bow across foreign plates: {bad}"
 
 
+def test_parents_follow_token_ports_not_model_order():
+    """A multi-parent child must place parents to match the token PORTS (left token -> left parent),
+    so the arrows don't needlessly cross. considerModelOrder used to pin the IR order and force a
+    crossing even though the ports contradicted it (the softmax `eta = a + b*x` report)."""
+    import numpy as np
+    import pymc as pm
+
+    with pm.Model(coords={"k": range(3)}) as m:
+        a = pm.Normal("a", 0, 1, dims="k")
+        b = pm.Normal("b", 0, 1, dims="k")
+        eta = pm.Deterministic("eta", a + b, dims="k")  # token order in the equation: a (left), b (right)
+        pm.Normal("y", mu=eta, sigma=1, observed=np.zeros(3), dims="k")
+    ir = to_ir(m)
+    res = layout(ir)
+    ax = res.node_token_anchors["eta"]["a"].x
+    bx = res.node_token_anchors["eta"]["b"].x
+    assert ax < bx  # sanity: the `a` token sits left of `b` in the rendered equation
+    assert res.node_boxes["a"].x < res.node_boxes["b"].x  # so `a` is placed left of `b`
+    assert count_crossings(res) == 0  # ...and the two hyperparameter arrows don't cross
+
+
 def test_layout_is_deterministic():
     """Same model (fixed ELK seed) -> byte-identical node geometry across runs."""
     a = layout(to_ir(MODEL_BUILDERS["hier_reg"]()))

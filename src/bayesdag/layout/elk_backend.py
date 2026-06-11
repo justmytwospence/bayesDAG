@@ -233,8 +233,11 @@ def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
     root_children = [plate_json(p) for p in ir.plates if p.parent is None]
     root_children += [node_json(n) for n in ir.nodes if n.id not in member_plate]
 
-    # Feed edges to ELK grouped by target and ordered by their target-token x, so
-    # considerModelOrder orders each node's parents to match the equation's token order.
+    # Feed edges grouped by target and ordered by target-token x — a stable, deterministic edge
+    # order. Parent placement is NOT forced by this order: the fixed NORTH token ports already pin
+    # each edge to its parameter's x, and ELK's crossing minimization orders parents to match those
+    # ports. (Forcing model order instead — considerModelOrder — can pin parents into a crossing
+    # arrangement that the ports contradict; pure crossing minimization respects the ports.)
     def _tok_x(e) -> float:
         bb = info.get(e.target, {}).get("bboxes", {}).get(e.target_token_id or "")
         return (bb[0] + bb[2] / 2.0) if bb else 0.5
@@ -254,7 +257,9 @@ def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
             "elk.direction": _DIRECTION.get(rankdir, "DOWN"),
             "elk.hierarchyHandling": "INCLUDE_CHILDREN",
             "elk.randomSeed": "1",  # determinism for golden tests
-            "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
+            # NONE = pure crossing minimization. The fixed token ports drive parent ordering; forcing
+            # model order here pins parents into avoidable crossings (e.g. softmax `a + b·x`).
+            "elk.layered.considerModelOrder.strategy": "NONE",
             "elk.layered.crossingMinimization.greedySwitchHierarchical.type": "TWO_SIDED",
             # ELK routes the edges itself, as right angles around the nodes (we draw what it returns)
             "elk.edgeRouting": "ORTHOGONAL",
