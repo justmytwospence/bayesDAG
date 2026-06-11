@@ -119,6 +119,23 @@ def test_geometry_gate_is_presence_based():
     assert h_latent > h_plain
 
 
+def test_curve_width_decoupled_from_equation_width():
+    """A deterministic transfer curve has a canonical shape; its width must not stretch with a
+    wide equation. The strip is capped and centered, unlike a density strip (which spans the box)."""
+    data = {"xs": [0, 1], "ys": [0, 1]}
+    wide = Box(0, 0, 400, 80)
+    cr = geometry.glyph_rect(wide, "deterministic", 16.0, "curve", data)
+    assert cr is not None
+    assert cr.w == geometry._FN_GLYPH_MAX_W  # capped, NOT 400 - 2*PAD
+    assert abs((cr.x + cr.w / 2.0) - (wide.x + wide.w / 2.0)) < 0.01  # centered under the equation
+    # a density strip (a distribution) still spans the full box width — only `curve` is capped
+    dr = geometry.glyph_rect(wide, "latent", 16.0, "density", data)
+    assert dr.w == wide.w - 2 * geometry.PAD
+    # a narrow node uses the available width (cap is a ceiling, not a fixed size)
+    narrow = Box(0, 0, 56, 80)
+    assert geometry.glyph_rect(narrow, "deterministic", 16.0, "curve", data).w == 56 - 2 * geometry.PAD
+
+
 def test_glyph_deterministic_edge_exits_from_node_box():
     """A glyph-bearing deterministic's outgoing edge exits at/below the glyph strip (the node box), not
     lifted up into the equation where it would cross the curve."""

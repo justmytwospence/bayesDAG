@@ -24,6 +24,10 @@ STANDOFF = 4.0  # gap above a token edge's VISIBLE target surface (box border fo
 # overlaid curves, a fan, a stem plot) read better in a slightly taller strip than a single curve.
 _TALL_GLYPHS = frozenset({"heatmap", "pairplot"})
 _TALLER_STRIP = frozenset({"fan", "stem", "cutpoints", "simplex", "mixture"})
+# A deterministic transfer function (the `curve` kind) has a CANONICAL shape — its width carries
+# no information, so it must not stretch with the equation. Cap + center it under the equation;
+# a wide `θ = μ + τ·η` no longer smears the S-curve/line across the whole node.
+_FN_GLYPH_MAX_W = 72.0
 
 _W = re.compile(r'\bwidth="([\d.]+)ex"')
 _H = re.compile(r'\bheight="([\d.]+)ex"')
@@ -96,4 +100,7 @@ def glyph_rect(
     if glyph_kind in _TALL_GLYPHS:  # a centered (near-)square block for 2-D glyphs
         side = min(box.w - 2 * PAD, gh)
         return Box(box.x + (box.w - side) / 2.0, top, side, side)
+    if glyph_kind == "curve":  # canonical transfer shape: bounded width, centered under the equation
+        cw = min(box.w - 2 * PAD, _FN_GLYPH_MAX_W)
+        return Box(box.x + (box.w - cw) / 2.0, top, cw, gh)
     return Box(box.x + PAD, top, box.w - 2 * PAD, gh)
