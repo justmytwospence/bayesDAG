@@ -129,17 +129,21 @@ def symbol_for(name: str) -> str:
 
 # Ordered op-level param names for SymbolicRandomVariables, whose ``__call__`` signature is
 # the generic ``(self, inputs, kwargs)`` and yields useless ``arg0/arg1/…`` names. Keyed on
-# the DERIVED op name (same keying rule as DIST_SYMBOLS). ``None`` = structural plumbing
-# (steps/size) hidden from the label. A template applies ONLY when its length matches the
+# the DERIVED op name (same keying rule as DIST_SYMBOLS); a key may carry several variants
+# for ops whose arity differs by construction (Mixture). ``None`` = structural plumbing
+# (steps/size) hidden from the label. A variant applies ONLY when its length matches the
 # node's actual ``dist_params`` count (exact match or fall back — never guess). Each entry's
 # order is verified against ``op.dist_params`` introspection; verify before adding.
-DIST_PARAM_TEMPLATES: dict[str, list[Optional[str]]] = {
-    "RandomWalk": ["init", "innov", None],  # [init_dist, innovation_dist, steps]
-    "AR": ["rho", "sigma", "init", None],  # [rho, sigma, init_dist, steps]
-    "Censored": ["dist", "lower", "upper"],
-    "Mixture": ["w", "comp"],  # NormalMixture/ZeroInflated* (single packed component)
-    "_lkjcholeskycov": ["n", "eta", "sd_dist"],
-    "LKJCorrRV": ["n", "eta"],
+DIST_PARAM_TEMPLATES: dict[str, list[list[Optional[str]]]] = {
+    "RandomWalk": [["init", "innov", None]],  # [init_dist, innovation_dist, steps]
+    "AR": [["rho", "sigma", "init", None]],  # [rho, sigma, init_dist, steps]
+    "Censored": [["dist", "lower", "upper"]],
+    "Mixture": [
+        ["w", "comp"],  # NormalMixture (single packed component)
+        ["w", "comp1", "comp2"],  # ZeroInflated*/two-component (e.g. [w, zero-spike, count])
+    ],
+    "_lkjcholeskycov": [["n", "eta", "sd_dist"]],
+    "LKJCorrRV": [["n", "eta"]],
 }
 
 

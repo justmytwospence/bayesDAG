@@ -44,13 +44,13 @@ def _param_names(op: Any, n: int) -> list[str]:
 
 
 def _resolved_param_names(dist: Optional[str], op: Any, n: int) -> list[Optional[str]]:
-    """Template-first param names: a verified per-construct template (which can hide
+    """Template-first param names: a verified per-construct template variant (which can hide
     structural params via ``None``) when its length matches exactly, else the op-signature
     inspection. SymbolicRandomVariables have a generic ``(inputs, kwargs)`` signature that
     inspection turns into ``arg0/arg1`` noise — the template is the only good source there."""
-    tpl = labels.DIST_PARAM_TEMPLATES.get(dist) if dist else None
-    if tpl is not None and len(tpl) == n:
-        return list(tpl)
+    for tpl in labels.DIST_PARAM_TEMPLATES.get(dist, []) if dist else []:
+        if len(tpl) == n:
+            return list(tpl)
     return list(_param_names(op, n))
 
 

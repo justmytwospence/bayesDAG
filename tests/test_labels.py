@@ -120,6 +120,12 @@ def test_param_name_templates_kill_arg_noise():
     assert [p.name for p in nd["rw"].params] == ["init", "innov"]
     assert [p.name for p in nd["cz"].params] == ["dist", "lower", "upper"]
     assert [p.name for p in nd["mix"].params] == ["w", "comp"]
+    # ZeroInflated* derives to a 3-param Mixture -> the arity-matched variant applies
+    with pm.Model() as m_zi:
+        pm.ZeroInflatedPoisson("zi", psi=0.8, mu=3.0)
+    zi = next(n for n in to_ir(m_zi).nodes if n.id == "zi")
+    assert [p.name for p in zi.params] == ["w", "comp1", "comp2"]
+    assert "arg0" not in zi.label_tex
     # the hidden steps param leaves no trailing elision in the label
     assert not nd["ar"].label_tex.rstrip(r"\right)").endswith(r"\ldots")
     # trivial reciprocal folds: Exp(rate=1) shows 1, not 1/1
