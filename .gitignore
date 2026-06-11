@@ -27,3 +27,6 @@ src/bayesdag/static/*.map
 
 # OS
 .DS_Store
+
+# Local Claude Code agent state (plans, etc.) — keep out of the repo
+.claude/

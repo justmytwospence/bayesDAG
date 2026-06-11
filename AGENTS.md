@@ -1,9 +1,8 @@
 # AGENTS.md — working in the `bayesdag` repo
 
 Context for AI agents (and humans) contributing to `bayesdag`. Read this, the live
-work-plan in [`COVERAGE.md`](COVERAGE.md), the full design in
-[`.claude/plans/please-review-all-the-streamed-storm.md`](.claude/plans/please-review-all-the-streamed-storm.md),
-and the source/decision log in [`docs/RESEARCH.md`](docs/RESEARCH.md) before making changes.
+work-plan in [`COVERAGE.md`](COVERAGE.md), and the source/decision log in
+[`docs/RESEARCH.md`](docs/RESEARCH.md) before making changes.
 
 ## Dev / test / build commands
 ```bash

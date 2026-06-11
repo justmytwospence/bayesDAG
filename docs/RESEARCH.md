@@ -2,9 +2,8 @@
 
 This package was designed from an extended research session. This file captures the
 **sources** and the **decisions they drove** so the context can be reconstructed later
-without re-doing the research. The decision *log* is the "Foundational decisions" table in
-[the plan](../.claude/plans/please-review-all-the-streamed-storm.md); this file is the
-*bibliography*. Grouped by topic; each line = key sources + the takeaway that shaped the design.
+without re-doing the research — the annotated *bibliography* of that work. Grouped by topic;
+each line = key sources + the takeaway that shaped the design.
 
 - **PyMC internals & coverage** — `pymc/model_graph.py`, `pymc/printing.py`, `pymc/distributions/distribution.py`, `pymc/model/core.py`, `model/fgraph.py`; [`model_to_graphviz` docs](https://www.pymc.io/projects/docs/en/stable/api/model/generated/pymc.model_to_graphviz.html). *Takeaway:* clean `ModelGraph`→render pipeline; `printing.py` already does nested-RV labels (reuse); `SymbolicRandomVariable` introspection (`dist_params`/`signature`/`inner_outputs`/`_print_name`) is the coverage master key; observed-edge reversal + plate-from-dims already exist.
 - **PGM-viz literature** — Buntine 1994 (plates, JAIR); Kruschke *DBDA* (shape glyphs, `~`/`=`); Dietz 2010 + [tikz-bayesnet](https://github.com/jluttine/tikz-bayesnet) (directed factor graphs); [daft-pgm](https://docs.daft-pgm.org/); Pyro/NumPyro [`render_model`](https://num.pyro.ai/en/stable/tutorials/model_rendering.html); [causact](https://www.causact.com/); [IPME, Frontiers 2020](https://www.frontiersin.org/articles/10.3389/fcomp.2020.567344/full). *Takeaway:* multi-representation; distributions-on-nodes is the bar; IPME = closest interactive-DAG prior art (marginals only, no geometry).

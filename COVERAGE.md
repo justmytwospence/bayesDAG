@@ -1,8 +1,7 @@
 # COVERAGE.md — living work-plan
 
 The single source of "done / next." Tick boxes as constructs/features land; each should
-arrive with a golden test. Tiers and treatments come from the design plan
-([`.claude/plans/please-review-all-the-streamed-storm.md`](.claude/plans/please-review-all-the-streamed-storm.md)).
+arrive with a golden test.
 
 ## Milestones
 - [x] **M0** — vertical slice (8-schools, both renderers, narrow coverage) ✅

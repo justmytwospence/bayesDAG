@@ -1,7 +1,6 @@
 """bayesdag — shape-first, posterior-aware, interactive visualizations of PyMC models.
 
-Public API (implemented incrementally during M0; see
-``.claude/plans/please-review-all-the-streamed-storm.md``)::
+Public API (implemented incrementally during M0)::
 
     import bayesdag
     view = bayesdag.view(model, idata=None)   # -> ModelGraphView (auto static/interactive)

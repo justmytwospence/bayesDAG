@@ -4,7 +4,7 @@
 
 `bayesdag` renders a PyMC model as a rich generative-model diagram where **every node shows the full shape of its distribution** — so you can read the data-generating story off the curves (Kruschke-style) — with real **LaTeX math inside nodes**, **edges that point at the specific parameter** they feed, prior/posterior overlays, and a model-aware **posterior-geometry** explorer (funnels, divergences). It has a **static SVG renderer** (publication-quality) and an **interactive [anywidget](https://anywidget.dev)** renderer (Jupyter + [marimo](https://marimo.io)) that are *identical by construction*, and it falls back to static automatically when interactivity isn't available.
 
-> **Status: pre-alpha (M0 in progress).** See [`COVERAGE.md`](COVERAGE.md) for the live work-plan and [the design plan](.claude/plans/please-review-all-the-streamed-storm.md) for the full architecture. Background and sources: [`docs/RESEARCH.md`](docs/RESEARCH.md).
+> **Status: pre-alpha (M0 in progress).** See [`COVERAGE.md`](COVERAGE.md) for the live work-plan. Background and sources: [`docs/RESEARCH.md`](docs/RESEARCH.md).
 
 ## Install
 
