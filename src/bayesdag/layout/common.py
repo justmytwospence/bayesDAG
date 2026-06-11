@@ -39,8 +39,7 @@ def render_labels(ir: ModelIR) -> dict[str, dict]:
         bboxes: dict[str, tuple[float, float, float, float]] = {}
         if use and n.label_tex:
             try:
-                svg = renderer.render(n.label_tex, display=True)
-                bboxes = mathsvg.token_bboxes(svg)
+                svg, bboxes = renderer.render_with_bboxes(n.label_tex, display=True)
             except Exception as exc:
                 svg, bboxes = None, {}
                 failures.append((n.id, exc))

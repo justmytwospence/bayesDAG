@@ -20,9 +20,9 @@ Only the first is implemented in M0; the others raise a clear, actionable error.
 
 from __future__ import annotations
 
-import hashlib
 import re
 import xml.etree.ElementTree as ET
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
 
@@ -200,11 +200,15 @@ def token_bboxes(svg: str) -> dict[str, tuple[float, float, float, float]]:
 class MathRenderer:
     """Lazy in-process MathJax renderer. Construct once and reuse (V8 init is the cost)."""
 
+    _CACHE_MAX = 4096  # LRU bound — long-lived kernels render many models; memory stays flat
+
     def __init__(self, bundle_path: Optional[Path] = None) -> None:
         self._bundle_path = bundle_path or _bundle_path()
         self._ctx = None
         self._ctx_error: Optional[Exception] = None
-        self._cache: dict[str, str] = {}
+        # (display, tex) -> (svg, token bboxes): bboxes are cached WITH the SVG so a warm
+        # re-layout never re-parses the same label (token_bboxes was ~40% of warm layout time)
+        self._cache: OrderedDict[tuple[bool, str], tuple[str, dict]] = OrderedDict()
 
     @property
     def available(self) -> bool:
@@ -245,13 +249,21 @@ class MathRenderer:
 
     def render(self, tex: str, display: bool = True) -> str:
         """Return the SVG markup for ``tex`` (cached by content)."""
-        key = hashlib.sha256(f"{int(display)}:{tex}".encode()).hexdigest()
+        return self.render_with_bboxes(tex, display)[0]
+
+    def render_with_bboxes(self, tex: str, display: bool = True) -> tuple[str, dict]:
+        """Return ``(svg, fractional token bboxes)`` — both cached together, LRU-bounded."""
+        key = (bool(display), tex)
         cached = self._cache.get(key)
         if cached is not None:
+            self._cache.move_to_end(key)
             return cached
         svg = self._context().call("tex2svg", tex, bool(display))
-        self._cache[key] = svg
-        return svg
+        bboxes = token_bboxes(svg)
+        self._cache[key] = (svg, bboxes)
+        if len(self._cache) > self._CACHE_MAX:
+            self._cache.popitem(last=False)
+        return svg, bboxes
 
     def render_with_anchors(self, tex: str, display: bool = True) -> tuple[str, dict[str, tuple[float, float]]]:
         svg = self.render(tex, display)

@@ -60,3 +60,26 @@ def test_broken_bundle_fails_once_not_per_label(tmp_path, monkeypatch):
         r.render(r"\beta")
     assert e2.value is e1.value  # the same cached exception object — no rebuild
     assert calls["n"] == 1
+
+
+def test_bbox_cache_no_reparse_and_bounded(monkeypatch):
+    """Warm re-layouts must hit the (svg, bboxes) cache — token_bboxes ran per label per
+    layout before — and the cache must evict past its LRU bound."""
+    r = mathsvg.MathRenderer()
+    tex = r"\cssId{tok-a}{\alpha} + 1"
+    svg1, bb1 = r.render_with_bboxes(tex)
+    calls = {"n": 0}
+    real = mathsvg.token_bboxes
+
+    def counting(svg):
+        calls["n"] += 1
+        return real(svg)
+
+    monkeypatch.setattr(mathsvg, "token_bboxes", counting)
+    svg2, bb2 = r.render_with_bboxes(tex)
+    assert (svg2, bb2) == (svg1, bb1) and "a" in bb2
+    assert calls["n"] == 0  # cache hit: no re-parse
+    monkeypatch.setattr(r, "_CACHE_MAX", 2)
+    for i in range(3):
+        r.render_with_bboxes(rf"x_{i}")
+    assert len(r._cache) == 2  # LRU bound holds
