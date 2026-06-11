@@ -74,3 +74,27 @@ def test_plate_prior_predictive_panel(eight_schools_model):
     assert "prior predictive" in panel
     assert panel.count("<path") >= 3  # overlaid per-instance density curves
     assert "y_obs" in panel           # observed member row (with data ticks)
+
+
+def test_rich_glyph_nodes_get_card_panels():
+    """Every glyph-bearing node ships a large pinned-card panel — not just observed nodes.
+    Panels are widget-only: the static SVG bytes are untouched (parity)."""
+    import xml.etree.ElementTree as ET
+
+    import numpy as np
+    import pymc as pm
+
+    pytest.importorskip("anywidget")
+    cov = np.array([[1.0, 0.6, 0.2], [0.6, 1.0, 0.3], [0.2, 0.3, 1.0]])
+    with pm.Model(coords={"axis": ["a", "b", "c"]}) as m:
+        pm.MvNormal("z", mu=np.zeros(3), cov=cov, dims="axis")
+        pm.Normal("mu", 0, 1)
+    v = bayesdag.view(m)
+    spec = v.widget().spec
+    panel = spec["nodes"]["z"].get("panel")
+    assert panel and "<svg" in panel
+    ET.fromstring(panel)  # well-formed standalone SVG
+    for coord in ("a", "b", "c"):  # coord labels on the matrix rows
+        assert f">{coord}</text>" in panel
+    assert "panel" in spec["nodes"]["mu"]  # plain latent density gets one too
+    assert "bd-card" not in v.to_svg()  # static SVG carries no panels

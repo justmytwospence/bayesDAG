@@ -12,7 +12,7 @@ from . import render_static
 from .convert import to_ir
 from .ir import ModelIR
 from .layout import layout
-from .render_svg import render_observed_panel, to_svg
+from .render_svg import render_node_panel, render_observed_panel, to_svg
 
 
 def _in_marimo() -> bool:
@@ -124,10 +124,15 @@ class ModelGraphView:
                 # rendered math (parity), not raw LaTeX source.
                 "label_svg": n.label_svg,
             }
-            # observed nodes get a larger histogram + best-fit-family overlay for the pinned card
-            # (built straight from the precomputed glyph_data; JS just injects this SVG).
-            if n.role == "observed" and n.glyph_data:
-                panel = render_observed_panel(n.id, n.dist, n.glyph_data)
+            # every glyph-bearing node gets a large pinned-card panel built straight from the
+            # precomputed glyph_data (JS just injects this SVG): observed nodes keep the
+            # histogram + best-fit overlay; everything else renders its glyph large with the
+            # hedged source caption + coord labels.
+            if n.glyph_data:
+                if n.role == "observed":
+                    panel = render_observed_panel(n.id, n.dist, n.glyph_data)
+                else:
+                    panel = render_node_panel(n)
                 if panel:
                     nodes[n.id]["panel"] = panel
         plates: dict = {}

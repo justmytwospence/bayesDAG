@@ -246,6 +246,67 @@ def render_observed_panel(node_id: str, dist: str | None, glyph_data: dict) -> s
     return "".join(out)
 
 
+def _panel_coord_labels(n) -> list[str]:
+    """Row labels for a matrix-shaped panel (heatmap rows / pairplot diagonal): the coords of
+    whichever node dim matches the matrix size exactly; [] when nothing matches (no guess)."""
+    data = n.glyph_data or {}
+    m = data.get("matrix") or data.get("cov")
+    if not m:
+        return []
+    k = len(m)
+    for d in n.dims or ():
+        vals = (n.coords or {}).get(d)
+        if vals is not None and len(vals) == k:
+            return [str(v) for v in vals]
+    return []
+
+
+def render_node_panel(n) -> str:
+    """Standalone SVG for the widget's pinned card of ANY glyph-bearing node: the node's
+    existing ``glyph_data`` drawn large through the same registry as the in-node glyph, plus
+    the hedged source caption (single-sourced from the legend wording) and coordinate row
+    labels where a node dim matches the matrix size. Widget-only — the static SVG never
+    carries panels, so renderer parity is untouched."""
+    if not (n.glyph and n.glyph_data):
+        return ""
+    from .legend import _SOURCE_LABELS
+
+    square = n.glyph.kind in ("pairplot", "heatmap")
+    pad, title_h, label_w = 12.0, 20.0, 0.0
+    coord_labels = _panel_coord_labels(n) if square else []
+    if coord_labels:
+        label_w = 6.0 * min(10, max(len(s) for s in coord_labels)) + 6.0
+    pw, ph = (220.0, 220.0) if square else (300.0, 140.0)
+    w = pad * 2 + label_w + pw
+    plot = Box(pad + label_w, pad + title_h, pw, ph)
+    cap_y = plot.y + ph + 16.0
+    h = cap_y + pad - 4.0
+    stroke, fill = _GLYPH_COLORS.get(n.glyph.source, ("#2a8a55", "#2a8a55"))
+    title = escape(n.id) + (f" ~ {escape(n.dist)}" if n.dist else "")
+    caption = escape(_SOURCE_LABELS.get(n.glyph.source, n.glyph.source))
+    out = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w:.0f}" height="{h:.0f}" '
+        f'viewBox="0 0 {w:.0f} {h:.0f}" font-family="system-ui, sans-serif">',
+        f'<rect width="{w:.0f}" height="{h:.0f}" rx="8" fill="#ffffff" stroke="#c7c7cc"/>',
+        f'<text x="{pad:.0f}" y="{pad + 12:.0f}" font-size="12" font-weight="600" '
+        f'fill="#333">{title}</text>',
+        f'<rect x="{plot.x:.1f}" y="{plot.y:.1f}" width="{plot.w:.1f}" height="{plot.h:.1f}" '
+        'fill="#fafafa" stroke="#eeeeee"/>',
+        glyph.render(n.glyph.kind, n.glyph_data, plot, stroke=stroke, fill=fill, overlay=_OVERLAY),
+    ]
+    if coord_labels:
+        ch = plot.h / len(coord_labels)
+        for i, s in enumerate(coord_labels):
+            s = s if len(s) <= 10 else s[:9] + "…"
+            out.append(
+                f'<text x="{plot.x - 4:.1f}" y="{plot.y + (i + 0.5) * ch + 3:.1f}" '
+                f'text-anchor="end" font-size="8" fill="#777">{escape(s)}</text>'
+            )
+    out.append(f'<text x="{pad:.0f}" y="{cap_y:.1f}" font-size="9" fill="#9aa0a6">{caption}</text>')
+    out.append("</svg>")
+    return "".join(out)
+
+
 def _legend_swatch(kind: str, b: Box) -> str:
     if kind.startswith("role:"):
         role = kind.split(":", 1)[1]
