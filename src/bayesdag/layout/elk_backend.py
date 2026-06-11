@@ -317,14 +317,19 @@ def _seg_clear(x0: float, y0: float, x1: float, y1: float, boxes: list) -> bool:
 
 _RUN_TOL = 1.0  # treat points within this x of each other as one vertical run (absorbs ELK's 0.5px
 # NORTH-port half-offset so a snapped terminal run is exactly one column)
+# How far an exit may sit INTO a rounded corner. The inset only needs to keep the edge off the
+# VISIBLY curved part — at 4px into a >=9px-radius corner the border has dipped <1px, so the edge
+# still reads as starting on the border. Insetting the FULL radius (the old rule) clamped exits away
+# from tokens that sit a pixel or two inside the corner, forcing a tiny jog that filleted into a kink.
+_EXIT_CORNER_INCURSION = 4.0
 
 
 def _attach_source(pts: list, e, res: LayoutResult, roles: dict, anchor) -> None:
     """Exit the source aligned under the target token (a clean vertical when the token is over the
-    source, otherwise the box edge nearest it). The exit stays on the source's STRAIGHT bottom
-    border (>= its corner radius from the ends) so a rounded box doesn't leave the edge floating off
-    its cut corner; the whole leading vertical run is shifted, and only if the moved drop + its
-    connector stay clear of every other node (never creates a through-node)."""
+    source, otherwise the box edge nearest it). The exit stays on the source's bottom border, kept
+    just off the cut corner (a small incursion whose border dip is sub-pixel) so it aligns with a
+    token near the node edge instead of jogging to it; the whole leading vertical run is shifted, and
+    only if the moved drop + its connector stay clear of every other node (never a through-node)."""
     sb = res.node_boxes.get(e.source)
     if sb is None or abs(pts[1][0] - pts[0][0]) >= _RUN_TOL:
         return
@@ -338,7 +343,8 @@ def _attach_source(pts: list, e, res: LayoutResult, roles: dict, anchor) -> None
         tb.x + tb.w / 2.0 if tb is not None else pts[0][0]
     )
     rx = _CORNER_RX.get(roles.get(e.source), 9.0)
-    lo, hi = sb.x + rx, sb.x + sb.w - rx
+    inset = max(1.0, rx - _EXIT_CORNER_INCURSION)
+    lo, hi = sb.x + inset, sb.x + sb.w - inset
     if lo >= hi:
         lo = hi = sb.x + sb.w / 2.0
     sx0 = pts[0][0]
