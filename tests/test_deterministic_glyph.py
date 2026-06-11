@@ -136,6 +136,45 @@ def test_curve_width_decoupled_from_equation_width():
     assert geometry.glyph_rect(narrow, "deterministic", 16.0, "curve", data).w == 56 - 2 * geometry.PAD
 
 
+def test_deterministic_node_draws_a_box():
+    """A deterministic equation now renders inside a visible box (not a transparent, border-less
+    region), so it reads as a node like the others."""
+    from bayesdag.layout import layout
+    from bayesdag.render_svg import _node_chrome, to_svg
+
+    with pm.Model() as m:
+        x = pm.Normal("x", 0, 1)
+        pm.Deterministic("d", x + 1.0)
+        pm.Normal("y", mu=m["d"], sigma=1, observed=np.zeros(3))
+    ir = to_ir(m)
+    det = ir.node("d")
+    chrome = _node_chrome(det, Box(0, 0, 80, 40))
+    assert 'stroke="none"' not in chrome and "transparent" not in chrome  # a real bordered box
+    assert 'stroke="#9499a2"' in chrome  # the deterministic box stroke
+    svg = to_svg(ir, layout(ir))
+    assert "<svg" in svg
+
+
+def test_deterministic_incoming_edge_lands_on_box_border():
+    """An arrow into a deterministic points at the box's TOP border (above the token), in the token's
+    column — it no longer penetrates the equation to the token glyph."""
+    from bayesdag.layout import layout
+
+    with pm.Model() as m:
+        a = pm.Normal("a", 0, 1)
+        bb = pm.Normal("bb", 0, 1)
+        pm.Deterministic("s", a + bb)
+        pm.Normal("y", mu=m["s"], sigma=1, observed=np.zeros(3))
+    ir = to_ir(m)
+    res = layout(ir)
+    box = res.node_boxes["s"]
+    tok = res.node_token_anchors["s"]["a"]  # the `a` token inside `s = a + bb`
+    end = res.edge_paths["a|s"][-1]
+    assert abs(end[0] - (tok.x + tok.w / 2.0)) < 1.5  # vertically under the `a` token (which one)
+    assert abs((box.y - end[1]) - geometry.STANDOFF) < 1.5  # lands above the box top border
+    assert end[1] < tok.y  # stays out of the equation (above the token)
+
+
 def test_glyph_deterministic_edge_exits_from_node_box():
     """A glyph-bearing deterministic's outgoing edge exits at/below the glyph strip (the node box), not
     lifted up into the equation where it would cross the curve."""

@@ -25,7 +25,9 @@ _BELL = ([0.0, 0.15, 0.3, 0.4, 0.5, 0.6, 0.7, 0.85, 1.0], [0.05, 0.2, 0.55, 0.9,
 _CHROME = {
     "latent": ("#ffffff", "#333333", 9.0),
     "observed": ("#e9eef5", "#33415c", 9.0),
-    "deterministic": ("#ffffff", "#555555", 2.5),
+    # deterministic = a crisp, light box (sharper corners + a thinner, softer border than the rounded
+    # random-variable nodes) so a *computed* quantity reads as secondary to the things being inferred.
+    "deterministic": ("#ffffff", "#9499a2", 3.0),
     "data": ("#eeeeee", "#666666", 11.0),
     "potential": ("#f5ecdc", "#8a6d3b", 2.5),
     "factor": ("#f5ecdc", "#8a6d3b", 2.5),
@@ -98,18 +100,12 @@ def _embed_label(
 
 
 def _node_chrome(n: NodeIR, b: Box) -> str:
-    if n.role == "deterministic":
-        # no visible box around the equation; a transparent rect keeps it hover/click-able
-        # and gives edges a region to land in.
-        return (
-            f'<rect x="{b.x:.1f}" y="{b.y:.1f}" width="{b.w:.1f}" height="{b.h:.1f}" '
-            'fill="transparent" stroke="none"/>'
-        )
     fill, stroke, rx = _CHROME.get(n.role, _CHROME["latent"])
     dash = ' stroke-dasharray="4,3"' if n.role in ("potential", "factor") else ""
+    sw = 1.1 if n.role == "deterministic" else 1.4  # the deterministic box reads as secondary
     return (
         f'<rect x="{b.x:.1f}" y="{b.y:.1f}" width="{b.w:.1f}" height="{b.h:.1f}" '
-        f'rx="{rx}" ry="{rx}" fill="{fill}" stroke="{stroke}" stroke-width="1.4"{dash}/>'
+        f'rx="{rx}" ry="{rx}" fill="{fill}" stroke="{stroke}" stroke-width="{sw}"{dash}/>'
     )
 
 

@@ -33,18 +33,18 @@ def test_token_anchors_are_real_bboxes(eight_schools_ir):
 @pytest.mark.skipif(not _math, reason="needs the 'math' extra for token anchors")
 def test_param_edges_land_on_token_without_overlap(eight_schools_ir):
     res = layout(eight_schools_ir)
-    # arrows land a STANDOFF above the target's VISIBLE surface, in the token's column: the box
-    # border for a bordered node (theta|y_obs -> observed), the token glyph for a borderless
-    # deterministic equation (mu|theta -> deterministic). (edge, node, token, target_bordered)
-    for edge, node, tok, bordered in [("theta|y_obs", "y_obs", "loc", True),
-                                      ("mu|theta", "theta", "mu", False)]:
+    # every node is bordered (incl. the deterministic equation box): arrows land a STANDOFF above the
+    # box's TOP border, in the token's column — the column says WHICH parameter, the box stays
+    # uncrossed. (edge, node, token)
+    for edge, node, tok in [("theta|y_obs", "y_obs", "loc"),
+                            ("mu|theta", "theta", "mu")]:
         a = res.node_token_anchors[node][tok]
         cx = a.x + a.w / 2.0
         end = res.edge_paths[edge][-1]
         assert abs(end[0] - cx) < 1.5             # centered on the token column
-        assert end[1] < a.y                       # arrowhead above the token glyph (never covers it)
-        surface = res.node_boxes[node].y if bordered else a.y
-        assert end[1] < surface + 0.5             # outside/above the visible surface
+        assert end[1] < a.y                       # arrowhead above the token (never covers it)
+        surface = res.node_boxes[node].y           # the box top border
+        assert end[1] < surface + 0.5             # outside/above the box
         assert abs((surface - end[1]) - STANDOFF) < 1.5
 
 
