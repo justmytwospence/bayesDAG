@@ -64,8 +64,9 @@ Detection keys on the **RV class** (`type(op).__name__`); sub-RVs/params come fr
 - [ ] GPs (Latent/Marginal/HSGP/TP/Kron) — not in `pm.distributions`; out of scope here
 
 ### Known limitations / follow-ups
-- In-node `pairplot` is cramped in the 30px glyph strip — a squarer glyph area (or a card-panel
-  upgrade) would let the dimensionality threshold rise on hover (as designed).
+- Rich glyphs (`pairplot`/`heatmap`/`fan`/`mixture`) get a dimension-scaled in-node block, but
+  only observed nodes get the large pinned-card panel on click — a card-panel upgrade for all
+  glyph-bearing nodes (with coord axis labels) would let the dimensionality threshold rise.
 - Multivariate/symbolic labels can be cosmetically ugly (`second(...)`, `cast(...)`) — per-construct
   param-name templates would clean this up.
 - Deterministic transfer glyphs are intentionally conservative (zero false positives): a hand-written

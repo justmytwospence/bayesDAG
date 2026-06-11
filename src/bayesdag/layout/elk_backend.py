@@ -9,7 +9,8 @@ crossing minimization (the reason Mermaid moved dagre->ELK). ELK fixes node *pla
 edges are then drawn by our own smooth cubic (``common.simple_edge_path``) and the
 token-level port anchors are computed by us from the MathJax bboxes (engine-independent).
 
-Node-free integration (proven by the M0.3 spike), all in the same V8 we use for MathJax:
+Node-free integration (proven by the M0.3 spike), in its own V8 isolate (MathJax uses a
+separate one — two isolates total, ~35MB / ~67MB RSS respectively):
   * the modern ``mini-racer`` (bpcreech) has an event loop + ``JSPromise.get()``;
   * a GWT globals shim (``window``/``global``/``self`` = ``globalThis``);
   * a ``setTimeout(fn, 0) -> 1ms`` coercion (mini-racer's 0ms path throws);

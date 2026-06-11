@@ -452,4 +452,4 @@ def glyph_for(
         # shape (grey + dashed); never a value sampled through the parents.
         return GlyphSpec(kind="schematic", source="prior_family_only"), _canonical_bell(), None
 
-    return None, None, None  # deterministic / data / potential -> no shape glyph in M0
+    return None, None, None  # data / potential (deterministics dispatch above) -> no shape glyph
