@@ -64,6 +64,24 @@ def _static_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "static"
 
 
+def _first_error_line(exc: BaseException) -> str:
+    """The informative first line of a V8/ELK error (the rest is minified GWT stack)."""
+    lines = str(exc).splitlines() or [repr(exc)]
+    for ln in lines:
+        if "Error" in ln or "Exception" in ln:
+            return ln.strip()
+    return lines[0].strip()
+
+
+def _graph_counts(g: dict) -> tuple[int, int]:
+    kids = g.get("children") or []
+    n, e = len(kids), len(g.get("edges") or [])
+    for k in kids:
+        kn, ke = _graph_counts(k)
+        n, e = n + kn, e + ke
+    return n, e
+
+
 class ElkEngine:
     """Lazy in-process ELK layout engine. Construct once and reuse (V8 init is the cost)."""
 
@@ -121,7 +139,17 @@ class ElkEngine:
     def _layout_blocking(self, graph: dict, timeout_ms: int) -> dict:
         ctx = self._context()
         ctx.eval("globalThis.__elkG = " + json.dumps(graph))
-        return json.loads(ctx.eval("__elkRun(__elkG)").get(timeout=timeout_ms))
+        try:
+            return json.loads(ctx.eval("__elkRun(__elkG)").get(timeout=timeout_ms))
+        except Exception as exc:
+            # str(exc) is a minified GWT stack; surface only the useful first line
+            n, e = _graph_counts(graph)
+            raise RuntimeError(
+                f"ELK layout failed: {_first_error_line(exc)} "
+                f"(graph: {n} nodes / {e} edges; likely a bayesdag bug — please report)"
+            ) from exc
+        finally:
+            ctx.eval("globalThis.__elkG = undefined")  # don't retain the last graph in V8
 
     def layout_graph(self, graph: dict, timeout_ms: int = 30000) -> dict:
         # marshal onto the dedicated thread (context is created there on first use)

@@ -53,3 +53,16 @@ def test_labels_rendered_onto_nodes(eight_schools_ir):
     layout(eight_schools_ir)
     for n in eight_schools_ir.nodes:
         assert n.label_svg and "<svg" in n.label_svg
+
+
+def test_missing_dot_binary_gives_actionable_error(monkeypatch):
+    """BAYESDAG_LAYOUT=dot without graphviz installed must say how to fix it, not dump a raw
+    FileNotFoundError traceback."""
+    from bayesdag.layout import graphviz_backend as gb
+
+    def boom(*args, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory", "dot")
+
+    monkeypatch.setattr(gb.subprocess, "run", boom)
+    with pytest.raises(RuntimeError, match="BAYESDAG_LAYOUT=dot"):
+        gb._run_dot("digraph {}")

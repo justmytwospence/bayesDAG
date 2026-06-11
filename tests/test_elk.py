@@ -161,3 +161,18 @@ def test_dot_is_explicit_opt_in_only(radon_ir, monkeypatch):
     res = dispatch(radon_ir)
     assert res.canvas.w > 0 and "plate_obs" in res.plate_boxes
     assert {"mu", "y", "sigma", "b"} <= set(res.node_boxes)
+
+
+def test_elk_error_is_wrapped_and_single_line():
+    """An ELK JS failure must surface the informative exception line, not a minified GWT stack."""
+    g = {
+        "id": "root",
+        "children": [{"id": "a", "width": 30.0, "height": 30.0}],
+        "edges": [{"id": "e", "sources": ["a"], "targets": ["MISSING"]}],
+    }
+    with pytest.raises(RuntimeError) as ei:
+        elk_backend.get_engine().layout_graph(g)
+    msg = str(ei.value)
+    assert "Referenced shape does not exist" in msg
+    assert "please report" in msg and "1 nodes / 1 edges" in msg
+    assert "\n" not in msg  # the minified stack stays out of the message

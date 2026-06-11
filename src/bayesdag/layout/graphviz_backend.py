@@ -85,9 +85,16 @@ def _flip_spline(pos: str, gh: float) -> tuple[list[tuple[float, float]], tuple[
 
 
 def _run_dot(dot_text: str) -> dict:
-    proc = subprocess.run(
-        ["dot", "-Tjson0"], input=dot_text, capture_output=True, text=True
-    )
+    try:
+        proc = subprocess.run(
+            ["dot", "-Tjson0"], input=dot_text, capture_output=True, text=True
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "BAYESDAG_LAYOUT=dot is set but the Graphviz 'dot' binary is not on PATH — "
+            "install graphviz (brew install graphviz / apt install graphviz) or unset "
+            "BAYESDAG_LAYOUT"
+        ) from exc
     if proc.returncode != 0:
         raise RuntimeError(f"graphviz `dot` failed: {proc.stderr.strip()}")
     return json.loads(proc.stdout)
