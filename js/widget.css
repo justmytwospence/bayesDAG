@@ -16,24 +16,31 @@
 /* hover-highlight: fade everything not in the focused node's Markov blanket */
 .bayesdag .bd-node,
 .bayesdag .bd-edge {
-  transition: opacity 0.12s ease, filter 0.12s ease;
+  transition: opacity 0.12s ease;
 }
 .bayesdag .bd-node.bd-dim,
 .bayesdag .bd-edge.bd-dim {
   opacity: 0.18;
 }
 
-/* pinned causal trace: directional lineage of the selected node.
-   upstream (ancestors / causes) = blue, downstream (descendants / effects) = amber,
-   the selected node itself = a neutral slate ring. */
-.bayesdag .bd-node.bd-focus {
-  filter: drop-shadow(0 0 3px rgba(17, 24, 39, 0.65));
+/* pinned causal trace: directional lineage of the selected node. We recolor ONLY the box
+   OUTLINE (.bd-chrome) — a clean ring, never a glow on the equation/glyph. Neutral slate for
+   the selected node, blue upstream (ancestors), amber downstream (descendants) — matching the
+   directional edge colors. */
+.bayesdag .bd-chrome {
+  transition: stroke 0.12s ease, stroke-width 0.12s ease;
 }
-.bayesdag .bd-node.bd-up {
-  filter: drop-shadow(0 0 2.5px #2563eb);
+.bayesdag .bd-node.bd-focus .bd-chrome {
+  stroke: #1f2937;
+  stroke-width: 2.4;
 }
-.bayesdag .bd-node.bd-down {
-  filter: drop-shadow(0 0 2.5px #d97706);
+.bayesdag .bd-node.bd-up .bd-chrome {
+  stroke: #2563eb;
+  stroke-width: 2.4;
+}
+.bayesdag .bd-node.bd-down .bd-chrome {
+  stroke: #d97706;
+  stroke-width: 2.4;
 }
 .bayesdag .bd-edge.bd-edge-up {
   stroke: #2563eb;

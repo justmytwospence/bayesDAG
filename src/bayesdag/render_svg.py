@@ -103,8 +103,9 @@ def _node_chrome(n: NodeIR, b: Box) -> str:
     fill, stroke, rx = _CHROME.get(n.role, _CHROME["latent"])
     dash = ' stroke-dasharray="4,3"' if n.role in ("potential", "factor") else ""
     sw = 1.1 if n.role == "deterministic" else 1.4  # the deterministic box reads as secondary
+    # class "bd-chrome" lets the widget highlight ONLY the box outline (never the equation/glyph).
     return (
-        f'<rect x="{b.x:.1f}" y="{b.y:.1f}" width="{b.w:.1f}" height="{b.h:.1f}" '
+        f'<rect class="bd-chrome" x="{b.x:.1f}" y="{b.y:.1f}" width="{b.w:.1f}" height="{b.h:.1f}" '
         f'rx="{rx}" ry="{rx}" fill="{fill}" stroke="{stroke}" stroke-width="{sw}"{dash}/>'
     )
 
