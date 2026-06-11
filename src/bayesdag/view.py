@@ -33,6 +33,24 @@ def _interactive_available() -> bool:
     return True
 
 
+def _warm_layout_engine() -> None:
+    """Fire-and-forget the ELK V8 context build on its dedicated worker thread, overlapping
+    the ~0.2s isolate init with ``to_ir``. Failures are deliberately ignored here — they
+    re-raise with the real, actionable error on the first ``layout()`` call."""
+    import os
+
+    if os.environ.get("BAYESDAG_LAYOUT", "").strip().lower() == "dot":
+        return
+    try:
+        from .layout.elk_backend import get_engine
+
+        eng = get_engine()
+        if eng.available:
+            eng._worker().submit(eng._context)
+    except Exception:
+        pass
+
+
 class ModelGraphView:
     def __init__(
         self,
@@ -43,6 +61,7 @@ class ModelGraphView:
         legend: bool = True,
         widget_legend: bool = False,
     ) -> None:
+        _warm_layout_engine()  # build the ELK V8 isolate on its worker WHILE to_ir runs
         # keep the source model (if any) so the interactive plate prior-predictive panels
         # can be computed lazily — static rendering never pays that cost.
         self._model = None if isinstance(model_or_ir, ModelIR) else model_or_ir
