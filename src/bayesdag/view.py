@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import render_static
-from .convert import to_ir
+from .convert import subgraph, to_ir
 from .ir import ModelIR
 from .layout import layout
 from .render_svg import render_node_panel, render_observed_panel, to_svg
@@ -60,12 +60,15 @@ class ModelGraphView:
         rankdir: str = "TB",
         legend: bool = True,
         widget_legend: bool = False,
+        var_names: Any = None,
     ) -> None:
         _warm_layout_engine()  # build the ELK V8 isolate on its worker WHILE to_ir runs
         # keep the source model (if any) so the interactive plate prior-predictive panels
         # can be computed lazily — static rendering never pays that cost.
         self._model = None if isinstance(model_or_ir, ModelIR) else model_or_ir
         self.ir = to_ir(model_or_ir, idata=idata)
+        if var_names is not None:
+            self.ir = subgraph(self.ir, list(var_names))
         self.layout = layout(self.ir, rankdir=rankdir)
         # The static figure carries the legend by default (it can't hover); the interactive
         # widget omits it by default since the same info is one hover away.
@@ -191,6 +194,7 @@ def view(
     rankdir: str = "TB",
     legend: bool = True,
     widget_legend: bool = False,
+    var_names: Any = None,
 ) -> ModelGraphView:
     """Visualize a PyMC model (or a ``ModelIR``). Returns a :class:`ModelGraphView` that
     renders interactively in a notebook and statically elsewhere.
@@ -198,7 +202,10 @@ def view(
     ``legend`` (default ``True``) embeds a context-aware legend in the **static** figure.
     ``widget_legend`` (default ``False``) controls it for the **interactive** widget, which
     omits the legend by default since hovering a node already surfaces the same information.
+    ``var_names`` (default ``None`` = everything) restricts the diagram to those variables
+    plus their direct parents — the same semantics as ``pm.model_to_graphviz(var_names=…)``.
     """
     return ModelGraphView(
-        model_or_ir, idata=idata, rankdir=rankdir, legend=legend, widget_legend=widget_legend
+        model_or_ir, idata=idata, rankdir=rankdir, legend=legend, widget_legend=widget_legend,
+        var_names=var_names,
     )
