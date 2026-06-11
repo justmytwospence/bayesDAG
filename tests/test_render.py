@@ -38,3 +38,20 @@ def test_save_svg(tmp_path, eight_schools_ir):
     svg = to_svg(eight_schools_ir, res)
     out = render_static.save(svg, tmp_path / "model.svg")
     assert out.exists() and out.read_text().lstrip().startswith("<svg")
+
+
+@pytest.mark.skipif(not _math, reason="needs the 'math' extra")
+def test_mathjax_defs_are_deduped(eight_schools_ir):
+    """Labels share one content-hashed <defs>: every glyph reference resolves, no duplicate
+    path data remains (per-equation MJX defs were >50% of output bytes)."""
+    import re
+
+    res = layout(eight_schools_ir)
+    svg = to_svg(eight_schools_ir, res)
+    ids = re.findall(r'<path id="([^"]+)"', svg)
+    refs = set(re.findall(r'(?:xlink:)?href="#((?:bdg|MJX)[^"]+)"', svg))
+    assert ids and all(i.startswith("bdg-") for i in ids)  # all label defs hoisted + hashed
+    assert len(ids) == len(set(ids))  # one defs entry per unique glyph, document-wide
+    assert refs <= set(ids)  # no dangling glyph references
+    # the dedupe is the point: fewer defs entries than total glyph uses
+    assert len(ids) < svg.count("data-c=")

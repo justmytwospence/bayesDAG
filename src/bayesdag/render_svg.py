@@ -8,6 +8,7 @@ distribution-shape glyph. All coordinates are absolute px from the single ``Layo
 
 from __future__ import annotations
 
+import hashlib
 import re
 from xml.sax.saxutils import escape
 
@@ -60,10 +61,39 @@ _DEFS = (
 )
 
 
-def _embed_label(label_svg: str, x: float, y: float, w: float, h: float) -> str:
+_LABEL_DEFS_RE = re.compile(r"<defs>(.*?)</defs>", re.S)
+_GLYPH_PATH_RE = re.compile(r'<path id="([^"]+)" d="([^"]*)"\s*(?:/>|>\s*</path>)')
+
+
+def _hoist_label_defs(s: str, shared: dict[str, str]) -> str:
+    """Move an embedded label's MathJax font defs into ONE shared document ``<defs>``,
+    rewriting glyph ids to content-hashed ones so identical glyphs collapse across labels
+    (MathJax's per-equation ``MJX-<n>-`` id prefix makes every label carry duplicate
+    ``<path>`` data — measured >50% of output bytes on multi-node models). A label whose
+    defs contain anything but bare glyph paths is left untouched — never guess."""
+    m = _LABEL_DEFS_RE.search(s)
+    if not m:
+        return s
+    block = m.group(1)
+    if _GLYPH_PATH_RE.sub("", block).strip():
+        return s  # unexpected defs content: keep this label's local defs
+    out = s[: m.start()] + s[m.end() :]
+    for pid, d in _GLYPH_PATH_RE.findall(block):
+        nid = "bdg-" + hashlib.sha1(d.encode()).hexdigest()[:10]
+        shared[nid] = d
+        out = out.replace(f'xlink:href="#{pid}"', f'xlink:href="#{nid}"')
+        out = out.replace(f'href="#{pid}"', f'href="#{nid}"')
+    return out
+
+
+def _embed_label(
+    label_svg: str, x: float, y: float, w: float, h: float, shared: dict[str, str] | None = None
+) -> str:
     s = re.sub(r'width="[\d.]+ex"', f'width="{w:.1f}"', label_svg, count=1)
     s = re.sub(r'height="[\d.]+ex"', f'height="{h:.1f}"', s, count=1)
     s = s.replace("<svg ", f'<svg x="{x:.1f}" y="{y:.1f}" ', 1)
+    if shared is not None:
+        s = _hoist_label_defs(s, shared)
     return s
 
 
@@ -389,11 +419,12 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, overlay_mode: str = "prior", le
     drawn = [(n, b) for n in ir.nodes if (b := (n.box or layout.node_boxes.get(n.id))) is not None]
     for n, b in drawn:  # chrome (boxes) behind everything else node-ish
         body.append(f'<g class="bd-node" data-node="{escape(n.id)}">' + _node_chrome(n, b) + "</g>")
+    font_defs: dict[str, str] = {}  # content-hashed glyph id -> path data (shared across labels)
     for n, b in drawn:  # labels + glyphs above all chrome
         if n.label_svg:
             lw, lh = geometry.label_px_size(n.label_svg)
             ox, oy = geometry.label_origin(b, lw, lh)
-            parts = [_embed_label(n.label_svg, ox, oy, lw, lh)]
+            parts = [_embed_label(n.label_svg, ox, oy, lw, lh, shared=font_defs)]
         else:
             parts = [
                 f'<text x="{b.x + b.w / 2:.1f}" y="{b.y + b.h / 2 + 4:.1f}" text-anchor="middle" '
@@ -412,6 +443,13 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, overlay_mode: str = "prior", le
                 f'font-style="italic">⚠ {escape(reason)}</text>'
             )
         body.append(f'<g class="bd-node" data-node="{escape(n.id)}">' + "".join(parts) + "</g>")
+    if font_defs:  # one shared <defs> for all hoisted MathJax glyphs (sorted: deterministic bytes)
+        body.insert(
+            1,
+            "<defs>"
+            + "".join(f'<path id="{i}" d="{d}"></path>' for i, d in sorted(font_defs.items()))
+            + "</defs>",
+        )
     # edges on top so token-anchored arrowheads into equations are visible
     for e in ir.edges:
         pts = layout.edge_paths.get(f"{e.source}|{e.target}")
