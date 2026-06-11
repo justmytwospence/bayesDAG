@@ -4,7 +4,8 @@ Each is a small but *recognizable* Bayesian model (the kind people actually writ
 set collectively exercises the special-construct glyphs: random-walk fan charts, Weibull/censored
 survival, zero-inflated composites, multivariate pairplots + LKJ correlation priors, ordinal
 cutpoints, Gaussian-mixture overlays, spatial adjacency heatmaps, the AR stationary marginal, and the
-deterministic **transfer-function** glyphs (a logistic S-curve, a log-link exponential, a softmax
+deterministic **transfer-function** glyphs (a logistic S-curve, a probit S-curve, a log-link
+exponential, a softplus positive ramp, a tanh saturating curve, a quadratic power curve, a softmax
 simplex, and affine-predictor lines).
 
 Importable from the gallery notebook (``examples/`` is on ``sys.path``) and re-exported to the test
@@ -211,6 +212,82 @@ def build_softmax_categorical():
     return model
 
 
+def build_probit_regression():
+    """Classification: a **probit** binary regression — `p = Phi(eta)` written as the standard
+    `0.5*(1 + erf(eta/sqrt(2)))`. `p` shows the **probit** S-curve, which the glyph draws from the
+    true Gaussian CDF so it is visibly distinct (steeper shoulders) from the logistic S-curve."""
+    import pytensor.tensor as pt
+    from scipy.stats import norm
+
+    rng = np.random.default_rng(11)
+    n = 100
+    x = rng.normal(0, 1, n)
+    y = rng.binomial(1, norm.cdf(0.3 + 1.2 * x))
+    with pm.Model(coords={"obs": np.arange(n)}) as model:
+        a = pm.Normal("a", 0, 1)
+        b = pm.Normal("b", 0, 1)
+        eta = pm.Deterministic("eta", a + b * x, dims="obs")
+        p = pm.Deterministic("p", 0.5 * (1.0 + pt.erf(eta / np.sqrt(2.0))), dims="obs")
+        pm.Bernoulli("y", p=p, observed=y, dims="obs")
+    return model
+
+
+def build_heteroskedastic_softplus():
+    """Non-constant variance: the noise scale itself grows with a predictor, mapped through
+    **softplus** to stay positive — `sigma = softplus(a + b*x)`. `sigma` shows the **softplus**
+    smooth-positive-ramp transfer glyph (a deterministic that is a scale, not a mean)."""
+    rng = np.random.default_rng(12)
+    n = 120
+    x = rng.normal(0, 1, n)
+    sd = np.log1p(np.exp(0.2 + 0.8 * x))
+    y = rng.normal(1.0 + 0.5 * x, sd)
+    with pm.Model(coords={"obs": np.arange(n)}) as model:
+        m0 = pm.Normal("m0", 0, 1)
+        m1 = pm.Normal("m1", 0, 1)
+        a = pm.Normal("a", 0, 1)
+        b = pm.Normal("b", 0, 1)
+        mu = pm.Deterministic("mu", m0 + m1 * x, dims="obs")
+        eta_s = pm.Deterministic("eta_s", a + b * x, dims="obs")
+        sigma = pm.Deterministic("sigma", pm.math.softplus(eta_s), dims="obs")
+        pm.Normal("y", mu=mu, sigma=sigma, observed=y, dims="obs")
+    return model
+
+
+def build_saturating_tanh():
+    """A bounded/saturating dose-response: the effect tapers to +/-1 through **tanh** —
+    `effect = tanh(a + b*x)`. `effect` shows the **tanh** S-curve on [-1, 1] (a different bounded
+    shape from the logistic [0, 1])."""
+    rng = np.random.default_rng(13)
+    n = 100
+    x = rng.normal(0, 1.5, n)
+    y = rng.normal(np.tanh(0.2 + 1.3 * x), 0.3)
+    with pm.Model(coords={"obs": np.arange(n)}) as model:
+        a = pm.Normal("a", 0, 1)
+        b = pm.Normal("b", 0, 1)
+        eta = pm.Deterministic("eta", a + b * x, dims="obs")
+        effect = pm.Deterministic("effect", pm.math.tanh(eta), dims="obs")
+        pm.Normal("y", mu=effect, sigma=0.3, observed=y, dims="obs")
+    return model
+
+
+def build_quadratic_power():
+    """A squared-amplitude mean (signal power ~ amplitude^2): `power = amp**2` with a constant
+    exponent. `power` shows the **pow** transfer glyph drawn as the *actual* parabola x^2 (the glyph
+    reads the constant exponent from the op graph), not a generic curve."""
+    rng = np.random.default_rng(14)
+    n = 100
+    x = rng.normal(0, 1, n)
+    amp_true = 0.5 + 0.9 * x
+    y = rng.normal(amp_true**2, 0.4)
+    with pm.Model(coords={"obs": np.arange(n)}) as model:
+        a = pm.Normal("a", 0, 1)
+        b = pm.Normal("b", 0, 1)
+        amp = pm.Deterministic("amp", a + b * x, dims="obs")
+        power = pm.Deterministic("power", amp**2, dims="obs")
+        pm.Normal("y", mu=power, sigma=0.4, observed=y, dims="obs")
+    return model
+
+
 ZOO_MODELS = {
     "stochastic_volatility": build_stochastic_volatility,
     "weibull_survival": build_weibull_survival,
@@ -223,4 +300,8 @@ ZOO_MODELS = {
     "logistic_regression": build_logistic_regression,
     "poisson_loglink": build_poisson_loglink,
     "softmax_categorical": build_softmax_categorical,
+    "probit_regression": build_probit_regression,
+    "heteroskedastic_softplus": build_heteroskedastic_softplus,
+    "saturating_tanh": build_saturating_tanh,
+    "quadratic_power": build_quadratic_power,
 }
