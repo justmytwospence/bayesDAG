@@ -127,6 +127,22 @@ def symbol_for(name: str) -> str:
     return out
 
 
+# Ordered op-level param names for SymbolicRandomVariables, whose ``__call__`` signature is
+# the generic ``(self, inputs, kwargs)`` and yields useless ``arg0/arg1/…`` names. Keyed on
+# the DERIVED op name (same keying rule as DIST_SYMBOLS). ``None`` = structural plumbing
+# (steps/size) hidden from the label. A template applies ONLY when its length matches the
+# node's actual ``dist_params`` count (exact match or fall back — never guess). Each entry's
+# order is verified against ``op.dist_params`` introspection; verify before adding.
+DIST_PARAM_TEMPLATES: dict[str, list[Optional[str]]] = {
+    "RandomWalk": ["init", "innov", None],  # [init_dist, innovation_dist, steps]
+    "AR": ["rho", "sigma", "init", None],  # [rho, sigma, init_dist, steps]
+    "Censored": ["dist", "lower", "upper"],
+    "Mixture": ["w", "comp"],  # NormalMixture/ZeroInflated* (single packed component)
+    "_lkjcholeskycov": ["n", "eta", "sd_dist"],
+    "LKJCorrRV": ["n", "eta"],
+}
+
+
 def dist_symbol(dist_name: Optional[str]) -> str:
     if not dist_name:
         return r"\operatorname{?}"

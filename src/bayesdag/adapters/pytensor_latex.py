@@ -138,6 +138,8 @@ def render_value(
         if sname == "Sqrt":
             return rf"\sqrt{{{parts[0]}}}", used
         if sname == "Reciprocal":  # PyMC exposes Exp/Gamma scale as reciprocal(rate) -> show 1/rate
+            if parts[0] == "1":  # fold ONLY the trivial 1/1; 1/0.1 stays a fraction (it
+                return "1", used  # preserves the user's rate parameterization — honesty)
             return rf"\frac{{1}}{{{parts[0]}}}", used
         if sname == "Second" and len(parts) >= 2:  # second(a, b) broadcasts b to a's shape -> b
             return parts[1], used

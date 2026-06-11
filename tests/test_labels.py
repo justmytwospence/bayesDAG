@@ -101,3 +101,27 @@ def test_all_labels_render_in_mathjax(eight_schools_ir):
     for n in eight_schools_ir.nodes:
         svg, _anchors = mathsvg.render_with_anchors(n.label_tex)
         assert "<svg" in svg, f"label failed to render: {n.id}: {n.label_tex}"
+
+
+def test_param_name_templates_kill_arg_noise():
+    """SymbolicRandomVariables have a generic (inputs, kwargs) signature -> arg0/arg1 noise.
+    The verified per-construct templates name the slots and hide structural params (steps)."""
+    with pm.Model(coords={"t": range(8)}) as m:
+        pm.Exponential("e", 1.0)
+        pm.GaussianRandomWalk("rw", mu=0.1, sigma=0.5, init_dist=pm.Normal.dist(0, 1), dims="t")
+        pm.AR("ar", rho=[0.6, 0.2], sigma=0.4, init_dist=pm.Normal.dist(0, 1), constant=False, dims="t")
+        pm.Censored("cz", pm.Normal.dist(0, 1), lower=-1.0, upper=2.0)
+        pm.NormalMixture("mix", w=[0.3, 0.7], mu=[-1.0, 1.0], sigma=[0.5, 0.5])
+    ir = to_ir(m)
+    nd = {n.id: n for n in ir.nodes}
+    for nid in ("rw", "ar", "cz", "mix"):
+        assert "arg0" not in nd[nid].label_tex, nid
+    assert [p.name for p in nd["ar"].params] == ["rho", "sigma", "init"]  # steps hidden
+    assert [p.name for p in nd["rw"].params] == ["init", "innov"]
+    assert [p.name for p in nd["cz"].params] == ["dist", "lower", "upper"]
+    assert [p.name for p in nd["mix"].params] == ["w", "comp"]
+    # the hidden steps param leaves no trailing elision in the label
+    assert not nd["ar"].label_tex.rstrip(r"\right)").endswith(r"\ldots")
+    # trivial reciprocal folds: Exp(rate=1) shows 1, not 1/1
+    assert r"\cssId{tok-scale}{1}" in nd["e"].label_tex
+    assert r"\frac{1}{1}" not in nd["e"].label_tex
