@@ -356,7 +356,7 @@ def _ar(var):
         return None
     nlags = min(10, p + 4)
     if np.sum(rho**2) >= 1.0:  # known but non-stationary
-        return _badge("autoregressive — non-stationary")[:2]
+        return _badge("autoregressive — non-stationary")
     try:  # known, stationary coefficients -> the true theoretical PACF
         pacf = _levinson_pacf(_ar_acf(rho, nlags), nlags)
     except Exception:
@@ -459,8 +459,8 @@ def special_glyph(var):
             r = _random_walk(var)
             return (*r, None) if r else _badge("random walk")
         if cls == "AutoRegressiveRV":
-            r = _ar(var)
-            return (*r, None) if r else _badge("autoregressive")
+            r = _ar(var)  # may already be a full badge 3-tuple (non-stationary case)
+            return (r if len(r) == 3 else (*r, None)) if r else _badge("autoregressive")
         if cls == "GARCH11RV":
             return _badge("GARCH(1,1) — conditional volatility")
         if cls in ("EulerMaruyamaRV",):

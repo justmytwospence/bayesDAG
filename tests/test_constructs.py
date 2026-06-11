@@ -128,6 +128,16 @@ def test_ar_pacf_real_only_when_coefficients_are_known():
     assert vals[0] > 0 and vals[1] > 0 and all(v == 0 for v in vals[2:])  # p=2 lags then cutoff
 
 
+def test_ar_non_stationary_keeps_its_honesty_badge():
+    """Known coefficients with sum(rho^2) >= 1 have no stationary PACF — the node must carry
+    the specific elision reason, not a bare schematic with no badge."""
+    with pm.Model(coords={"t": range(8)}) as m:
+        pm.AR("level", rho=[0.9, 0.6], sigma=0.4, init_dist=pm.Normal.dist(0, 1), constant=False, dims="t")
+    n = to_ir(m).node("level")
+    assert n.glyph.kind == "schematic"
+    assert n.elision_reason == "autoregressive — non-stationary"
+
+
 def test_special_constructs_render_without_error():
     """Every special construct must compose into a valid SVG (badge or glyph), never crash."""
     for _name, build, _k, _r in _SPECIAL:
