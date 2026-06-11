@@ -203,6 +203,7 @@ class MathRenderer:
     def __init__(self, bundle_path: Optional[Path] = None) -> None:
         self._bundle_path = bundle_path or _bundle_path()
         self._ctx = None
+        self._ctx_error: Optional[Exception] = None
         self._cache: dict[str, str] = {}
 
     @property
@@ -214,6 +215,10 @@ class MathRenderer:
         return self._bundle_path.exists()
 
     def _context(self):
+        if self._ctx_error is not None:
+            # a failed V8/bundle build is permanent for this renderer — re-raise the cached
+            # error instead of paying the multi-MB bundle eval again for every label
+            raise self._ctx_error
         if self._ctx is None:
             try:
                 from py_mini_racer import MiniRacer
@@ -228,9 +233,13 @@ class MathRenderer:
                     f"MathJax bundle missing at {self._bundle_path}. Build it with "
                     "`npm install && npm run build` (produces static/mathjax.bundle.js)."
                 )
-            ctx = MiniRacer()
-            ctx.eval(_PROCESS_SHIM)
-            ctx.eval(self._bundle_path.read_text())
+            try:
+                ctx = MiniRacer()
+                ctx.eval(_PROCESS_SHIM)
+                ctx.eval(self._bundle_path.read_text())
+            except Exception as exc:
+                self._ctx_error = exc
+                raise
             self._ctx = ctx
         return self._ctx
 

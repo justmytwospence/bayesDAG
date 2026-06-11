@@ -9,16 +9,31 @@ turns an engine's right-angle bend points into the rounded cubic chain the SVG e
 
 from __future__ import annotations
 
+import warnings
+
 from .. import geometry, mathsvg
 from ..ir import Box, ModelIR
+
+_warned_math_unavailable = False  # once per process — the degradation is global, not per-render
 
 
 def render_labels(ir: ModelIR) -> dict[str, dict]:
     """Render each node's label to SVG (set ``node.label_svg``) and collect px size +
     fractional token bboxes. Falls back to a size estimate when math isn't available."""
+    global _warned_math_unavailable
     renderer = mathsvg.get_renderer()
     use = renderer.available
+    if not use and not _warned_math_unavailable and any(n.label_tex for n in ir.nodes):
+        warnings.warn(
+            "bayesdag: math rendering is unavailable — labels degrade to plain text and "
+            "edges to center anchors. Install the 'math' extra "
+            "(pip install 'bayesdag[math]') or build the bundle (npm install && npm run build).",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        _warned_math_unavailable = True
     info: dict[str, dict] = {}
+    failures: list[tuple[str, Exception]] = []
     for n in ir.nodes:
         svg = None
         bboxes: dict[str, tuple[float, float, float, float]] = {}
@@ -26,13 +41,22 @@ def render_labels(ir: ModelIR) -> dict[str, dict]:
             try:
                 svg = renderer.render(n.label_tex, display=True)
                 bboxes = mathsvg.token_bboxes(svg)
-            except Exception:
+            except Exception as exc:
                 svg, bboxes = None, {}
+                failures.append((n.id, exc))
         n.label_svg = svg
         lw, lh = geometry.label_px_size(svg)
         if svg is None and n.label_tex:
             lw = max(lw, 7.0 * len(n.id))  # rough estimate without math
         info[n.id] = {"w": lw, "h": lh, "bboxes": bboxes}
+    if failures:
+        nid, exc = failures[0]
+        warnings.warn(
+            f"bayesdag: math rendering failed for {len(failures)} label(s) "
+            f"(first: {nid}: {exc}); they degrade to plain text.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     return info
 
 

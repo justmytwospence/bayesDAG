@@ -36,3 +36,27 @@ def test_renders_varied_tex(tex):
 
 def test_render_is_cached():
     assert mathsvg.render(r"\alpha") == mathsvg.render(r"\alpha")
+
+
+def test_broken_bundle_fails_once_not_per_label(tmp_path, monkeypatch):
+    """A bundle that throws during eval must be attempted ONCE — every later render re-raises
+    the cached error instead of re-evaluating the multi-MB bundle per label."""
+    import py_mini_racer
+
+    calls = {"n": 0}
+    real = py_mini_racer.MiniRacer
+
+    def counting(*args, **kwargs):
+        calls["n"] += 1
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(py_mini_racer, "MiniRacer", counting)
+    bundle = tmp_path / "mathjax.bundle.js"
+    bundle.write_text("throw new Error('boom');")
+    r = mathsvg.MathRenderer(bundle_path=bundle)
+    with pytest.raises(Exception) as e1:
+        r.render(r"\alpha")
+    with pytest.raises(Exception) as e2:
+        r.render(r"\beta")
+    assert e2.value is e1.value  # the same cached exception object — no rebuild
+    assert calls["n"] == 1

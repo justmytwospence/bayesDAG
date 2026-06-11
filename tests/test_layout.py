@@ -66,3 +66,21 @@ def test_missing_dot_binary_gives_actionable_error(monkeypatch):
     monkeypatch.setattr(gb.subprocess, "run", boom)
     with pytest.raises(RuntimeError, match="BAYESDAG_LAYOUT=dot"):
         gb._run_dot("digraph {}")
+
+
+def test_math_unavailable_warns_once(monkeypatch, eight_schools_ir):
+    """Silent plain-text degradation hid real breakage — the first render without math must warn."""
+    import warnings
+
+    from bayesdag.layout import common
+
+    class _Unavailable:
+        available = False
+
+    monkeypatch.setattr(common.mathsvg, "get_renderer", lambda: _Unavailable())
+    monkeypatch.setattr(common, "_warned_math_unavailable", False)
+    with pytest.warns(RuntimeWarning, match="math rendering is unavailable"):
+        common.render_labels(eight_schools_ir)
+    with warnings.catch_warnings():  # second render: flag set, no second warning
+        warnings.simplefilter("error")
+        common.render_labels(eight_schools_ir)
