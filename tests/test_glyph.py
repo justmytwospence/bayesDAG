@@ -147,3 +147,25 @@ def test_2d_glyphs_get_a_square_area():
 def test_unknown_or_empty_render_is_blank():
     assert glyph.render("does-not-exist", {"x": 1}, Box(0, 0, 1, 1)) == ""
     assert glyph.render("density", None, Box(0, 0, 1, 1)) == ""
+
+
+def test_to_ir_bounded_on_large_observed_data():
+    """The MLE best-fit overlay must thin its input — full-data scipy .fit() took ~12s on 1M
+    points. Generous wall bound; the real guard is that thinning stays wired in."""
+    import time
+
+    import numpy as np
+    import pymc as pm
+
+    from bayesdag.convert import to_ir
+
+    y = np.random.default_rng(0).standard_t(5, size=1_000_000)
+    with pm.Model() as m:
+        nu = pm.Exponential("nu", 0.1)
+        pm.StudentT("y", nu=nu, mu=0, sigma=1, observed=y)
+    t0 = time.perf_counter()
+    ir = to_ir(m)
+    elapsed = time.perf_counter() - t0
+    n = ir.node("y")
+    assert n.glyph is not None and n.glyph_data  # overlay still computed
+    assert elapsed < 5.0, f"to_ir took {elapsed:.1f}s on 1M observed points"

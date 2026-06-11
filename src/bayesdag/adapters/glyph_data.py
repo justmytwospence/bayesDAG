@@ -18,6 +18,16 @@ import numpy as np
 from ..ir import GlyphSpec
 
 _GRID = 64
+_MAX_STAT_POINTS = 50_000
+
+
+def _thin(v: np.ndarray) -> np.ndarray:
+    """Deterministic strided subsample for O(n)-sensitive stats (KDE / MLE fit) — an MLE on
+    50k points is visually identical to 1M but ~100x faster. Never RNG (glyphs must be
+    byte-identical across renders); histograms stay full-data."""
+    if v.size <= _MAX_STAT_POINTS:
+        return v
+    return v[:: int(np.ceil(v.size / _MAX_STAT_POINTS))]
 
 
 def _scalars(p) -> list:
@@ -179,6 +189,7 @@ def _density_from_samples(values) -> Optional[dict]:
     v = v[np.isfinite(v)]
     if v.size < 2 or np.allclose(v, v[0]):
         return None
+    v = _thin(v)
     try:
         from scipy.stats import gaussian_kde
 
@@ -292,7 +303,7 @@ def _observed_overlay(vals, dist: Optional[str], max_bins: int = 30) -> Optional
         return None
     if not dist or dist in _DISCRETE:
         return None
-    frozen = _fit_frozen(dist, v)
+    frozen = _fit_frozen(dist, _thin(v))  # MLE on a thinned view; the histogram keeps full data
     if frozen is None:
         return None
     edges = np.histogram_bin_edges(v, bins="auto")

@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-from .glyph_data import _observed_values
+from .glyph_data import _observed_values, _thin
 
 _GRID = 48
 _MAX_CURVES = 40
@@ -25,6 +25,7 @@ def _kde(col: np.ndarray, xs: np.ndarray):
     col = col[np.isfinite(col)]
     if col.size < 2 or np.allclose(col, col[0]):
         return None
+    col = _thin(col)
     try:
         from scipy.stats import gaussian_kde
 
