@@ -172,6 +172,27 @@ def test_parents_follow_token_ports_not_model_order():
     assert count_crossings(res) == 0  # ...and the two hyperparameter arrows don't cross
 
 
+def test_no_spurious_exit_kink_when_token_within_source_box():
+    """When a target token sits within the source node's horizontal extent, the edge drops straight
+    to it. The exit used to clamp a FULL corner-radius from the node edge and jog the last pixel or
+    two to a near-edge token, filleting into a visible kink (the softmax `eta = a + b*x` report)."""
+    import pathlib
+    import sys
+
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "examples"))
+    from zoo import build_softmax_categorical
+
+    ir = to_ir(build_softmax_categorical())
+    res = layout(ir)
+    for src in ("a", "b"):
+        sb = res.node_boxes[src]
+        tok = res.node_token_anchors["eta"][src]
+        tx = tok.x + tok.w / 2.0
+        assert sb.x <= tx <= sb.x + sb.w  # precondition: the token is within the source box x-extent
+        xs = [p[0] for p in res.edge_paths[f"{src}|eta"]]
+        assert max(xs) - min(xs) < 1.5  # whole edge is one vertical column — no jog/kink
+
+
 def test_layout_is_deterministic():
     """Same model (fixed ELK seed) -> byte-identical node geometry across runs."""
     a = layout(to_ir(MODEL_BUILDERS["hier_reg"]()))
