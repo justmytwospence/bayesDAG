@@ -91,7 +91,7 @@ def render_value(
         sym = symbol_for(nm)
         if wrap_leaves:
             return rf"\cssId{{tok-{nm}}}{{{sym}}}", {nm}
-        return sym, set()
+        return sym, {nm}
 
     owner = getattr(var, "owner", None)
     if owner is None:
