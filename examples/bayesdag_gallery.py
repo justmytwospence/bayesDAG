@@ -101,7 +101,7 @@ def _(bayesdag, es_model, mo):
 
 
 @app.cell
-def _(es_model, graphviz_fit, mo, pm):
+def _(es_model, graphviz_fit, mo):
     mo.vstack([
         mo.md("**Baseline — PyMC's built-in `model_to_graphviz` for the same model:**"),
         graphviz_fit(es_model),
@@ -189,7 +189,7 @@ def _(bayesdag, mo, radon_model):
 
 
 @app.cell
-def _(graphviz_fit, mo, pm, radon_model):
+def _(graphviz_fit, mo, radon_model):
     mo.vstack([
         mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
         graphviz_fit(radon_model),
@@ -262,7 +262,7 @@ def _(bayesdag, hr_model, mo):
 
 
 @app.cell
-def _(graphviz_fit, hr_model, mo, pm):
+def _(graphviz_fit, hr_model, mo):
     mo.vstack([
         mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
         graphviz_fit(hr_model),
@@ -315,7 +315,7 @@ def _(bayesdag, irt_model, mo):
 
 
 @app.cell
-def _(graphviz_fit, irt_model, mo, pm):
+def _(graphviz_fit, irt_model, mo):
     mo.vstack([
         mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
         graphviz_fit(irt_model),
@@ -375,7 +375,7 @@ def _(bayesdag, mo, mrp_model):
 
 
 @app.cell
-def _(graphviz_fit, mo, mrp_model, pm):
+def _(graphviz_fit, mo, mrp_model):
     mo.vstack([
         mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
         graphviz_fit(mrp_model),
@@ -433,7 +433,7 @@ def _(bayesdag, jm_model, mo):
 
 
 @app.cell
-def _(graphviz_fit, jm_model, mo, pm):
+def _(graphviz_fit, jm_model, mo):
     mo.vstack([
         mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
         graphviz_fit(jm_model),
@@ -449,7 +449,7 @@ def _():
 
 
 @app.cell
-def _(bayesdag, graphviz_fit, mo, pm):
+def _(bayesdag, graphviz_fit, mo):
     def show(model, title, blurb):
         return mo.vstack([
             mo.md(f"## {title}\n\n{blurb}"),
@@ -581,6 +581,64 @@ def _(show, zoo):
         "17 · Softmax classifier (multinomial choice)",
         "A multinomial-logit model: `p = softmax(eta)` renders as the **k-category bars** of its simplex "
         "output (one probability vector over the categories).",
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ---
+    ## Transfer-function glyphs — newly showcased
+
+    The deterministic transfer detector draws a canonical curve only when the shape is *provable*
+    from the op graph (zero false positives). These four sections exercise transfers the gallery
+    did not previously show — each curve is generated from the **true** function on a fixed grid,
+    so it is identical on every render and its width is fixed (it no longer stretches with the equation).
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(show, zoo):
+    show(
+        zoo.build_probit_regression(),
+        "18 - Probit regression (erf)",
+        "`p = Phi(eta)` written as `0.5*(1 + erf(eta/sqrt(2)))`. `p` shows the **probit** S-curve, drawn "
+        "from the true Gaussian CDF - visibly steeper-shouldered than the logistic S-curve in section 15.",
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(show, zoo):
+    show(
+        zoo.build_heteroskedastic_softplus(),
+        "19 - Heteroskedastic scale (softplus)",
+        "Non-constant noise: `sigma = softplus(a + b*x)` keeps the scale positive. `sigma` shows the "
+        "**softplus** smooth-positive-ramp - a deterministic that feeds a *scale*, not a mean (`mu`, `eta_s` are lines).",
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(show, zoo):
+    show(
+        zoo.build_saturating_tanh(),
+        "20 - Saturating response (tanh)",
+        "A bounded dose-response: `effect = tanh(a + b*x)` tapers to +/-1. The **tanh** S-curve on [-1, 1] "
+        "is a different bounded shape from the logistic [0, 1].",
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(show, zoo):
+    show(
+        zoo.build_quadratic_power(),
+        "21 - Squared amplitude (pow)",
+        "Signal power ~ amplitude^2: `power = amp**2`. The **pow** glyph reads the constant exponent from "
+        "the op graph and draws the *actual* parabola x^2, not a generic curve.",
     )
     return
 
