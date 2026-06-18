@@ -145,6 +145,11 @@ def render_value(
             return parts[1], used
         if sname in ("Cast", "Identity") and parts:  # type-cast wrappers are invisible to the math
             return parts[0], used
+        _CMP = {"LE": r"\le", "GE": r"\ge", "LT": "<", "GT": ">", "EQ": "="}
+        if sname in _CMP and len(parts) >= 2:  # a comparison reads infix, not operatorname{le}(...)
+            return rf"{parts[0]} {_CMP[sname]} {parts[1]}", used
+        if sname == "Switch" and len(parts) >= 3:  # where(cond, a, b) -> a conditional (e.g. a tree split)
+            return rf"\left({parts[0]} \,?\, {parts[1]} : {parts[2]}\right)", used
         return rf"\operatorname{{{sname.lower()}}}\!\left({', '.join(parts)}\right)", used
 
     if type(op).__name__ == "Softmax":  # non-Elemwise but a recognizable transfer -> name it

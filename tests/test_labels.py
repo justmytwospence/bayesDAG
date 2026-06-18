@@ -132,3 +132,17 @@ def test_param_name_templates_kill_arg_noise():
     # trivial reciprocal folds: Exp(rate=1) shows 1, not 1/1
     assert r"\cssId{tok-scale}{1}" in nd["e"].label_tex
     assert r"\frac{1}{1}" not in nd["e"].label_tex
+
+
+def test_comparison_and_switch_render_as_a_conditional():
+    """A where/switch over a comparison reads as a conditional with infix <=, not operatorname dumps
+    (the BART sum-of-stumps split decision `g = (x <= c ? mu_L : mu_R)`)."""
+    with pm.Model(coords={"obs": range(4)}) as m:
+        c = pm.Normal("c", 0, 1)
+        x = pm.Data("x", np.array([0.0, 1.0, 2.0, 3.0]), dims="obs")
+        a = pm.Normal("a", 0, 1)
+        b = pm.Normal("b", 0, 1)
+        pm.Deterministic("g", pm.math.where(x <= c, a, b), dims="obs")
+    g = to_ir(m).node("g")
+    assert r"\le" in g.label_tex and r"\,?\," in g.label_tex
+    assert "operatorname{le}" not in g.label_tex and "operatorname{switch}" not in g.label_tex
