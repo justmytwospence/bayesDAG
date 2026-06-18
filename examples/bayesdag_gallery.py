@@ -646,10 +646,14 @@ def _(show, zoo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Nonparametric regression — BART
+    ## Nonparametric regression — BART, broken out
 
-    `pymc_bart` adds Bayesian Additive Regression Trees: a **sum-of-decision-trees** prior over an
-    unknown function `f(X)`, with no closed-form prior density. bayesdag depicts it by its structure.
+    BART (Bayesian Additive Regression Trees) is a **sum of `m` regression trees**. Rather than one
+    opaque `BART(...)` node, this section exposes the model it actually is — the structure conditional
+    on the trees — so the additive, shrinkage-regularized story is visible: per-tree leaf values `mu`
+    pulled toward 0 by a shared scale `sigma_mu`, each tree's function `g`, and the regression mean as
+    their sum `f = sum(g)`. (bayesdag *also* renders an opaque `pmb.BART` node as a step-function
+    glyph — that support is exercised in the test suite.)
     """)
     return
 
@@ -657,12 +661,13 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(show, zoo):
     show(
-        zoo.build_bart_regression(),
-        "22 - BART (sum-of-trees regression)",
-        "`mu = BART(X, m=50)` is a nonparametric sum-of-trees prior over `f(X)`. Its draws are "
-        "piecewise-constant, so bayesdag draws `mu` as a **step-function** schematic — the honest "
-        "canonical shape, not a misleading bell — and the label elides the response and tree-prior "
-        "hyperparameters. `X` appears as a data node feeding the prior.",
+        zoo.build_bart_sum_of_trees(),
+        "22 - BART as a sum of trees",
+        "The generative model underneath BART, conditional on the tree partitions: leaf values "
+        "`mu ~ Normal(0, sigma_mu)` over the `tree x leaf` plate (the shrinkage prior), each tree's "
+        "function `g = mu[leaf(X)]`, and the regression function `f = sum(g)` over the `tree` plate — "
+        "the additive sum-of-trees. A Gaussian likelihood closes it. BART's sampler is what learns the "
+        "tree partitions (fixed here for illustration).",
     )
     return
 

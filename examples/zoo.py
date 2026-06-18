@@ -3,8 +3,8 @@
 Each is a small but *recognizable* Bayesian model (the kind people actually write), chosen so the
 set collectively exercises the special-construct glyphs: random-walk fan charts, Weibull/censored
 survival, zero-inflated composites, multivariate pairplots + LKJ correlation priors, ordinal
-cutpoints, Gaussian-mixture overlays, spatial adjacency heatmaps, the AR stationary marginal, the
-BART sum-of-trees step function, and the deterministic **transfer-function** glyphs (a logistic
+cutpoints, Gaussian-mixture overlays, spatial adjacency heatmaps, the AR stationary marginal, BART
+broken out into its sum-of-trees model, and the deterministic **transfer-function** glyphs (a logistic
 S-curve, a probit S-curve, a log-link exponential, a softplus positive ramp, a tanh saturating curve,
 a quadratic power curve, a softmax simplex, and affine-predictor lines).
 
@@ -288,23 +288,26 @@ def build_quadratic_power():
     return model
 
 
-def build_bart_regression():
-    """Nonparametric regression with **BART** (`pymc_bart`): `mu` is a sum-of-regression-trees prior
-    over the unknown function `f(X)`. bayesdag draws `mu` as a **step-function** schematic — the
-    canonical shape of a BART draw (a sum of decision trees is piecewise-constant) — and the label
-    reads `mu ~ BART(X, m)`: the predictor `X` (a data node) and the tree count `m`, with the
-    response and tree-prior hyperparameters (alpha, beta) elided as plumbing."""
-    import pymc_bart as pmb
-
+def build_bart_sum_of_trees():
+    """**BART broken out into the model it actually is** — a *sum of m regression trees*. Rather than
+    one opaque `BART(...)` node (bayesdag supports that too, as a step-function glyph), this exposes
+    the generative structure conditional on the trees: per-tree leaf values `mu` shrunk toward 0 by a
+    common scale `sigma_mu` (BART's leaf prior), each tree's function `g = mu[leaf(X)]`, the regression
+    function as their sum `f = sum(g)` over the `tree` plate, and a Gaussian likelihood. The tree
+    partitions are fixed here (BART's sampler is what learns them)."""
     rng = np.random.default_rng(15)
-    n = 100
+    m, n_leaves, n = 50, 4, 80
     x = np.linspace(0, 10, n)
     Y = np.sin(x) + 0.1 * x + rng.normal(0, 0.3, n)
-    with pm.Model() as model:
-        X = pm.Data("X", x[:, None])
-        mu = pmb.BART("mu", X=X, Y=Y, m=50)
+    leaf = rng.integers(0, n_leaves, size=(m, n))  # which leaf each obs falls into, per tree (fixed)
+    trees = np.arange(m)[:, None]
+    with pm.Model(coords={"tree": range(m), "leaf": range(n_leaves), "obs": range(n)}) as model:
+        sigma_mu = pm.HalfNormal("sigma_mu", 0.3)
+        mu = pm.Normal("mu", 0, sigma_mu, dims=("tree", "leaf"))
+        g = pm.Deterministic("g", mu[trees, leaf], dims=("tree", "obs"))
+        f = pm.Deterministic("f", g.sum(axis=0), dims="obs")
         sigma = pm.HalfNormal("sigma", 1)
-        pm.Normal("y", mu=mu, sigma=sigma, observed=Y)
+        pm.Normal("y", mu=f, sigma=sigma, observed=Y, dims="obs")
     return model
 
 
@@ -324,5 +327,5 @@ ZOO_MODELS = {
     "heteroskedastic_softplus": build_heteroskedastic_softplus,
     "saturating_tanh": build_saturating_tanh,
     "quadratic_power": build_quadratic_power,
-    "bart_regression": build_bart_regression,
+    "bart_sum_of_trees": build_bart_sum_of_trees,
 }
