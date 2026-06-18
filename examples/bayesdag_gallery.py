@@ -646,16 +646,17 @@ def _(show, zoo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Nonparametric regression — BART, with its parameters on display
+    ## Nonparametric regression — BART, with every parameter on display
 
     BART (Bayesian Additive Regression Trees) is a **sum of `m` regression trees**. Rather than one
     opaque `BART(...)` node, this section breaks it into the model it actually is and surfaces every
-    parameter. With depth-1 trees (stumps) the full parameterization fits on the page: the `tree`
-    plate holds each tree's **split point** `c` and two **leaf values** `mu_L, mu_R`, shrunk toward 0
-    by the shared leaf scale `sigma_mu`. Each tree is the split decision `g = (x <= c ? mu_L : mu_R)`,
-    and the regression function is their sum `f = sum(g)`. (Real BART grows deeper trees via an
-    alpha/beta branching prior; bayesdag *also* renders an opaque `pmb.BART` node as a step-function
-    glyph — exercised in the test suite.)
+    parameter and hyperparameter. The **tree-structure prior** is explicit: a node at depth `d` splits
+    with probability `p_split = alpha*(1+depth)^(-beta)` — so the `alpha`, `beta` (~2-5), and `depth`
+    hyperparameters all appear. Leaf values are shrunk by `sigma_mu = 0.5/(k*sqrt(m))` (the `k`, `m`
+    controls). The `tree` plate then carries each tree's parameters — `split`, split point `c`, leaf
+    values `mu_L, mu_R` — combined by the split decision `g`, summed to `f = sum(g)`. (The per-tree
+    computation is drawn as a depth-1 stump for legibility — the depth prior is what grows real BART
+    deeper; bayesdag *also* renders an opaque `pmb.BART` node as a step-function glyph, in the tests.)
     """)
     return
 
@@ -664,12 +665,13 @@ def _(mo):
 def _(show, zoo):
     show(
         zoo.build_bart_sum_of_trees(),
-        "22 - BART as a sum of trees (parameters exposed)",
-        "Every BART parameter, in the `tree` plate: the split point `c ~ Uniform`, the leaf values "
-        "`mu_L, mu_R ~ Normal(0, sigma_mu)`, and the shared leaf-shrinkage scale `sigma_mu`. Each "
-        "tree's function is the split decision `g = (x <= c ? mu_L : mu_R)`; the regression mean is "
-        "the sum over trees `f = sum(g)`, closed by `y ~ Normal(f, sigma)`. Stumps keep it legible; "
-        "BART's sampler is what learns deeper tree structure.",
+        "22 - BART, every parameter exposed",
+        "All of BART's parameters as nodes: the tree-structure prior `p_split = alpha*(1+depth)^(-beta)` "
+        "(showing `alpha`, `beta`, `depth`), the leaf scale `sigma_mu = 0.5/(k*sqrt(m))`, and in the "
+        "`tree` plate the split indicator `split ~ Bernoulli(alpha)`, split point `c ~ Uniform`, and "
+        "leaf values `mu_L, mu_R ~ Normal(0, sigma_mu)`. Each tree is the gated decision "
+        "`g = (split & x<=c ? mu_L : mu_R)`; the regression mean is `f = sum(g)`, closed by "
+        "`y ~ Normal(f, sigma)`.",
     )
     return
 
