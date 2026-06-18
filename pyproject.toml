@@ -47,6 +47,7 @@ dev = [
     "jupyterlab>=4",
     "marimo>=0.8",
     "watchfiles",
+    "pymc-bart>=0.9.2",
 ]
 
 [tool.uv]

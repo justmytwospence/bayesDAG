@@ -144,6 +144,9 @@ DIST_PARAM_TEMPLATES: dict[str, list[list[Optional[str]]]] = {
     ],
     "_lkjcholeskycov": [["n", "eta", "sd_dist"]],
     "LKJCorrRV": [["n", "eta"]],
+    # pymc-bart dist_params = [X, Y, m, alpha, beta]: show the predictor X and tree count m; hide the
+    # response array and the tree-prior hyperparameters (noise in a diagram) -> `mu ~ BART(X, m)`.
+    "BART": [["X", None, "m", None, None]],
 }
 
 

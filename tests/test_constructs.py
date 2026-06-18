@@ -145,3 +145,24 @@ def test_special_constructs_render_without_error():
             build()
         ir = to_ir(m)
         assert "<svg" in to_svg(ir, layout(ir))
+
+
+def test_bart_renders_as_step_function_with_clean_label():
+    """BART (sum-of-trees) has no closed-form prior density; its draws are piecewise-constant, so we
+    depict it with the canonical STEP-function schematic (honest structure, not the misleading bell),
+    and the label elides the response/tree-prior arrays -> `mu ~ BART(X, m)`."""
+    pmb = pytest.importorskip("pymc_bart")
+    x = np.linspace(0, 5, 40)
+    Y = np.sin(x) + 0.1 * x
+    with pm.Model() as m:
+        X = pm.Data("X", x[:, None])
+        pmb.BART("mu", X=X, Y=Y, m=20)
+        pm.Normal("y", mu=m["mu"], sigma=pm.HalfNormal("sigma", 1), observed=Y)
+    ir = to_ir(m)
+    mu = ir.node("mu")
+    assert mu.glyph is not None and mu.glyph.kind == "step"
+    assert mu.elision_reason is None  # honest canonical depiction, not an "elided" badge
+    assert "arg0" not in mu.label_tex and "BART" in mu.label_tex
+    assert r"\cssId{tok-X}" in mu.label_tex and r"\cssId{tok-m}" in mu.label_tex  # X + m shown
+    assert ("X", "mu", "X") in [(e.source, e.target, e.target_token_id) for e in ir.edges]  # data -> BART edge
+    assert "<svg" in to_svg(ir, layout(ir))  # composes without crashing

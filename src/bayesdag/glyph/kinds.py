@@ -112,6 +112,24 @@ def render_curve(data: dict[str, Any], box: Box, *, stroke="#7a5bd0", fill="#7a5
     )
 
 
+def render_step(data: dict[str, Any], box: Box, *, stroke="#999", fill="#999", **_):
+    """A piecewise-constant step function — the canonical shape of a BART (sum-of-regression-trees)
+    draw, which is always step-shaped. Schematic (fixed heights, parameter-free): like ``fan`` for a
+    random walk, it communicates the construct's STRUCTURE ('flexible step-function regression'),
+    never the node's actual fitted values."""
+    ys = data.get("ys")
+    if not ys:
+        return ""
+    k = len(ys)
+    seg = box.w / k
+    pts = []
+    for i, y in enumerate(ys):
+        yy = box.y + box.h - max(0.0, min(1.0, y)) * box.h
+        pts.append((box.x + i * seg, yy))
+        pts.append((box.x + (i + 1) * seg, yy))  # horizontal tread; the gap to the next is the riser
+    return f'<path d="{_path(pts)}" fill="none" stroke="{stroke}" stroke-width="1.2"/>'
+
+
 def render_histogram(data: dict[str, Any], box: Box, *, fill="#5a7fb5", stroke="#3a5f95", **_):
     edges, counts = data.get("edges"), data.get("counts")
     if not edges or not counts:
@@ -363,4 +381,5 @@ register("mixture", render_mixture)
 register("cutpoints", render_cutpoints)
 register("simplex", render_simplex)
 register("stem", render_stem)
+register("step", render_step)
 register("censored", render_censored)

@@ -7,7 +7,7 @@ from bayesdag.ir import Box
 def test_registry_has_density_and_nonunivariate_kinds():
     ks = glyph.registered_kinds()
     assert {"density", "histogram", "hist_overlay", "bars", "schematic", "heatmap", "curve"} <= ks
-    assert {"fan", "pairplot", "mixture", "cutpoints", "simplex", "censored", "stem"} <= ks  # special-construct kinds
+    assert {"fan", "pairplot", "mixture", "cutpoints", "simplex", "censored", "stem", "step"} <= ks  # special-construct kinds
 
 
 def test_zero_reference_marker():

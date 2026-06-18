@@ -422,6 +422,12 @@ def _mixture(var):
     return GlyphSpec(kind="mixture", source="prior_analytic"), {"curves": curves}
 
 
+# Canonical step heights for the BART glyph — a fixed, plausible sum-of-trees draw (parameter-free,
+# so it is identical on every render). It depicts BART's STRUCTURE (piecewise-constant function),
+# never the node's fitted values — the same honest-schematic stance as the random-walk fan.
+_BART_STEPS = [0.40, 0.62, 0.55, 0.80, 0.48, 0.68, 0.42, 0.58]
+
+
 def special_glyph(var):
     """Return (GlyphSpec, data, elision_reason) for a special construct, or (None, None, None)."""
     op = getattr(getattr(var, "owner", None), "op", None)
@@ -473,6 +479,8 @@ def special_glyph(var):
             return (*r, None) if r else _badge("spatial (CAR/ICAR)")
         if cls in ("FlatRV", "HalfFlatRV"):
             return _badge("improper prior")
+        if cls.startswith("BART"):  # pymc-bart op is BART_<name>; sum of trees => step-function draws
+            return GlyphSpec(kind="step", source="prior_family_only"), {"ys": list(_BART_STEPS)}, None
         if cls in ("CustomDistRV", "SymbolicRandomVariable") or "CustomDist" in cls or "Simulator" in cls:
             return _badge("custom density — elided")
     except Exception:

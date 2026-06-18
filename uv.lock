@@ -172,7 +172,7 @@ resolution-markers = [
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "arviz-base", marker = "python_full_version >= '3.12'" },
+    { name = "arviz-base", version = "1.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "arviz-plots", marker = "python_full_version >= '3.12'" },
     { name = "arviz-stats", version = "1.1.0", source = { registry = "https://pypi.org/simple" }, extra = ["xarray"], marker = "python_full_version >= '3.12'" },
 ]
@@ -183,8 +183,35 @@ wheels = [
 
 [[package]]
 name = "arviz-base"
+version = "0.8.2"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
+    "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
+    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
+dependencies = [
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "typing-extensions", marker = "python_full_version == '3.11.*'" },
+    { name = "xarray", version = "2026.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d5/b7/6567bb2fff93232635f0ba1c6f8dceee9b1271e94165a4d9dd6c40ff5636/arviz_base-0.8.2.tar.gz", hash = "sha256:4d77142c6396c648fef3624b2d3f76fc9f326b88e513b34eff15ac06489cf840", size = 1403232, upload-time = "2026-01-16T14:00:48.184Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8f/31/0491ae7431f50708a0d60d54adf363b8e874d09af9d867e813fb4751c590/arviz_base-0.8.2-py3-none-any.whl", hash = "sha256:84f8c72d1454e21198f9188537d10fedba8db23ee4abc54200c38c808b76e05c", size = 1420673, upload-time = "2026-01-16T14:00:46.408Z" },
+]
+
+[[package]]
+name = "arviz-base"
 version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
 dependencies = [
     { name = "lazy-loader", marker = "python_full_version >= '3.12'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -201,7 +228,7 @@ name = "arviz-plots"
 version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "arviz-base", marker = "python_full_version >= '3.12'" },
+    { name = "arviz-base", version = "1.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "arviz-stats", version = "1.1.0", source = { registry = "https://pypi.org/simple" }, extra = ["xarray"], marker = "python_full_version >= '3.12'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/e7/4b/2c41babd8a858d0f2161dea8c336fdd04e7559640100c6ccef8e100b27dd/arviz_plots-1.1.0.tar.gz", hash = "sha256:c2d213364c5eaadfe890b1f871849d4317dec5260f79f26e30976159c132a351", size = 155011, upload-time = "2026-04-23T11:49:27.604Z" }
@@ -227,6 +254,13 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/80/08/8a8ad310c116a5574468c0fa2f37a418769719d9ff5127dc817c54ce20b2/arviz_stats-0.8.0-py3-none-any.whl", hash = "sha256:c80553f11c590219c6eabdee6d67fb100c31f8751790772bdc269a9970429913", size = 164648, upload-time = "2026-01-15T16:08:55.653Z" },
 ]
 
+[package.optional-dependencies]
+xarray = [
+    { name = "arviz-base", version = "0.8.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "xarray", version = "2026.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "xarray-einstats", version = "0.9.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+]
+
 [[package]]
 name = "arviz-stats"
 version = "1.1.0"
@@ -250,7 +284,7 @@ wheels = [
 
 [package.optional-dependencies]
 xarray = [
-    { name = "arviz-base", marker = "python_full_version >= '3.12'" },
+    { name = "arviz-base", version = "1.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "xarray", version = "2026.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "xarray-einstats", version = "0.10.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
@@ -305,7 +339,7 @@ dependencies = [
     { name = "mini-racer" },
     { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "pymc", version = "5.25.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "pymc", version = "5.23.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pymc", version = "5.28.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "pymc", version = "6.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "traitlets" },
@@ -336,6 +370,9 @@ dev = [
     { name = "jsonschema" },
     { name = "jupyterlab" },
     { name = "marimo" },
+    { name = "pymc-bart", version = "0.9.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "pymc-bart", version = "0.11.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "pymc-bart", version = "0.12.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pytest" },
     { name = "ruff" },
     { name = "watchfiles" },
@@ -363,6 +400,7 @@ dev = [
     { name = "jsonschema", specifier = ">=4" },
     { name = "jupyterlab", specifier = ">=4" },
     { name = "marimo", specifier = ">=0.8" },
+    { name = "pymc-bart", specifier = ">=0.9.2" },
     { name = "pytest", specifier = ">=8" },
     { name = "ruff" },
     { name = "watchfiles" },
@@ -3213,7 +3251,7 @@ wheels = [
 
 [[package]]
 name = "pymc"
-version = "5.25.1"
+version = "5.23.0"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version < '3.11'",
@@ -3230,9 +3268,9 @@ dependencies = [
     { name = "threadpoolctl", marker = "python_full_version < '3.11'" },
     { name = "typing-extensions", marker = "python_full_version < '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4d/f4/30ae01e539b7b1dc83578e1aedbc04567f76b48ba287fb31be6de0e0684d/pymc-5.25.1.tar.gz", hash = "sha256:9e739315c0547336b4c11127aae8b3750145b29cdd8e21609196594aa29c21f8", size = 487746, upload-time = "2025-07-24T11:57:04.107Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/63/25/ec325ae8723d90c09924c1a18c0922fcf8099d82fd2bab9e937bb8ca8270/pymc-5.23.0.tar.gz", hash = "sha256:23fc95234d4364b5a78cc6311531447099e96d01c8d1c628bff42565d4450bbf", size = 477350, upload-time = "2025-05-28T06:02:15.402Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/62/1e973f657ffc91a0ca5a22723f3d7f4a3df946cb3832e23d8f29eb33647f/pymc-5.25.1-py3-none-any.whl", hash = "sha256:4e1185cf20052b9be44f2ac8705dc6c77ff7b8d347d920d5e28719d970d9fa15", size = 535526, upload-time = "2025-07-24T11:57:02.149Z" },
+    { url = "https://files.pythonhosted.org/packages/37/8e/cdacf953ba5f06d717f80a5e9bcf033a5bfe3ef1b67d406b0446253920f5/pymc-5.23.0-py3-none-any.whl", hash = "sha256:4c157d76cbdac88fff629652a8aac527f66ca568db706a4008ba35fe4c88d79c", size = 519595, upload-time = "2025-05-28T06:02:13.288Z" },
 ]
 
 [[package]]
@@ -3291,6 +3329,70 @@ wheels = [
 ]
 
 [[package]]
+name = "pymc-bart"
+version = "0.9.2"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.11'",
+]
+dependencies = [
+    { name = "arviz", version = "0.23.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "matplotlib", marker = "python_full_version < '3.11'" },
+    { name = "numba", marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "pymc", version = "5.23.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f0/f1/0031d51c6ad12c2d178d4394866077967552286fe1ae48569ef51bdc706e/pymc_bart-0.9.2.tar.gz", hash = "sha256:7509b68c2a74cec5c11691b25e34e02cc8909f2a9069c5e36680ae86260e3693", size = 41306, upload-time = "2025-06-12T12:40:36.769Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0c/68/9317f580d73718fe03823a8221d71f093266e4fb284423e8d0c8ceb52653/pymc_bart-0.9.2-py3-none-any.whl", hash = "sha256:dacda5dc22a229c973aca13bc007318d016382373d191842e0ebc4d6cc6dc2f2", size = 31667, upload-time = "2025-06-12T12:40:35.414Z" },
+]
+
+[[package]]
+name = "pymc-bart"
+version = "0.11.0"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
+    "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
+    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
+dependencies = [
+    { name = "arviz-stats", version = "0.8.0", source = { registry = "https://pypi.org/simple" }, extra = ["xarray"], marker = "python_full_version == '3.11.*'" },
+    { name = "matplotlib", marker = "python_full_version == '3.11.*'" },
+    { name = "numba", marker = "python_full_version == '3.11.*'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "pymc", version = "5.28.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ac/d1/0de1909cc35f7b5df98fa5bd93585f1489a1bb59161d10e023acfa7c6c59/pymc_bart-0.11.0.tar.gz", hash = "sha256:fc107a29f12c7a4345fca33ae3fda5208da4788e0f5e776a37a71cb871097d95", size = 43418, upload-time = "2025-10-21T10:27:59.548Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/04/1a/c2c8f28f9522d4e08c402949b350e11249be492663f7e95ac209d1979dd8/pymc_bart-0.11.0-py3-none-any.whl", hash = "sha256:c07ec5cf854a39c6f7328998d01d96da9ba956fb27020f691f90a1dc65c1855f", size = 32758, upload-time = "2025-10-21T10:27:58.738Z" },
+]
+
+[[package]]
+name = "pymc-bart"
+version = "0.12.0"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
+dependencies = [
+    { name = "arviz-stats", version = "1.1.0", source = { registry = "https://pypi.org/simple" }, extra = ["xarray"], marker = "python_full_version >= '3.12'" },
+    { name = "matplotlib", marker = "python_full_version >= '3.12'" },
+    { name = "numba", marker = "python_full_version >= '3.12'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "pymc", version = "6.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f8/63/39e2b6365fbd7c7c2c7de52256e4a31c2879074bd42ce863eca1ecadb1d5/pymc_bart-0.12.0.tar.gz", hash = "sha256:0335d5f6beffd78a4e8cff4bc8b73ce6537b47a7017f90c36996c29c37733083", size = 43600, upload-time = "2026-05-13T10:29:26.731Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c5/28/c2528470957342a04db193aeef92924087c74cf075ab9f6e9f5e177286e1/pymc_bart-0.12.0-py3-none-any.whl", hash = "sha256:7eb92e4090180533b4a802960667cb4496b13b3699b70750226b61d2993406a1", size = 32811, upload-time = "2026-05-13T10:29:25.751Z" },
+]
+
+[[package]]
 name = "pymc-extras"
 version = "0.2.7"
 source = { registry = "https://pypi.org/simple" }
@@ -3301,7 +3403,7 @@ dependencies = [
     { name = "better-optimize", version = "0.3.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "preliz", version = "0.4.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pydantic", marker = "python_full_version < '3.11'" },
-    { name = "pymc", version = "5.25.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "pymc", version = "5.23.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d8/af/5c66784a8dd5f8e32f35ee3a58b85959af0ed4959c61cb9d5ff45c4326fa/pymc_extras-0.2.7.tar.gz", hash = "sha256:ca4c566b7bea534d680983728dd5d60e591356e8b1832c3731b70b652232246b", size = 257833, upload-time = "2025-06-03T19:35:38.47Z" }
