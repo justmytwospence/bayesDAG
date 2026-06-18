@@ -643,6 +643,30 @@ def _(show, zoo):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Nonparametric regression — BART
+
+    `pymc_bart` adds Bayesian Additive Regression Trees: a **sum-of-decision-trees** prior over an
+    unknown function `f(X)`, with no closed-form prior density. bayesdag depicts it by its structure.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(show, zoo):
+    show(
+        zoo.build_bart_regression(),
+        "22 - BART (sum-of-trees regression)",
+        "`mu = BART(X, m=50)` is a nonparametric sum-of-trees prior over `f(X)`. Its draws are "
+        "piecewise-constant, so bayesdag draws `mu` as a **step-function** schematic — the honest "
+        "canonical shape, not a misleading bell — and the label elides the response and tree-prior "
+        "hyperparameters. `X` appears as a data node feeding the prior.",
+    )
+    return
+
+
 @app.cell
 def _(mo):
     mo.md(r"""
