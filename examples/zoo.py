@@ -289,23 +289,28 @@ def build_quadratic_power():
 
 
 def build_bart_sum_of_trees():
-    """**BART broken out into the model it actually is** — a *sum of m regression trees*. Rather than
-    one opaque `BART(...)` node (bayesdag supports that too, as a step-function glyph), this exposes
-    the generative structure conditional on the trees: per-tree leaf values `mu` shrunk toward 0 by a
-    common scale `sigma_mu` (BART's leaf prior), each tree's function `g = mu[leaf(X)]`, the regression
-    function as their sum `f = sum(g)` over the `tree` plate, and a Gaussian likelihood. The tree
-    partitions are fixed here (BART's sampler is what learns them)."""
+    """**BART broken out into the model it actually is**, with every parameter on display — a *sum of
+    m regression trees*, here depth-1 trees (stumps) so the full parameterization is visible. Rather
+    than one opaque `BART(...)` node (bayesdag supports that too, as a step-function glyph), the
+    `tree` plate exposes each tree's actual parameters: a split point `c ~ U` and two leaf values
+    `mu_L, mu_R ~ Normal(0, sigma_mu)` shrunk toward 0 by the shared scale `sigma_mu` (BART's leaf
+    prior). Each tree's function is the split decision `g = (x <= c ? mu_L : mu_R)`; the regression
+    function is their sum `f = sum(g)` over the plate, closed by a Gaussian likelihood. (Real BART
+    grows deeper trees with an alpha/beta branching prior; stumps keep the diagram legible.)"""
     rng = np.random.default_rng(15)
-    m, n_leaves, n = 50, 4, 80
-    x = np.linspace(0, 10, n)
-    Y = np.sin(x) + 0.1 * x + rng.normal(0, 0.3, n)
-    leaf = rng.integers(0, n_leaves, size=(m, n))  # which leaf each obs falls into, per tree (fixed)
-    trees = np.arange(m)[:, None]
-    with pm.Model(coords={"tree": range(m), "leaf": range(n_leaves), "obs": range(n)}) as model:
+    m, n = 25, 80
+    xv = np.linspace(0, 10, n)
+    Y = np.sin(xv) + 0.1 * xv + rng.normal(0, 0.3, n)
+    with pm.Model(coords={"tree": range(m), "obs": range(n)}) as model:
+        x = pm.Data("x", xv, dims="obs")
         sigma_mu = pm.HalfNormal("sigma_mu", 0.3)
-        mu = pm.Normal("mu", 0, sigma_mu, dims=("tree", "leaf"))
-        g = pm.Deterministic("g", mu[trees, leaf], dims=("tree", "obs"))
-        f = pm.Deterministic("f", g.sum(axis=0), dims="obs")
+        c = pm.Uniform("c", 0, 10, dims="tree")             # each tree's split point
+        mu_L = pm.Normal("mu_L", 0, sigma_mu, dims="tree")  # left leaf value
+        mu_R = pm.Normal("mu_R", 0, sigma_mu, dims="tree")  # right leaf value
+        g = pm.Deterministic(
+            "g", pm.math.where(x[None, :] <= c[:, None], mu_L[:, None], mu_R[:, None]), dims=("tree", "obs")
+        )
+        f = pm.Deterministic("f", g.sum(axis=0), dims="obs")  # the m-tree sum
         sigma = pm.HalfNormal("sigma", 1)
         pm.Normal("y", mu=f, sigma=sigma, observed=Y, dims="obs")
     return model
