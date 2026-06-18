@@ -146,3 +146,17 @@ def test_comparison_and_switch_render_as_a_conditional():
     g = to_ir(m).node("g")
     assert r"\le" in g.label_tex and r"\,?\," in g.label_tex
     assert "operatorname{le}" not in g.label_tex and "operatorname{switch}" not in g.label_tex
+
+
+def test_power_of_a_sum_is_parenthesized_and_boolean_is_infix():
+    """x^k with a compound base must parenthesize the base — `(1+depth)^{-beta}`, not the ambiguous
+    `1 + depth^{-beta}` — and `&` reads as a logical conjunction (the BART depth prior + split gate)."""
+    with pm.Model(coords={"i": range(3)}) as m:
+        d = pm.Data("d", np.array([0.0, 1.0, 2.0]), dims="i")
+        b = pm.Normal("b", 0, 1)
+        a = pm.Normal("a", 0, 1)
+        pm.Deterministic("p", (1.0 + d) ** (-b), dims="i")
+        pm.Deterministic("q", (d > a) & (d < b), dims="i")
+    nd = {n.id: n for n in to_ir(m).nodes}
+    assert r"\left(1 + " in nd["p"].label_tex  # compound power base parenthesized
+    assert r"\land" in nd["q"].label_tex       # & -> logical-and infix

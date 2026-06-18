@@ -128,7 +128,9 @@ def render_value(
         if sname in ("TrueDiv", "IntDiv") and len(parts) >= 2:
             return rf"\frac{{{parts[0]}}}{{{parts[1]}}}", used
         if sname == "Pow" and len(parts) >= 2:
-            return rf"{parts[0]}^{{{parts[1]}}}", used
+            b_op = _scalar_op_name(getattr(getattr(owner.inputs[0], "owner", None), "op", None))
+            base = rf"\left({parts[0]}\right)" if b_op in ("Add", "Sub", "Mul", "Neg", "TrueDiv") else parts[0]
+            return rf"{base}^{{{parts[1]}}}", used
         if sname == "Neg":
             return rf"-{parts[0]}", used
         if sname == "Exp":
@@ -145,8 +147,9 @@ def render_value(
             return parts[1], used
         if sname in ("Cast", "Identity") and parts:  # type-cast wrappers are invisible to the math
             return parts[0], used
-        _CMP = {"LE": r"\le", "GE": r"\ge", "LT": "<", "GT": ">", "EQ": "="}
-        if sname in _CMP and len(parts) >= 2:  # a comparison reads infix, not operatorname{le}(...)
+        _CMP = {"LE": r"\le", "GE": r"\ge", "LT": "<", "GT": ">", "EQ": "=",
+                "AND": r"\land", "OR": r"\lor"}
+        if sname in _CMP and len(parts) >= 2:  # a comparison/boolean reads infix, not operatorname(...)
             return rf"{parts[0]} {_CMP[sname]} {parts[1]}", used
         if sname == "Switch" and len(parts) >= 3:  # where(cond, a, b) -> a conditional (e.g. a tree split)
             return rf"\left({parts[0]} \,?\, {parts[1]} : {parts[2]}\right)", used
