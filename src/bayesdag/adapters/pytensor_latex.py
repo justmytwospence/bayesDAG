@@ -151,6 +151,10 @@ def render_value(
         t, u = R(owner.inputs[0])
         return rf"\operatorname{{softmax}}\!\left({t}\right)", u
 
+    if type(op).__name__ in ("Sum", "CAReduce"):  # a reduction reads as a sum, not an opaque f(...)
+        t, u = R(owner.inputs[0])
+        return rf"\textstyle\sum {t}", u
+
     # Unknown op: render named-bearing inputs as f(...), else elide.
     sub = []
     for inp in owner.inputs:

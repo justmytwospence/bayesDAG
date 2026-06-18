@@ -30,15 +30,16 @@ def test_label_polish():
     assert r"\cdots" in corr and r"f\!\left(f\!\left" not in corr
 
 
-def test_unknown_op_over_named_leaf_shows_f_of_leaf():
-    """A named leaf must count as 'used' even un-wrapped, so an unknown op over it (e.g. sum)
-    renders f(v) rather than eliding to dots."""
+def test_reduction_over_named_leaf_renders_as_sum():
+    """A reduction over a named leaf renders as a sum (not an opaque f(...) or elision), and the leaf
+    counts as 'used' so it isn't elided to dots — exercises the Sum handler + the wrap_leaves=False
+    used-set fix together."""
     with pm.Model() as m:
         v = pm.Normal("v", 0, 1, shape=3)
         pm.Normal("yy", v.sum(), 1)
     ir = to_ir(m)
     yloc = next(p for p in ir.node("yy").params if p.name == "loc")
-    assert r"f\!\left(" in yloc.value_tex and "v" in yloc.value_tex
+    assert r"\sum" in yloc.value_tex and "v" in yloc.value_tex
     assert yloc.value_tex != r"\ldots"
 
 
