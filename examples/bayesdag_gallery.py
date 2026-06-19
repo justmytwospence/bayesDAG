@@ -488,7 +488,7 @@ def _(show, zoo):
     show(
         zoo.build_zero_inflated_counts(),
         "9 · Zero-inflated counts (ecology)",
-        "Excess-zero catch counts via `ZeroInflatedPoisson`; the slope `b1` carries a spike-and-slab "
+        "Excess-zero catch counts via `ZeroInflatedPoisson`; the regression `slope` carries a spike-and-slab "
         "`Mixture` prior — its **composite glyph** shows the narrow spike over the wide slab.",
     )
     return
@@ -499,7 +499,7 @@ def _(show, zoo):
     show(
         zoo.build_correlated_slopes(),
         "10 · Correlated varying slopes (multilevel)",
-        "Per-café intercept+slope drawn `MvNormal` with an **LKJ** Cholesky correlation prior — `ab` "
+        "Per-café intercept+slope drawn `MvNormal` with an **LKJ** Cholesky correlation prior — `cafe_effect` "
         "shows the **pairplot** (marginals + covariance ellipse) and the LKJ node its **marginal "
         "correlation density** on [-1, 1].",
     )
@@ -522,7 +522,7 @@ def _(show, zoo):
     show(
         zoo.build_gaussian_mixture(),
         "12 · Gaussian mixture (clustering)",
-        "A two-component `NormalMixture` with `Dirichlet` weights — the **simplex** glyph on `w` shows "
+        "A two-component `NormalMixture` with `Dirichlet` weights — the **simplex** glyph on `weights` shows "
         "the components' marginal Beta densities.",
     )
     return
@@ -555,9 +555,9 @@ def _(show, zoo):
     show(
         zoo.build_logistic_regression(),
         "15 · Logistic regression (classification)",
-        "The linear predictor and inverse-link are explicit deterministics: `eta` shows the affine "
-        "**line** transfer glyph, and `p = sigmoid(eta)` the **logistic S-curve** — drawn only because "
-        "each function is provable from the op graph (a hand-written `1/(1+exp(-eta))` would stay "
+        "The linear predictor and inverse-link are explicit deterministics: `linear_pred` shows the affine "
+        "**line** transfer glyph, and `prob = sigmoid(linear_pred)` the **logistic S-curve** — drawn only "
+        "because each function is provable from the op graph (a hand-written `1/(1+exp(-x))` would stay "
         "equation-only).",
     )
     return
@@ -568,7 +568,7 @@ def _(show, zoo):
     show(
         zoo.build_poisson_loglink(),
         "16 · Poisson regression with a log link (counts)",
-        "An explicit log link: `eta` is the **line**, `rate = exp(eta)` the **exponential** "
+        "An explicit log link: `linear_pred` is the **line**, `rate = exp(linear_pred)` the **exponential** "
         "transfer-function curve (distinct from the logistic S above).",
     )
     return
@@ -579,8 +579,8 @@ def _(show, zoo):
     show(
         zoo.build_softmax_categorical(),
         "17 · Softmax classifier (multinomial choice)",
-        "A multinomial-logit model: `p = softmax(eta)` renders as the **k-category bars** of its simplex "
-        "output (one probability vector over the categories).",
+        "A multinomial-logit model: `probs = softmax(category_logits)` renders as the **k-category bars** of "
+        "its simplex output (one probability vector over the categories).",
     )
     return
 
@@ -604,8 +604,8 @@ def _(show, zoo):
     show(
         zoo.build_probit_regression(),
         "18 - Probit regression (erf)",
-        "`p = Phi(eta)` written as `0.5*(1 + erf(eta/sqrt(2)))`. `p` shows the **probit** S-curve, drawn "
-        "from the true Gaussian CDF - visibly steeper-shouldered than the logistic S-curve in section 15.",
+        "`prob = Phi(linear_pred)` written as `0.5*(1 + erf(linear_pred/sqrt(2)))`. `prob` shows the **probit** "
+        "S-curve, drawn from the true Gaussian CDF - visibly steeper-shouldered than the logistic S in section 15.",
     )
     return
 
@@ -615,8 +615,8 @@ def _(show, zoo):
     show(
         zoo.build_heteroskedastic_softplus(),
         "19 - Heteroskedastic scale (softplus)",
-        "Non-constant noise: `sigma = softplus(a + b*x)` keeps the scale positive. `sigma` shows the "
-        "**softplus** smooth-positive-ramp - a deterministic that feeds a *scale*, not a mean (`mu`, `eta_s` are lines).",
+        "Non-constant noise: `sigma = softplus(scale_pred)` keeps the scale positive. `sigma` shows the "
+        "**softplus** smooth-positive-ramp - a deterministic that feeds a *scale*, not a mean (`mu`, `scale_pred` are lines).",
     )
     return
 
@@ -626,7 +626,7 @@ def _(show, zoo):
     show(
         zoo.build_saturating_tanh(),
         "20 - Saturating response (tanh)",
-        "A bounded dose-response: `effect = tanh(a + b*x)` tapers to +/-1. The **tanh** S-curve on [-1, 1] "
+        "A bounded dose-response: `effect = tanh(linear_pred)` tapers to +/-1. The **tanh** S-curve on [-1, 1] "
         "is a different bounded shape from the logistic [0, 1].",
     )
     return
@@ -637,8 +637,8 @@ def _(show, zoo):
     show(
         zoo.build_quadratic_power(),
         "21 - Squared amplitude (pow)",
-        "Signal power ~ amplitude^2: `power = amp**2`. The **pow** glyph reads the constant exponent from "
-        "the op graph and draws the *actual* parabola x^2, not a generic curve.",
+        "Signal power ~ amplitude^2: `power = amplitude**2`. The **pow** glyph reads the constant exponent "
+        "from the op graph and draws the *actual* parabola x^2, not a generic curve.",
     )
     return
 

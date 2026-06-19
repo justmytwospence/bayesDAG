@@ -25,9 +25,9 @@ def build_stochastic_volatility():
     returns = rng.standard_t(6, T) * 0.6
     with pm.Model(coords={"t": np.arange(T)}) as model:
         step = pm.Exponential("step_sd", 10.0)
-        nu = pm.Exponential("nu", 0.1)
+        dof = pm.Exponential("dof", 0.1)  # StudentT degrees of freedom (tail heaviness)
         h = pm.GaussianRandomWalk("log_vol", sigma=step, init_dist=pm.Normal.dist(0, 1), dims="t")
-        pm.StudentT("returns", nu=nu, sigma=pm.math.exp(h / 2), observed=returns, dims="t")
+        pm.StudentT("returns", nu=dof, sigma=pm.math.exp(h / 2), observed=returns, dims="t")
     return model
 
 
@@ -58,13 +58,13 @@ def build_zero_inflated_counts():
     x = rng.normal(0, 1, n)
     y = rng.poisson(np.exp(0.5 + 0.3 * x)) * (rng.random(n) > 0.3)
     with pm.Model(coords={"obs": np.arange(n)}) as model:
-        psi = pm.Beta("psi", 2.0, 2.0)
-        b0 = pm.Normal("b0", 0, 1)
+        count_prob = pm.Beta("count_prob", 2.0, 2.0)  # P(a real count vs a structural zero)
+        intercept = pm.Normal("intercept", 0, 1)
         # spike-and-slab (sparsity) prior on the slope — a latent Mixture → composite glyph
-        b1 = pm.Mixture("b1", w=[0.8, 0.2], comp_dists=[pm.Normal.dist(0, 0.1), pm.Normal.dist(0, 2.0)])
+        slope = pm.Mixture("slope", w=[0.8, 0.2], comp_dists=[pm.Normal.dist(0, 0.1), pm.Normal.dist(0, 2.0)])
         xx = pm.Data("x", x, dims="obs")
-        lam = pm.Deterministic("lam", pm.math.exp(b0 + b1 * xx), dims="obs")
-        pm.ZeroInflatedPoisson("y", psi=psi, mu=lam, observed=y, dims="obs")
+        rate = pm.Deterministic("rate", pm.math.exp(intercept + slope * xx), dims="obs")
+        pm.ZeroInflatedPoisson("y", psi=count_prob, mu=rate, observed=y, dims="obs")
     return model
 
 
@@ -81,13 +81,13 @@ def build_correlated_slopes():
         chol, _corr, _sds = pm.LKJCholeskyCov(
             "chol_cov", n=2, eta=2.0, sd_dist=pm.Exponential.dist(1.0), compute_corr=True
         )
-        mu = pm.Normal("mu", 0, 5, dims="effect")
-        ab = pm.MvNormal("ab", mu=mu, chol=chol, dims=("cafe", "effect"))
+        mu = pm.Normal("mu", 0, 5, dims="effect")  # population mean intercept & slope
+        cafe_effect = pm.MvNormal("cafe_effect", mu=mu, chol=chol, dims=("cafe", "effect"))
         sigma = pm.Exponential("sigma", 1.0)
         ci = pm.Data("cafe_idx", cafe_idx, dims="obs")
         aft = pm.Data("afternoon", afternoon, dims="obs")
-        theta = pm.Deterministic("theta", ab[ci, 0] + ab[ci, 1] * aft, dims="obs")
-        pm.Normal("y", theta, sigma, observed=y, dims="obs")
+        predicted = pm.Deterministic("predicted", cafe_effect[ci, 0] + cafe_effect[ci, 1] * aft, dims="obs")
+        pm.Normal("y", predicted, sigma, observed=y, dims="obs")
     return model
 
 
@@ -100,13 +100,13 @@ def build_ordinal_ratings():
     from pymc.distributions.transforms import ordered
 
     with pm.Model(coords={"obs": np.arange(n), "cut": np.arange(K - 1)}) as model:
-        beta = pm.Normal("beta", 0, 1)
+        slope = pm.Normal("slope", 0, 1)
         cutpoints = pm.Normal(
             "cutpoints", mu=np.linspace(-2, 2, K - 1), sigma=1, transform=ordered, dims="cut"
         )
         xx = pm.Data("x", x, dims="obs")
-        eta = pm.Deterministic("eta", beta * xx, dims="obs")
-        pm.OrderedLogistic("y", eta=eta, cutpoints=cutpoints, observed=y, dims="obs")
+        latent_score = pm.Deterministic("latent_score", slope * xx, dims="obs")
+        pm.OrderedLogistic("y", eta=latent_score, cutpoints=cutpoints, observed=y, dims="obs")
     return model
 
 
@@ -116,10 +116,10 @@ def build_gaussian_mixture():
     n = 200
     y = np.concatenate([rng.normal(-3, 1, n // 2), rng.normal(3, 1, n // 2)])
     with pm.Model(coords={"comp": [0, 1], "obs": np.arange(n)}) as model:
-        w = pm.Dirichlet("w", a=np.array([4.0, 2.0]), dims="comp")  # informative weights prior
+        weights = pm.Dirichlet("weights", a=np.array([4.0, 2.0]), dims="comp")  # informative weights prior
         mu = pm.Normal("mu", 0, 5, dims="comp")
         sigma = pm.HalfNormal("sigma", 2, dims="comp")
-        pm.NormalMixture("y", w=w, mu=mu, sigma=sigma, observed=y, dims="obs")
+        pm.NormalMixture("y", w=weights, mu=mu, sigma=sigma, observed=y, dims="obs")
     return model
 
 
@@ -135,11 +135,13 @@ def build_disease_mapping():
     y = rng.poisson(expected)
     with pm.Model(coords={"region": np.arange(R)}) as model:
         sd = pm.HalfNormal("spatial_sd", 1.0)
-        phi = pm.ICAR("phi", W=W, dims="region")
-        b0 = pm.Normal("b0", 0, 1)
+        spatial_effect = pm.ICAR("spatial_effect", W=W, dims="region")
+        intercept = pm.Normal("intercept", 0, 1)
         off = pm.Data("expected", expected, dims="region")
-        mu = pm.Deterministic("mu", pm.math.exp(b0 + sd * phi) * off, dims="region")
-        pm.Poisson("y", mu=mu, observed=y, dims="region")
+        expected_count = pm.Deterministic(
+            "expected_count", pm.math.exp(intercept + sd * spatial_effect) * off, dims="region"
+        )
+        pm.Poisson("y", mu=expected_count, observed=y, dims="region")
     return model
 
 
@@ -163,59 +165,59 @@ def build_ar_forecast():
 
 def build_logistic_regression():
     """Classification: a logistic regression with the linear predictor and inverse-link made explicit —
-    `eta` shows the **line** transfer glyph, `p` the **logistic S-curve** (invlogit)."""
+    `linear_pred` shows the **line** transfer glyph, `prob` the **logistic S-curve** (invlogit)."""
     rng = np.random.default_rng(8)
     n = 100
     x = rng.normal(0, 1, n)
     y = rng.binomial(1, 1.0 / (1.0 + np.exp(-(0.4 + 1.5 * x))))
     with pm.Model(coords={"obs": np.arange(n)}) as model:
-        a = pm.Normal("a", 0, 1)
-        b = pm.Normal("b", 0, 1)
-        eta = pm.Deterministic("eta", a + b * x, dims="obs")
-        p = pm.Deterministic("p", pm.math.invlogit(eta), dims="obs")
-        pm.Bernoulli("y", p=p, observed=y, dims="obs")
+        intercept = pm.Normal("intercept", 0, 1)
+        slope = pm.Normal("slope", 0, 1)
+        linear_pred = pm.Deterministic("linear_pred", intercept + slope * x, dims="obs")
+        prob = pm.Deterministic("prob", pm.math.invlogit(linear_pred), dims="obs")
+        pm.Bernoulli("y", p=prob, observed=y, dims="obs")
     return model
 
 
 def build_poisson_loglink():
-    """Counts: a Poisson GLM with an explicit log link — `eta` is the **line**, `rate` the
+    """Counts: a Poisson GLM with an explicit log link — `linear_pred` is the **line**, `rate` the
     **exponential** transfer glyph (exp)."""
     rng = np.random.default_rng(9)
     n = 100
     x = rng.normal(0, 1, n)
     y = rng.poisson(np.exp(0.5 + 0.7 * x))
     with pm.Model(coords={"obs": np.arange(n)}) as model:
-        a = pm.Normal("a", 0, 1)
-        b = pm.Normal("b", 0, 1)
-        eta = pm.Deterministic("eta", a + b * x, dims="obs")
-        rate = pm.Deterministic("rate", pm.math.exp(eta), dims="obs")
+        intercept = pm.Normal("intercept", 0, 1)
+        slope = pm.Normal("slope", 0, 1)
+        linear_pred = pm.Deterministic("linear_pred", intercept + slope * x, dims="obs")
+        rate = pm.Deterministic("rate", pm.math.exp(linear_pred), dims="obs")
         pm.Poisson("y", mu=rate, observed=y, dims="obs")
     return model
 
 
 def build_softmax_categorical():
-    """Multinomial choice: a softmax (multinomial-logit) classifier — `p` shows the **simplex**
+    """Multinomial choice: a softmax (multinomial-logit) classifier — `probs` shows the **simplex**
     transfer glyph over the K categories."""
     rng = np.random.default_rng(10)
     n, K = 120, 3
     x = rng.normal(0, 1, n)
-    beta = np.array([-1.0, 0.0, 1.0])
-    logits = np.outer(x, beta)
+    true_slope = np.array([-1.0, 0.0, 1.0])
+    logits = np.outer(x, true_slope)
     p_true = np.exp(logits) / np.exp(logits).sum(1, keepdims=True)
     y = np.array([rng.choice(K, p=row) for row in p_true])
     with pm.Model(coords={"obs": np.arange(n), "cat": np.arange(K)}) as model:
-        a = pm.Normal("a", 0, 1, dims="cat")
-        b = pm.Normal("b", 0, 1, dims="cat")
-        eta = pm.Deterministic("eta", a + b * x[:, None], dims=("obs", "cat"))
-        p = pm.Deterministic("p", pm.math.softmax(eta, axis=-1), dims=("obs", "cat"))
-        pm.Categorical("y", p=p, observed=y, dims="obs")
+        intercept = pm.Normal("intercept", 0, 1, dims="cat")
+        slope = pm.Normal("slope", 0, 1, dims="cat")
+        category_logits = pm.Deterministic("category_logits", intercept + slope * x[:, None], dims=("obs", "cat"))
+        probs = pm.Deterministic("probs", pm.math.softmax(category_logits, axis=-1), dims=("obs", "cat"))
+        pm.Categorical("y", p=probs, observed=y, dims="obs")
     return model
 
 
 def build_probit_regression():
-    """Classification: a **probit** binary regression — `p = Phi(eta)` written as the standard
-    `0.5*(1 + erf(eta/sqrt(2)))`. `p` shows the **probit** S-curve, which the glyph draws from the
-    true Gaussian CDF so it is visibly distinct (steeper shoulders) from the logistic S-curve."""
+    """Classification: a **probit** binary regression — `prob = Phi(linear_pred)` written as the
+    standard `0.5*(1 + erf(linear_pred/sqrt(2)))`. `prob` shows the **probit** S-curve, which the glyph
+    draws from the true Gaussian CDF so it is visibly distinct (steeper shoulders) from logistic."""
     import pytensor.tensor as pt
     from scipy.stats import norm
 
@@ -224,17 +226,17 @@ def build_probit_regression():
     x = rng.normal(0, 1, n)
     y = rng.binomial(1, norm.cdf(0.3 + 1.2 * x))
     with pm.Model(coords={"obs": np.arange(n)}) as model:
-        a = pm.Normal("a", 0, 1)
-        b = pm.Normal("b", 0, 1)
-        eta = pm.Deterministic("eta", a + b * x, dims="obs")
-        p = pm.Deterministic("p", 0.5 * (1.0 + pt.erf(eta / np.sqrt(2.0))), dims="obs")
-        pm.Bernoulli("y", p=p, observed=y, dims="obs")
+        intercept = pm.Normal("intercept", 0, 1)
+        slope = pm.Normal("slope", 0, 1)
+        linear_pred = pm.Deterministic("linear_pred", intercept + slope * x, dims="obs")
+        prob = pm.Deterministic("prob", 0.5 * (1.0 + pt.erf(linear_pred / np.sqrt(2.0))), dims="obs")
+        pm.Bernoulli("y", p=prob, observed=y, dims="obs")
     return model
 
 
 def build_heteroskedastic_softplus():
     """Non-constant variance: the noise scale itself grows with a predictor, mapped through
-    **softplus** to stay positive — `sigma = softplus(a + b*x)`. `sigma` shows the **softplus**
+    **softplus** to stay positive — `sigma = softplus(scale_pred)`. `sigma` shows the **softplus**
     smooth-positive-ramp transfer glyph (a deterministic that is a scale, not a mean)."""
     rng = np.random.default_rng(12)
     n = 120
@@ -242,36 +244,36 @@ def build_heteroskedastic_softplus():
     sd = np.log1p(np.exp(0.2 + 0.8 * x))
     y = rng.normal(1.0 + 0.5 * x, sd)
     with pm.Model(coords={"obs": np.arange(n)}) as model:
-        m0 = pm.Normal("m0", 0, 1)
-        m1 = pm.Normal("m1", 0, 1)
-        a = pm.Normal("a", 0, 1)
-        b = pm.Normal("b", 0, 1)
-        mu = pm.Deterministic("mu", m0 + m1 * x, dims="obs")
-        eta_s = pm.Deterministic("eta_s", a + b * x, dims="obs")
-        sigma = pm.Deterministic("sigma", pm.math.softplus(eta_s), dims="obs")
+        mean_intercept = pm.Normal("mean_intercept", 0, 1)
+        mean_slope = pm.Normal("mean_slope", 0, 1)
+        scale_intercept = pm.Normal("scale_intercept", 0, 1)
+        scale_slope = pm.Normal("scale_slope", 0, 1)
+        mu = pm.Deterministic("mu", mean_intercept + mean_slope * x, dims="obs")
+        scale_pred = pm.Deterministic("scale_pred", scale_intercept + scale_slope * x, dims="obs")
+        sigma = pm.Deterministic("sigma", pm.math.softplus(scale_pred), dims="obs")
         pm.Normal("y", mu=mu, sigma=sigma, observed=y, dims="obs")
     return model
 
 
 def build_saturating_tanh():
     """A bounded/saturating dose-response: the effect tapers to +/-1 through **tanh** —
-    `effect = tanh(a + b*x)`. `effect` shows the **tanh** S-curve on [-1, 1] (a different bounded
+    `effect = tanh(linear_pred)`. `effect` shows the **tanh** S-curve on [-1, 1] (a different bounded
     shape from the logistic [0, 1])."""
     rng = np.random.default_rng(13)
     n = 100
     x = rng.normal(0, 1.5, n)
     y = rng.normal(np.tanh(0.2 + 1.3 * x), 0.3)
     with pm.Model(coords={"obs": np.arange(n)}) as model:
-        a = pm.Normal("a", 0, 1)
-        b = pm.Normal("b", 0, 1)
-        eta = pm.Deterministic("eta", a + b * x, dims="obs")
-        effect = pm.Deterministic("effect", pm.math.tanh(eta), dims="obs")
+        intercept = pm.Normal("intercept", 0, 1)
+        slope = pm.Normal("slope", 0, 1)
+        linear_pred = pm.Deterministic("linear_pred", intercept + slope * x, dims="obs")
+        effect = pm.Deterministic("effect", pm.math.tanh(linear_pred), dims="obs")
         pm.Normal("y", mu=effect, sigma=0.3, observed=y, dims="obs")
     return model
 
 
 def build_quadratic_power():
-    """A squared-amplitude mean (signal power ~ amplitude^2): `power = amp**2` with a constant
+    """A squared-amplitude mean (signal power ~ amplitude^2): `power = amplitude**2` with a constant
     exponent. `power` shows the **pow** transfer glyph drawn as the *actual* parabola x^2 (the glyph
     reads the constant exponent from the op graph), not a generic curve."""
     rng = np.random.default_rng(14)
@@ -280,10 +282,10 @@ def build_quadratic_power():
     amp_true = 0.5 + 0.9 * x
     y = rng.normal(amp_true**2, 0.4)
     with pm.Model(coords={"obs": np.arange(n)}) as model:
-        a = pm.Normal("a", 0, 1)
-        b = pm.Normal("b", 0, 1)
-        amp = pm.Deterministic("amp", a + b * x, dims="obs")
-        power = pm.Deterministic("power", amp**2, dims="obs")
+        intercept = pm.Normal("intercept", 0, 1)
+        slope = pm.Normal("slope", 0, 1)
+        amplitude = pm.Deterministic("amplitude", intercept + slope * x, dims="obs")
+        power = pm.Deterministic("power", amplitude**2, dims="obs")
         pm.Normal("y", mu=power, sigma=0.4, observed=y, dims="obs")
     return model
 
