@@ -175,7 +175,8 @@ def test_parents_follow_token_ports_not_model_order():
 def test_no_spurious_exit_kink_when_token_within_source_box():
     """When a target token sits within the source node's horizontal extent, the edge drops straight
     to it. The exit used to clamp a FULL corner-radius from the node edge and jog the last pixel or
-    two to a near-edge token, filleting into a visible kink (the softmax `eta = a + b*x` report)."""
+    two to a near-edge token, filleting into a visible kink (the softmax `category_logits = a + b*x`
+    report)."""
     import pathlib
     import sys
 
@@ -184,12 +185,13 @@ def test_no_spurious_exit_kink_when_token_within_source_box():
 
     ir = to_ir(build_softmax_categorical())
     res = layout(ir)
-    for src in ("a", "b"):
+    child = "category_logits"
+    for src in ("intercept", "slope"):
         sb = res.node_boxes[src]
-        tok = res.node_token_anchors["eta"][src]
+        tok = res.node_token_anchors[child][src]
         tx = tok.x + tok.w / 2.0
         assert sb.x <= tx <= sb.x + sb.w  # precondition: the token is within the source box x-extent
-        xs = [p[0] for p in res.edge_paths[f"{src}|eta"]]
+        xs = [p[0] for p in res.edge_paths[f"{src}|{child}"]]
         assert max(xs) - min(xs) < 1.5  # whole edge is one vertical column — no jog/kink
 
 
