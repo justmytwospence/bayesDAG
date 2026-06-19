@@ -289,42 +289,48 @@ def build_quadratic_power():
 
 
 def build_bart_sum_of_trees():
-    """**BART broken out into the model it actually is, with every parameter on display.** Rather than
-    one opaque `BART(...)` node (bayesdag supports that too, as a step-function glyph), this surfaces
-    BART's full parameterization. The tree-structure prior is explicit: a node at depth `d` splits with
-    probability `p_split = alpha*(1+depth)^(-beta)` (the `alpha`, `beta` ~2-5, and `depth`
-    hyperparameters). Leaf values are shrunk toward 0 by `sigma_mu = 0.5/(k*sqrt(m))` (the `k`, `m`
-    hyperparameters). The `tree` plate then holds each tree's parameters — split indicator
-    `split ~ Bernoulli(alpha)`, split point `c ~ U`, leaf values `mu_L, mu_R ~ Normal(0, sigma_mu)` —
-    and the tree's function is the (gated) split decision `g = (split & x<=c ? mu_L : mu_R)`. The
-    regression function is the sum over trees `f = sum(g)`, closed by `y ~ Normal(f, sigma)`. The
-    per-tree computation is shown as a depth-1 stump for legibility; the depth prior is what lets real
-    BART grow deeper trees."""
+    """**Fully-Bayesian BART, broken out with every parameter named in plain English.** BART is a sum
+    of regression trees; this exposes the whole model with its hyperparameters *learned* (given priors)
+    rather than fixed. The tree-structure controls are now distributions: ``split_prob`` (BART's alpha,
+    the base probability a node splits) gets a ``Beta(2, 5)`` prior; ``depth_penalty`` (BART's beta,
+    how fast splitting decays with depth) and ``leaf_shrinkage`` (BART's k) get positive priors. From
+    them: ``split_prob_by_depth = split_prob*(1+depth)^(-depth_penalty)`` (the depth prior) and
+    ``leaf_scale = 0.5/(leaf_shrinkage*sqrt(n_trees))`` (leaf-value spread). The ``tree`` plate holds
+    each tree's parameters — ``splits`` (does it split?), ``split_point``, and leaf values
+    ``leaf_left, leaf_right`` — combined by the decision
+    ``tree_output = (splits & x<=split_point ? leaf_left : leaf_right)``; the regression mean is the
+    sum ``prediction = sum(tree_output)``, closed by ``y ~ Normal(prediction, noise)``. (The per-tree
+    computation is drawn as a depth-1 stump for legibility; the depth prior is what grows real BART
+    deeper. bayesdag also renders an opaque ``pmb.BART`` node as a step-function glyph, in the tests.)"""
     rng = np.random.default_rng(15)
-    m, n = 30, 60
+    n_trees, n = 30, 60
     xv = np.linspace(0, 10, n)
     Y = np.sin(xv) + 0.1 * xv + rng.normal(0, 0.3, n)
-    with pm.Model(coords={"tree": range(m), "level": range(4), "obs": range(n)}) as model:
+    with pm.Model(coords={"tree": range(n_trees), "level": range(4), "obs": range(n)}) as model:
         x = pm.Data("x", xv, dims="obs")
-        alpha = pm.Data("alpha", 0.95)               # base split probability
-        beta = pm.Data("beta", 2.0)                  # depth penalty (typically 2-5)
-        k = pm.Data("k", 2.0)                        # leaf-value scale factor
-        m_trees = pm.Data("m", float(m))             # number of trees
-        depth = pm.Data("depth", np.arange(4), dims="level")
-        pm.Deterministic("p_split", alpha * (1.0 + depth) ** (-beta), dims="level")  # P(split | depth); shown, terminal
-        sigma_mu = pm.Deterministic("sigma_mu", 0.5 / (k * pm.math.sqrt(m_trees)))             # leaf-value scale
-        split = pm.Bernoulli("split", alpha, dims="tree")    # does the tree split (root)?
-        c = pm.Uniform("c", 0, 10, dims="tree")              # split point
-        mu_L = pm.Normal("mu_L", 0, sigma_mu, dims="tree")   # left leaf value
-        mu_R = pm.Normal("mu_R", 0, sigma_mu, dims="tree")   # right leaf value
-        g = pm.Deterministic(
-            "g",
-            pm.math.where(split[:, None].astype("bool") & (x[None, :] <= c[:, None]), mu_L[:, None], mu_R[:, None]),
+        n_trees_data = pm.Data("n_trees", float(n_trees))           # how many trees are summed (fixed)
+        depth = pm.Data("depth", np.arange(4), dims="level")        # tree depth levels 0..3
+        # fully-Bayesian: the tree-structure controls are LEARNED, each with its own prior
+        split_prob = pm.Beta("split_prob", 2, 5)                    # base probability a node splits
+        depth_penalty = pm.Gamma("depth_penalty", 3, 1)            # how fast splitting decays with depth (mean ~3)
+        leaf_shrinkage = pm.Gamma("leaf_shrinkage", 4, 2)          # pulls leaf values toward 0 (mean ~2)
+        # derived controls
+        pm.Deterministic("split_prob_by_depth", split_prob * (1.0 + depth) ** (-depth_penalty), dims="level")
+        leaf_scale = pm.Deterministic("leaf_scale", 0.5 / (leaf_shrinkage * pm.math.sqrt(n_trees_data)))
+        # each tree's parameters
+        splits = pm.Bernoulli("splits", split_prob, dims="tree")    # does the tree split?
+        split_point = pm.Uniform("split_point", 0, 10, dims="tree")
+        leaf_left = pm.Normal("leaf_left", 0, leaf_scale, dims="tree")
+        leaf_right = pm.Normal("leaf_right", 0, leaf_scale, dims="tree")
+        tree_output = pm.Deterministic(
+            "tree_output",
+            pm.math.where(splits[:, None].astype("bool") & (x[None, :] <= split_point[:, None]),
+                          leaf_left[:, None], leaf_right[:, None]),
             dims=("tree", "obs"),
         )
-        f = pm.Deterministic("f", g.sum(axis=0), dims="obs")  # the m-tree sum
-        sigma = pm.HalfNormal("sigma", 1)
-        pm.Normal("y", mu=f, sigma=sigma, observed=Y, dims="obs")
+        prediction = pm.Deterministic("prediction", tree_output.sum(axis=0), dims="obs")
+        noise = pm.HalfNormal("noise", 1)
+        pm.Normal("y", mu=prediction, sigma=noise, observed=Y, dims="obs")
     return model
 
 

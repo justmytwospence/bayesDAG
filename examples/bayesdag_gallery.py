@@ -646,17 +646,18 @@ def _(show, zoo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Nonparametric regression — BART, with every parameter on display
+    ## Nonparametric regression — fully-Bayesian BART, every parameter named
 
-    BART (Bayesian Additive Regression Trees) is a **sum of `m` regression trees**. Rather than one
-    opaque `BART(...)` node, this section breaks it into the model it actually is and surfaces every
-    parameter and hyperparameter. The **tree-structure prior** is explicit: a node at depth `d` splits
-    with probability `p_split = alpha*(1+depth)^(-beta)` — so the `alpha`, `beta` (~2-5), and `depth`
-    hyperparameters all appear. Leaf values are shrunk by `sigma_mu = 0.5/(k*sqrt(m))` (the `k`, `m`
-    controls). The `tree` plate then carries each tree's parameters — `split`, split point `c`, leaf
-    values `mu_L, mu_R` — combined by the split decision `g`, summed to `f = sum(g)`. (The per-tree
-    computation is drawn as a depth-1 stump for legibility — the depth prior is what grows real BART
-    deeper; bayesdag *also* renders an opaque `pmb.BART` node as a step-function glyph, in the tests.)
+    BART (Bayesian Additive Regression Trees) is a **sum of regression trees**. Rather than one opaque
+    `BART(...)` node, this is the whole model with **plain-English names** and its hyperparameters
+    *learned* (given priors) rather than fixed. The tree-structure controls are now distributions:
+    `split_prob ~ Beta(2, 5)` (how readily a node splits), `depth_penalty ~ Gamma` (how fast splitting
+    decays with depth), `leaf_shrinkage ~ Gamma` (regularization of leaf values). From them come the
+    depth prior `split_prob_by_depth = split_prob*(1+depth)^(-depth_penalty)` and the leaf spread
+    `leaf_scale`. The `tree` plate carries each tree's parameters — `splits`, `split_point`,
+    `leaf_left`, `leaf_right` — combined by the decision `tree_output`, summed to `prediction`. (The
+    per-tree computation is a depth-1 stump for legibility; the depth prior is what grows real BART
+    deeper. bayesdag *also* renders an opaque `pmb.BART` node as a step-function glyph, in the tests.)
     """)
     return
 
@@ -665,13 +666,13 @@ def _(mo):
 def _(show, zoo):
     show(
         zoo.build_bart_sum_of_trees(),
-        "22 - BART, every parameter exposed",
-        "All of BART's parameters as nodes: the tree-structure prior `p_split = alpha*(1+depth)^(-beta)` "
-        "(showing `alpha`, `beta`, `depth`), the leaf scale `sigma_mu = 0.5/(k*sqrt(m))`, and in the "
-        "`tree` plate the split indicator `split ~ Bernoulli(alpha)`, split point `c ~ Uniform`, and "
-        "leaf values `mu_L, mu_R ~ Normal(0, sigma_mu)`. Each tree is the gated decision "
-        "`g = (split & x<=c ? mu_L : mu_R)`; the regression mean is `f = sum(g)`, closed by "
-        "`y ~ Normal(f, sigma)`.",
+        "22 - Fully-Bayesian BART, every parameter named",
+        "BART with its hyperparameters learned and labelled in plain English: `split_prob ~ Beta(2, 5)` "
+        "(base split probability), `depth_penalty ~ Gamma` and `leaf_shrinkage ~ Gamma`. These give the "
+        "depth prior `split_prob_by_depth` and the `leaf_scale`. The `tree` plate holds `splits`, "
+        "`split_point`, and leaf values `leaf_left, leaf_right`; each tree is the decision "
+        "`tree_output = (splits & x<=split_point ? leaf_left : leaf_right)`, and the regression mean is "
+        "`prediction = sum(tree_output)`, closed by `y ~ Normal(prediction, noise)`.",
     )
     return
 
