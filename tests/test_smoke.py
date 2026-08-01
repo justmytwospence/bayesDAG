@@ -8,9 +8,7 @@ def test_version_present():
     assert bayesdag.__version__
 
 
-def test_ir_is_import_light():
-    """`bayesdag.ir` must import without pymc/xarray/render deps (invariant)."""
-    import importlib.util
-
-    if importlib.util.find_spec("bayesdag.ir") is not None:
-        import bayesdag.ir  # noqa: F401  (only asserts it imports cleanly)
+# The import-light invariant is checked by tests/test_import_light.py, which runs in a clean
+# subprocess and asserts pymc/pytensor/numpy/scipy/anywidget stay out of sys.modules. The version
+# that lived here guarded on `find_spec(...) is not None` and then merely imported, asserting
+# nothing — it read like a second guard while checking nothing at all.

@@ -6,9 +6,35 @@ Six models of escalating generative-structure complexity, used both as fixtures 
   5. MRP (5 crossed grouping factors)  6. joint longitudinal-survival (interlinked sub-hierarchies)
 """
 
+import os
+
 import numpy as np
 import pymc as pm
 import pytest
+
+# ~17% of the suite sits behind optional-dependency gates (mini-racer + the built JS bundles,
+# anywidget, pymc-bart). Locally a missing bundle should just skip; in CI — where every extra IS
+# installed — a skip means the build silently shipped without something load-bearing, and a green
+# "all passed" would hide it. BAYESDAG_REQUIRE_FULL=1 turns those skips into failures.
+_REQUIRE_FULL = os.environ.get("BAYESDAG_REQUIRE_FULL", "").strip() not in ("", "0", "false")
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Under BAYESDAG_REQUIRE_FULL, a skip is a failure — not a green pass.
+
+    Wraps rather than replaces the built-in hook, and inspects every phase: a module-level
+    `skipif` fires during SETUP, so a call-phase-only check would miss the three biggest gates
+    (elk, reflow, mathsvg)."""
+    report = yield
+    if _REQUIRE_FULL and report.skipped:
+        report.outcome = "failed"
+        report.longrepr = (
+            f"{item.nodeid}: skipped under BAYESDAG_REQUIRE_FULL=1 — an optional dependency or "
+            f"build artifact is missing, so this environment cannot verify what it claims to. "
+            f"Reason: {report.longrepr}"
+        )
+    return report
 
 
 def build_eight_schools():

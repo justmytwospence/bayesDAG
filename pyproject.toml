@@ -78,3 +78,7 @@ target-version = "py310"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# -rs lists every skip in the summary: ~17% of the suite sits behind optional-dependency gates,
+# and a silent skip reads exactly like a pass. Set BAYESDAG_REQUIRE_FULL=1 (CI does) to make
+# those skips hard failures instead.
+addopts = "-rs --strict-markers --strict-config"
