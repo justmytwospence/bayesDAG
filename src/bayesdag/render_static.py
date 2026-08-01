@@ -15,7 +15,9 @@ def save(svg: str, path) -> Path:
     path = Path(path)
     ext = path.suffix.lower()
     if ext == ".svg":
-        path.write_text(svg)
+        # explicit utf-8: the SVG always carries non-ASCII (badge "⚠", elision "…", legend "—"),
+        # so relying on the platform's default encoding breaks on any non-utf-8 locale
+        path.write_text(svg, encoding="utf-8")
         return path
     if ext in (".png", ".pdf"):
         try:

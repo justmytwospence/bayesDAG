@@ -401,7 +401,11 @@ def _render_legend(items, ox: float, oy: float) -> tuple[str, float, float]:
 
 
 def to_svg(ir: ModelIR, layout: LayoutResult, *, overlay_mode: str = "prior", legend: bool = True) -> str:
-    c = layout.canvas or Box(0, 0, 100, 100)
+    # `Box` is a dataclass and therefore always truthy — test the DIMENSIONS, so an empty model
+    # gets the intended placeholder canvas instead of a 0x0 SVG
+    c = layout.canvas
+    if c is None or c.w <= 0 or c.h <= 0:
+        c = Box(0, 0, 100, 100)
     body = [_DEFS]
     # plates (behind everything), tagged for click-to-expand
     for p in ir.plates:

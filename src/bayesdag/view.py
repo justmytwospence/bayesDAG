@@ -6,6 +6,7 @@ two are identical by construction.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from . import render_static
@@ -46,9 +47,20 @@ def _warm_layout_engine() -> None:
 
         eng = get_engine()
         if eng.available:
-            eng._worker().submit(eng._context)
+            # retrieve the Future's exception so a failed warm-up is a logged debug record
+            # rather than an "exception never retrieved" surprise at interpreter shutdown
+            eng._worker().submit(eng._context).add_done_callback(_log_warmup_failure)
     except Exception:
         pass
+
+
+def _log_warmup_failure(fut) -> None:
+    try:
+        exc = fut.exception()
+    except Exception:
+        return
+    if exc is not None:
+        logging.getLogger(__name__).debug("ELK warm-up failed (will re-raise on layout)", exc_info=exc)
 
 
 class ModelGraphView:

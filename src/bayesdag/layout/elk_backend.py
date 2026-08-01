@@ -121,10 +121,10 @@ class ElkEngine:
                 "globalThis.setTimeout=function(f,d){return __bd_st(f,(d&&d>0)?d:1);};"
             )
             ctx.eval(_WORKER_SHIM)
-            ctx.eval("globalThis.__elkWorkerSrc = " + json.dumps(self._worker_path.read_text()))
+            ctx.eval("globalThis.__elkWorkerSrc = " + json.dumps(self._worker_path.read_text(encoding="utf-8")))
             ctx.eval(
                 "var module={exports:{}},exports=module.exports,require=function(){return {};};\n"
-                + self._api_path.read_text()
+                + self._api_path.read_text(encoding="utf-8")
                 + "\nglobalThis.__ELK = (module.exports.default||module.exports);"
             )
             ctx.eval("globalThis.__elk = new __ELK({ workerFactory: __mkWorker(__elkWorkerSrc) });")
@@ -145,7 +145,10 @@ class ElkEngine:
                 f"(graph: {n} nodes / {e} edges; likely a bayesdag bug — please report)"
             ) from exc
         finally:
-            ctx.eval("globalThis.__elkG = undefined")  # don't retain the last graph in V8
+            try:
+                ctx.eval("globalThis.__elkG = undefined")  # don't retain the last graph in V8
+            except Exception:
+                pass  # a wedged context must not replace the diagnostic raised above
 
     def layout_graph(self, graph: dict, timeout_ms: int = 30000) -> dict:
         # marshal onto the dedicated thread (context is created there on first use)
@@ -230,9 +233,12 @@ def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
             d["layoutOptions"] = {"elk.portConstraints": "FIXED_POS"}
         return d
 
-    def plate_json(p) -> dict:
+    def plate_json(p, seen: frozenset = frozenset()) -> dict:
         children = [node_json(by_id[m]) for m in p.members if m in by_id and member_plate.get(m) == p.id]
-        children += [plate_json(cp) for cp in ir.plates if cp.parent == p.id]
+        # `seen` breaks a self- or mutually-parented plate cycle: malformed input should not
+        # recurse until the interpreter dies
+        nest = seen | {p.id}
+        children += [plate_json(cp, nest) for cp in ir.plates if cp.parent == p.id and cp.id not in nest]
         return {"id": p.id, "layoutOptions": {"elk.padding": _PLATE_PADDING}, "children": children}
 
     root_children = [plate_json(p) for p in ir.plates if p.parent is None]

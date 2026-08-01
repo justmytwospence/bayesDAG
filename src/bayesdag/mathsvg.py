@@ -260,7 +260,7 @@ class MathRenderer:
             try:
                 ctx = MiniRacer()
                 ctx.eval(_PROCESS_SHIM)
-                ctx.eval(self._bundle_path.read_text())
+                ctx.eval(self._bundle_path.read_text(encoding="utf-8"))
             except Exception as exc:
                 self._ctx_error = exc
                 raise

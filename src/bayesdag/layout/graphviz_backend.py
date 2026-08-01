@@ -84,16 +84,27 @@ def _flip_spline(pos: str, gh: float) -> tuple[list[tuple[float, float]], tuple[
     return body, tip
 
 
+_DOT_TIMEOUT_S = 60.0
+
+
 def _run_dot(dot_text: str) -> dict:
     try:
         proc = subprocess.run(
-            ["dot", "-Tjson0"], input=dot_text, capture_output=True, text=True
+            ["dot", "-Tjson0"], input=dot_text, capture_output=True, text=True,
+            timeout=_DOT_TIMEOUT_S,
         )
     except FileNotFoundError as exc:
         raise RuntimeError(
             "BAYESDAG_LAYOUT=dot is set but the Graphviz 'dot' binary is not on PATH — "
             "install graphviz (brew install graphviz / apt install graphviz) or unset "
             "BAYESDAG_LAYOUT"
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        # dot can spin indefinitely on a pathological graph; bound it rather than hanging
+        # the interpreter (ELK, the default backend, already takes a timeout)
+        raise RuntimeError(
+            f"graphviz `dot` did not finish within {_DOT_TIMEOUT_S:.0f}s — "
+            "unset BAYESDAG_LAYOUT to use the default ELK backend"
         ) from exc
     if proc.returncode != 0:
         raise RuntimeError(f"graphviz `dot` failed: {proc.stderr.strip()}")
