@@ -11,7 +11,9 @@ def test_subgraph_keeps_selection_plus_direct_parents(eight_schools_ir):
     sub = subgraph(eight_schools_ir, ["theta"])
     assert {n.id for n in sub.nodes} == {"mu", "tau", "eta", "theta"}  # parents kept, y_obs dropped
     assert {(e.source, e.target) for e in sub.edges} == {
-        ("mu", "theta"), ("tau", "theta"), ("eta", "theta"),
+        ("mu", "theta"),
+        ("tau", "theta"),
+        ("eta", "theta"),
     }
     # the school plate survives with only its surviving members
     plate = next(p for p in sub.plates if p.id == "plate_school")

@@ -33,8 +33,7 @@ def _param_names(op: Any, n: int) -> list[str]:
         names = [
             p.name
             for p in sig.parameters.values()
-            if p.name not in _SKIP_PARAMS
-            and p.kind in (p.POSITIONAL_OR_KEYWORD, p.POSITIONAL_ONLY)
+            if p.name not in _SKIP_PARAMS and p.kind in (p.POSITIONAL_OR_KEYWORD, p.POSITIONAL_ONLY)
         ]
     except (TypeError, ValueError):
         names = []
@@ -54,7 +53,9 @@ def _resolved_param_names(dist: Optional[str], op: Any, n: int) -> list[Optional
     return list(_param_names(op, n))
 
 
-def _direct_named_parents(value: Any, named: dict[int, str], exclude: Optional[str] = None) -> list[str]:
+def _direct_named_parents(
+    value: Any, named: dict[int, str], exclude: Optional[str] = None
+) -> list[str]:
     """Named model vars that DIRECTLY feed ``value`` (stop descending at named boundaries;
     raw ``ancestors`` would over-collect transitive parents)."""
     if id(value) in named:
@@ -97,7 +98,9 @@ def _rv_dist_and_params(var: Any, named: dict[int, str]) -> tuple[Optional[str],
             continue
         parents = _direct_named_parents(val, named, exclude=var.name)
         value_tex, _ = _safe_render_value(val, named, wrap_leaves=False)
-        if value_tex.strip() == r"\ldots":  # an elided param that is itself an RV -> show its family
+        if (
+            value_tex.strip() == r"\ldots"
+        ):  # an elided param that is itself an RV -> show its family
             sym = _rv_family_symbol(val)
             if sym:
                 value_tex = sym
@@ -129,7 +132,11 @@ def _overlays(name: str, role: str, dims: list, idata: Any) -> list[OverlayRef]:
         out.append(OverlayRef("posterior", name, list(dims)))
     if "prior" in groups and name in getattr(idata, "prior", {}):
         out.append(OverlayRef("prior", name, list(dims)))
-    if role == "observed" and "observed_data" in groups and name in getattr(idata, "observed_data", {}):
+    if (
+        role == "observed"
+        and "observed_data" in groups
+        and name in getattr(idata, "observed_data", {})
+    ):
         out.append(OverlayRef("observed_data", name, list(dims)))
     return out
 
@@ -258,7 +265,9 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
                 f"{nm} ({ln})" if nm else f"{ln}" for nm, ln in zip(di.names, di.lengths)
             )
             pid = "plate_" + "_".join(str(nm) for nm in di.names)
-            plates.append(PlateIR(id=pid, label=label, members=[ni.var.name for ni in plate.variables]))
+            plates.append(
+                PlateIR(id=pid, label=label, members=[ni.var.name for ni in plate.variables])
+            )
     else:
         # A non-samplable RV (Flat/HalfFlat/ICAR, …) broke pymc's shape eval. Derive plates
         # eval-free from the named dims + coords we already hold, grouping by dim signature.

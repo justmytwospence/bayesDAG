@@ -18,7 +18,10 @@ from .glyph.kinds import bar_layout as glyph_bar_layout
 from .ir import Box, LayoutResult, ModelIR, NodeIR
 
 _LEGEND_GAP = 14.0
-_BELL = ([0.0, 0.15, 0.3, 0.4, 0.5, 0.6, 0.7, 0.85, 1.0], [0.05, 0.2, 0.55, 0.9, 1.0, 0.9, 0.55, 0.2, 0.05])
+_BELL = (
+    [0.0, 0.15, 0.3, 0.4, 0.5, 0.6, 0.7, 0.85, 1.0],
+    [0.05, 0.2, 0.55, 0.9, 1.0, 0.9, 0.55, 0.2, 0.05],
+)
 
 # Role -> (fill, stroke, corner-radius). Rounded rectangles read better with math labels
 # than ellipses; observed nodes are shaded (the conditioning cue).
@@ -38,11 +41,15 @@ _GLYPH_COLORS = {
     "posterior_kde": ("#d2691e", "#d2691e"),
     "posterior_bars": ("#d2691e", "#d2691e"),
     "observed_hist": ("#3a5f95", "#5a7fb5"),
-    "deterministic_fn": ("#7a5bd0", "#7a5bd0"),  # transfer-function curve (a 4th hue: a computed transform)
+    "deterministic_fn": (
+        "#7a5bd0",
+        "#7a5bd0",
+    ),  # transfer-function curve (a 4th hue: a computed transform)
 }
 # MLE best-fit family curve drawn over an observed histogram (the conventional "fitted curve" red;
 # distinct from data=blue, prior=green, posterior=orange).
 _OVERLAY = "#c0392b"
+
 
 def _arrow(mid: str, color: str) -> str:
     return (
@@ -161,7 +168,7 @@ def render_plate_panel(expansion: dict) -> str:
         f'viewBox="0 0 {w:.0f} {h:.0f}" font-family="system-ui, sans-serif">',
         f'<rect width="{w:.0f}" height="{h:.0f}" rx="8" fill="#ffffff" stroke="#c7c7cc"/>',
         f'<text x="{pad}" y="{pad + 12}" font-size="12" font-weight="600" fill="#333">'
-        f'prior predictive — {escape(expansion.get("label", ""))}</text>',
+        f"prior predictive — {escape(expansion.get('label', ''))}</text>",
     ]
     y = pad + 22
     for mem in members:
@@ -169,7 +176,7 @@ def render_plate_panel(expansion: dict) -> str:
         obs_note = "  ·  orange ticks = observed data" if mem.get("observed") else ""
         out.append(
             f'<text x="{pad}" y="{y + 11:.1f}" font-size="11" fill="#555">'
-            f'{escape(mem["id"])} — {mem["n"]} instances{cap}{obs_note}</text>'
+            f"{escape(mem['id'])} — {mem['n']} instances{cap}{obs_note}</text>"
         )
         box = Box(pad, y + title, pw, rh)
         out.append(
@@ -267,9 +274,13 @@ def render_observed_panel(node_id: str, dist: str | None, glyph_data: dict) -> s
             f'fill="#777">{_fmt(val)}</text>'
         )
     if sub:
-        out.append(f'<text x="{pad:.0f}" y="{sub_y:.1f}" font-size="10" fill="#555">{escape(sub)}</text>')
+        out.append(
+            f'<text x="{pad:.0f}" y="{sub_y:.1f}" font-size="10" fill="#555">{escape(sub)}</text>'
+        )
     if caption:
-        out.append(f'<text x="{pad:.0f}" y="{cap_y:.1f}" font-size="9" fill="#9aa0a6">{caption}</text>')
+        out.append(
+            f'<text x="{pad:.0f}" y="{cap_y:.1f}" font-size="9" fill="#9aa0a6">{caption}</text>'
+        )
     out.append("</svg>")
     return "".join(out)
 
@@ -355,7 +366,9 @@ def _legend_swatch(kind: str, b: Box) -> str:
         src = kind.split(":", 1)[1]
         stroke, fill = _GLYPH_COLORS.get(src, ("#2a8a55", "#2a8a55"))
         if src == "best_fit":
-            return glyph.render("density", {"xs": _BELL[0], "ys": _BELL[1]}, b, stroke=_OVERLAY, fill=_OVERLAY)
+            return glyph.render(
+                "density", {"xs": _BELL[0], "ys": _BELL[1]}, b, stroke=_OVERLAY, fill=_OVERLAY
+            )
         if src == "observed_hist":
             data = {"edges": [0, 1, 2, 3], "counts": [0.6, 1.0, 0.45]}
             return glyph.render("histogram", data, b, fill=fill, stroke=stroke)
@@ -408,7 +421,9 @@ def _render_legend(items, ox: float, oy: float) -> tuple[str, float, float]:
     return "".join(out), w, h
 
 
-def to_svg(ir: ModelIR, layout: LayoutResult, *, overlay_mode: str = "prior", legend: bool = True) -> str:
+def to_svg(
+    ir: ModelIR, layout: LayoutResult, *, overlay_mode: str = "prior", legend: bool = True
+) -> str:
     # `Box` is a dataclass and therefore always truthy — test the DIMENSIONS, so an empty model
     # gets the intended placeholder canvas instead of a 0x0 SVG
     c = layout.canvas
@@ -419,7 +434,9 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, overlay_mode: str = "prior", le
     for p in ir.plates:
         b = layout.plate_boxes.get(p.id)
         if b:
-            body.append(f'<g class="bd-plate" data-plate="{escape(p.id)}">' + _plate(b, p.label) + "</g>")
+            body.append(
+                f'<g class="bd-plate" data-plate="{escape(p.id)}">' + _plate(b, p.label) + "</g>"
+            )
     # Two passes so a later node's (opaque) chrome box can never paint over an earlier node's
     # label/glyph: ALL chrome first, then ALL labels+glyphs on top. Each pass tags its group with
     # data-node, and the widget keys hover/selection off data-node (js/index.js), so splitting a
@@ -447,7 +464,9 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, overlay_mode: str = "prior", le
                 stroke, fill = _GLYPH_COLORS.get(n.glyph.source, ("#2a8a55", "#2a8a55"))
                 parts.append(glyph.render(n.glyph.kind, n.glyph_data, gr, stroke=stroke, fill=fill))
         if getattr(n, "elision_reason", None):  # honesty badge: undrawable construct
-            reason = n.elision_reason if len(n.elision_reason) <= 30 else n.elision_reason[:29] + "…"
+            reason = (
+                n.elision_reason if len(n.elision_reason) <= 30 else n.elision_reason[:29] + "…"
+            )
             parts.append(
                 f'<text x="{b.x + 7:.1f}" y="{b.y + b.h - 5:.1f}" font-size="8" fill="#8a6d3b" '
                 f'font-style="italic">⚠ {escape(reason)}</text>'

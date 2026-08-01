@@ -57,7 +57,9 @@ def test_dist_symbol():
     assert dist_symbol("HalfNormal") == r"\mathcal{N}^{+}"
     assert dist_symbol("Womble") == r"\operatorname{Womble}"
     # full-catalog coverage: derived op names (incl. the collapsed/aliased ones) resolve
-    assert dist_symbol("MultivariateNormal") == r"\mathcal{N}"  # MvNormal's op print-name (was a dead key)
+    assert (
+        dist_symbol("MultivariateNormal") == r"\mathcal{N}"
+    )  # MvNormal's op print-name (was a dead key)
     assert dist_symbol("Mixture") == r"\mathrm{Mix}"  # also NormalMixture/ZeroInflated*
     assert dist_symbol("Hurdle") == r"\mathrm{Hurdle}"
     assert dist_symbol("VonMises") == r"\mathrm{VonMises}"
@@ -110,7 +112,14 @@ def test_param_name_templates_kill_arg_noise():
     with pm.Model(coords={"t": range(8)}) as m:
         pm.Exponential("e", 1.0)
         pm.GaussianRandomWalk("rw", mu=0.1, sigma=0.5, init_dist=pm.Normal.dist(0, 1), dims="t")
-        pm.AR("ar", rho=[0.6, 0.2], sigma=0.4, init_dist=pm.Normal.dist(0, 1), constant=False, dims="t")
+        pm.AR(
+            "ar",
+            rho=[0.6, 0.2],
+            sigma=0.4,
+            init_dist=pm.Normal.dist(0, 1),
+            constant=False,
+            dims="t",
+        )
         pm.Censored("cz", pm.Normal.dist(0, 1), lower=-1.0, upper=2.0)
         pm.NormalMixture("mix", w=[0.3, 0.7], mu=[-1.0, 1.0], sigma=[0.5, 0.5])
     ir = to_ir(m)
@@ -159,4 +168,4 @@ def test_power_of_a_sum_is_parenthesized_and_boolean_is_infix():
         pm.Deterministic("q", (d > a) & (d < b), dims="i")
     nd = {n.id: n for n in to_ir(m).nodes}
     assert r"\left(1 + " in nd["p"].label_tex  # compound power base parenthesized
-    assert r"\land" in nd["q"].label_tex       # & -> logical-and infix
+    assert r"\land" in nd["q"].label_tex  # & -> logical-and infix

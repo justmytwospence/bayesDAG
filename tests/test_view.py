@@ -31,8 +31,8 @@ def test_widget_ships_identical_graph_svg(eight_schools_model):
     # byte-identical to the static renderer (same LayoutResult + emitter) — parity holds.
     v = bayesdag.view(eight_schools_model)
     w = v.widget()
-    assert "bd-legend" not in w.spec["svg"]                       # no legend in the widget
-    assert "bd-legend" in v.to_svg()                              # ...but yes in the static SVG
+    assert "bd-legend" not in w.spec["svg"]  # no legend in the widget
+    assert "bd-legend" in v.to_svg()  # ...but yes in the static SVG
     assert w.spec["svg"] == to_svg(v.ir, v.layout, legend=False)  # identical graph bytes
 
 
@@ -87,8 +87,8 @@ def test_widget_spec_has_nodes_adjacency_and_tags(eight_schools_model):
     assert spec["nodes"]["mu"]["ancestors"] == []
     assert set(spec["nodes"]["y_obs"]["ancestors"]) == {"mu", "tau", "eta", "theta"}
     assert spec["nodes"]["y_obs"]["descendants"] == []
-    assert spec["nodes"]["y_obs"]["params"]            # per-node detail (loc/scale)
-    assert "<svg" in spec["nodes"]["y_obs"]["panel"]   # observed: histogram + best-fit overlay panel
+    assert spec["nodes"]["y_obs"]["params"]  # per-node detail (loc/scale)
+    assert "<svg" in spec["nodes"]["y_obs"]["panel"]  # observed: histogram + best-fit overlay panel
     assert 'class="bd-node"' in spec["svg"] and 'class="bd-edge"' in spec["svg"]
     assert 'class="bd-plate"' in spec["svg"]
 
@@ -100,7 +100,7 @@ def test_plate_prior_predictive_panel(eight_schools_model):
     panel = plates["plate_school"]["panel"]
     assert "prior predictive" in panel
     assert panel.count("<path") >= 3  # overlaid per-instance density curves
-    assert "y_obs" in panel           # observed member row (with data ticks)
+    assert "y_obs" in panel  # observed member row (with data ticks)
 
 
 def test_rich_glyph_nodes_get_card_panels():

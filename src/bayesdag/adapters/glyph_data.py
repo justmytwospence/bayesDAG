@@ -86,7 +86,9 @@ def _scipy_frozen(dist: str, p: list):
         "Moyal": lambda: st.moyal(q[0], q[1]),
         "StudentT": lambda: st.t(df=q[0], loc=q[1], scale=q[2]),
         # ZeroSumNormal: each element is marginally Normal(0, sigma*sqrt((n-1)/n)) — centered at 0
-        "ZeroSumNormal": lambda: st.norm(0.0, q[0] * np.sqrt(max(q[1] - 1, 1) / q[1]) if len(q) >= 2 else q[0]),
+        "ZeroSumNormal": lambda: st.norm(
+            0.0, q[0] * np.sqrt(max(q[1] - 1, 1) / q[1]) if len(q) >= 2 else q[0]
+        ),
         "SkewNormal": lambda: st.skewnorm(a=q[2], loc=q[0], scale=q[1]),
         "ExGaussian": lambda: st.exponnorm(K=q[2] / q[1], loc=q[0], scale=q[1]),
         "VonMises": lambda: st.vonmises(kappa=q[1], loc=q[0]),
@@ -102,7 +104,9 @@ def _scipy_frozen(dist: str, p: list):
         # bounded
         "Beta": lambda: st.beta(q[0], q[1]),
         "Uniform": lambda: st.uniform(q[0], q[1] - q[0]),
-        "Triangular": lambda: st.triang(c=(q[1] - q[0]) / (q[2] - q[0]), loc=q[0], scale=q[2] - q[0]),
+        "Triangular": lambda: st.triang(
+            c=(q[1] - q[0]) / (q[2] - q[0]), loc=q[0], scale=q[2] - q[0]
+        ),
     }
     fn = builders.get(dist)
     if fn is None:
@@ -126,7 +130,9 @@ def _discrete_frozen(dist: str, p: list):
         "NegativeBinomial": lambda: st.nbinom(q[0], q[1]),  # op exposes [n, p]
         "DiscreteUniform": lambda: st.randint(int(q[0]), int(q[1]) + 1),
         "BetaBinomial": lambda: st.betabinom(int(q[0]), q[1], q[2]),  # op [n, a, b]
-        "HyperGeometric": lambda: st.hypergeom(int(q[0] + q[1]), int(q[0]), int(q[2])),  # [good, bad, draws]
+        "HyperGeometric": lambda: st.hypergeom(
+            int(q[0] + q[1]), int(q[0]), int(q[2])
+        ),  # [good, bad, draws]
     }
     fn = builders.get(dist)
     if fn is None:
@@ -258,6 +264,7 @@ _DISCRETE = {
     "HyperGeometric",
 }
 
+
 # PyMC family name -> (scipy class, fixed-param kwargs for `.fit`). Support-constrained families
 # are fit with the location pinned (floc=0) — and Beta on the unit interval — so the MLE respects
 # the family's domain. Mirrors the continuous coverage of `_scipy_frozen` above.
@@ -388,7 +395,9 @@ def _numeric_params(var) -> Optional[list]:
         dparams = list(node.inputs[2:])
     out = []
     for dp in dparams:
-        if _depends_on_rv(dp):  # parent RV governs this slot -> not a root prior; never a random draw
+        if _depends_on_rv(
+            dp
+        ):  # parent RV governs this slot -> not a root prior; never a random draw
             return None
         try:
             out.append(np.asarray(dp.eval()))

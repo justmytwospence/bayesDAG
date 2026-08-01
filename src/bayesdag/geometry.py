@@ -11,10 +11,10 @@ import re
 
 from .ir import Box
 
-EX_PX = 8.0     # px per MathJax 'ex' unit (we set the embedded SVG to this scale)
-PAD = 10.0      # node interior padding
+EX_PX = 8.0  # px per MathJax 'ex' unit (we set the embedded SVG to this scale)
+PAD = 10.0  # node interior padding
 GLYPH_H = 30.0  # reserved height for a 1-D distribution-shape glyph strip
-GAP = 4.0       # gap between label and glyph
+GAP = 4.0  # gap between label and glyph
 MIN_W = 56.0
 MIN_H = 38.0
 STANDOFF = 4.0  # gap above a token edge's VISIBLE target surface (box border for bordered nodes,
@@ -73,7 +73,11 @@ def glyph_area(glyph_kind: str | None, glyph_data: dict | None = None) -> tuple[
 
 
 def node_size(
-    label_w: float, label_h: float, role: str, glyph_kind: str | None = None, glyph_data: dict | None = None
+    label_w: float,
+    label_h: float,
+    role: str,
+    glyph_kind: str | None = None,
+    glyph_data: dict | None = None,
 ) -> tuple[float, float]:
     if has_glyph_data(glyph_kind, glyph_data):
         gmin_w, gh = glyph_area(glyph_kind, glyph_data)
@@ -91,7 +95,11 @@ def label_origin(box: Box, label_w: float, label_h: float) -> tuple[float, float
 
 
 def glyph_rect(
-    box: Box, role: str, label_h: float, glyph_kind: str | None = None, glyph_data: dict | None = None
+    box: Box,
+    role: str,
+    label_h: float,
+    glyph_kind: str | None = None,
+    glyph_data: dict | None = None,
 ) -> Box | None:
     if not has_glyph_data(glyph_kind, glyph_data):
         return None
@@ -100,7 +108,9 @@ def glyph_rect(
     if glyph_kind in _TALL_GLYPHS:  # a centered (near-)square block for 2-D glyphs
         side = min(box.w - 2 * PAD, gh)
         return Box(box.x + (box.w - side) / 2.0, top, side, side)
-    if glyph_kind == "curve":  # canonical transfer shape: bounded width, centered under the equation
+    if (
+        glyph_kind == "curve"
+    ):  # canonical transfer shape: bounded width, centered under the equation
         cw = min(box.w - 2 * PAD, _FN_GLYPH_MAX_W)
         return Box(box.x + (box.w - cw) / 2.0, top, cw, gh)
     return Box(box.x + PAD, top, box.w - 2 * PAD, gh)

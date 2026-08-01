@@ -55,7 +55,16 @@ def _zero_marker(box: Box, x0: float, x1: float) -> str:
     )
 
 
-def render_density(data: dict[str, Any], box: Box, *, stroke="#2a7", fill="#2a7", fill_opacity=0.18, dashed=False, **_):
+def render_density(
+    data: dict[str, Any],
+    box: Box,
+    *,
+    stroke="#2a7",
+    fill="#2a7",
+    fill_opacity=0.18,
+    dashed=False,
+    **_,
+):
     xs, ys = data.get("xs"), data.get("ys")
     if not xs or not ys:
         return ""
@@ -91,7 +100,9 @@ def _bars(edges, counts, box: Box, fill, stroke) -> str:
         bx = box.x + (edges[i] - x0) / span * box.w
         bw = max(0.5, (edges[i + 1] - edges[i]) / span * box.w - 1.0)
         bh = max(0.0, min(1.0, c)) * box.h
-        out.append(f'<rect x="{bx:.1f}" y="{base - bh:.1f}" width="{bw:.1f}" height="{bh:.1f}" fill="{fill}" stroke="{stroke}" stroke-width="0.4"/>')
+        out.append(
+            f'<rect x="{bx:.1f}" y="{base - bh:.1f}" width="{bw:.1f}" height="{bh:.1f}" fill="{fill}" stroke="{stroke}" stroke-width="0.4"/>'
+        )
     return "".join(out)
 
 
@@ -126,7 +137,9 @@ def render_step(data: dict[str, Any], box: Box, *, stroke="#999", fill="#999", *
     for i, y in enumerate(ys):
         yy = box.y + box.h - max(0.0, min(1.0, y)) * box.h
         pts.append((box.x + i * seg, yy))
-        pts.append((box.x + (i + 1) * seg, yy))  # horizontal tread; the gap to the next is the riser
+        pts.append(
+            (box.x + (i + 1) * seg, yy)
+        )  # horizontal tread; the gap to the next is the riser
     return f'<path d="{_path(pts)}" fill="none" stroke="{stroke}" stroke-width="1.2"/>'
 
 
@@ -137,7 +150,9 @@ def render_histogram(data: dict[str, Any], box: Box, *, fill="#5a7fb5", stroke="
     return _zero_marker(box, edges[0], edges[-1]) + _bars(edges, counts, box, fill, stroke)
 
 
-def render_hist_overlay(data: dict[str, Any], box: Box, *, fill="#5a7fb5", stroke="#3a5f95", overlay="#c0392b", **_):
+def render_hist_overlay(
+    data: dict[str, Any], box: Box, *, fill="#5a7fb5", stroke="#3a5f95", overlay="#c0392b", **_
+):
     """Observed-data histogram (bars) + the MLE best-fit family density (line) on a SHARED scale.
     A poor family choice shows up as a curve that misses the bars; a good one tracks them."""
     edges, counts = data.get("edges"), data.get("counts")
@@ -251,7 +266,9 @@ def render_pairplot(data: dict[str, Any], box: Box, *, stroke="#2a8a55", fill="#
             x0, y0 = box.x + j * cw, box.y + i * ch
             if i == j:
                 pts = [(x0 + (k / 23) * cw, y0 + ch - (bump[k] / bm) * ch * 0.9) for k in range(24)]
-                out.append(f'<path d="{_path(pts)}" fill="none" stroke="{stroke}" stroke-width="0.8"/>')
+                out.append(
+                    f'<path d="{_path(pts)}" fill="none" stroke="{stroke}" stroke-width="0.8"/>'
+                )
             elif i > j:
                 a, b, c = cov[i][i], cov[i][j], cov[j][j]
                 tr = a + c
@@ -283,11 +300,15 @@ def render_mixture(data: dict[str, Any], box: Box, *, stroke="#2a8a55", fill="#2
     for comp in curves:
         xs, ys = comp.get("xs"), comp.get("ys")
         if xs and ys:
-            out.append(f'<path d="{_path(_poly(xs, ys, box))}" fill="none" stroke="{stroke}" stroke-width="1.0" opacity="0.8"/>')
+            out.append(
+                f'<path d="{_path(_poly(xs, ys, box))}" fill="none" stroke="{stroke}" stroke-width="1.0" opacity="0.8"/>'
+            )
     spike = data.get("spike")
     if spike:
         h = max(0.0, min(1.0, spike)) * box.h
-        out.append(f'<rect x="{box.x:.1f}" y="{box.y + box.h - h:.1f}" width="5" height="{h:.1f}" fill="{stroke}"/>')
+        out.append(
+            f'<rect x="{box.x:.1f}" y="{box.y + box.h - h:.1f}" width="5" height="{h:.1f}" fill="{stroke}"/>'
+        )
     return "".join(out)
 
 
@@ -297,16 +318,27 @@ def render_cutpoints(data: dict[str, Any], box: Box, *, fill="#5a7fb5", stroke="
     probs = data.get("probs")
     if probs:
         m = max(probs) or 1.0
-        out.append(render_bars({"cats": list(range(len(probs))), "heights": [p / m for p in probs]}, box, fill=fill, stroke=stroke))
+        out.append(
+            render_bars(
+                {"cats": list(range(len(probs))), "heights": [p / m for p in probs]},
+                box,
+                fill=fill,
+                stroke=stroke,
+            )
+        )
     cuts = data.get("cutpoints")
     if cuts:
         lo, hi = min(cuts), max(cuts)
         span = (hi - lo) or 1.0
         y = box.y + 2.0
-        out.append(f'<line x1="{box.x:.1f}" y1="{y:.1f}" x2="{box.x + box.w:.1f}" y2="{y:.1f}" stroke="#999" stroke-width="0.6"/>')
+        out.append(
+            f'<line x1="{box.x:.1f}" y1="{y:.1f}" x2="{box.x + box.w:.1f}" y2="{y:.1f}" stroke="#999" stroke-width="0.6"/>'
+        )
         for cpt in cuts:
             cx = box.x + (cpt - lo) / span * box.w
-            out.append(f'<line x1="{cx:.1f}" y1="{y - 2:.1f}" x2="{cx:.1f}" y2="{y + 3:.1f}" stroke="#666" stroke-width="0.8"/>')
+            out.append(
+                f'<line x1="{cx:.1f}" y1="{y - 2:.1f}" x2="{cx:.1f}" y2="{y + 3:.1f}" stroke="#666" stroke-width="0.8"/>'
+            )
     return "".join(out)
 
 
@@ -329,7 +361,9 @@ def render_simplex(data: dict[str, Any], box: Box, *, stroke="#2a8a55", fill="#2
             + f" L{pts[-1][0]:.1f},{base:.1f} Z"
         )
         out.append(f'<path d="{area}" fill="{fill}" fill-opacity="0.12" stroke="none"/>')
-        out.append(f'<path d="{_path(pts)}" fill="none" stroke="{stroke}" stroke-width="0.9" opacity="0.85"/>')
+        out.append(
+            f'<path d="{_path(pts)}" fill="none" stroke="{stroke}" stroke-width="0.9" opacity="0.85"/>'
+        )
     return "".join(out)
 
 
@@ -349,7 +383,9 @@ def render_stem(data: dict[str, Any], box: Box, *, stroke="#3a5f95", fill="#3a5f
     for i, v in enumerate(vals):
         cx = box.x + (i + 0.5) / n * box.w
         y = base - (v / mx) * (box.h / 2.0 - 2.0)
-        out.append(f'<line x1="{cx:.1f}" y1="{base:.1f}" x2="{cx:.1f}" y2="{y:.1f}" stroke="{stroke}" stroke-width="1.4"/>')
+        out.append(
+            f'<line x1="{cx:.1f}" y1="{base:.1f}" x2="{cx:.1f}" y2="{y:.1f}" stroke="{stroke}" stroke-width="1.4"/>'
+        )
         out.append(f'<circle cx="{cx:.1f}" cy="{y:.1f}" r="1.5" fill="{stroke}"/>')
     return "".join(out)
 
@@ -364,7 +400,9 @@ def render_censored(data: dict[str, Any], box: Box, *, stroke="#2a8a55", fill="#
             continue
         px = box.x + max(0.0, min(1.0, x)) * box.w
         bh = max(0.0, min(1.0, sp.get("h", 1.0))) * box.h
-        out.append(f'<rect x="{px - 2:.1f}" y="{box.y + box.h - bh:.1f}" width="4" height="{bh:.1f}" fill="{stroke}"/>')
+        out.append(
+            f'<rect x="{px - 2:.1f}" y="{box.y + box.h - bh:.1f}" width="4" height="{bh:.1f}" fill="{stroke}"/>'
+        )
     return "".join(out)
 
 

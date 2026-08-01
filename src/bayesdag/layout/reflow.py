@@ -29,8 +29,14 @@ def _samples(pts, n: int = 16):
                 mt = 1 - t
                 out.append(
                     (
-                        mt**3 * p0[0] + 3 * mt**2 * t * c1[0] + 3 * mt * t * t * c2[0] + t**3 * p3[0],
-                        mt**3 * p0[1] + 3 * mt**2 * t * c1[1] + 3 * mt * t * t * c2[1] + t**3 * p3[1],
+                        mt**3 * p0[0]
+                        + 3 * mt**2 * t * c1[0]
+                        + 3 * mt * t * t * c2[0]
+                        + t**3 * p3[0],
+                        mt**3 * p0[1]
+                        + 3 * mt**2 * t * c1[1]
+                        + 3 * mt * t * t * c2[1]
+                        + t**3 * p3[1],
                     )
                 )
     return out

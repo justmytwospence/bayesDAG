@@ -64,13 +64,17 @@ CATALOG = {
     "HyperGeometric": lambda: pm.HyperGeometric("x", N=20, k=10, n=5),
     "NegativeBinomial": lambda: pm.NegativeBinomial("x", mu=3, alpha=2),
     "Poisson": lambda: pm.Poisson("x", 3),
-    "OrderedLogistic": lambda: pm.OrderedLogistic("x", eta=0.0, cutpoints=np.array([-1.0, 0.0, 1.0])),
+    "OrderedLogistic": lambda: pm.OrderedLogistic(
+        "x", eta=0.0, cutpoints=np.array([-1.0, 0.0, 1.0])
+    ),
     "OrderedProbit": lambda: pm.OrderedProbit("x", eta=0.0, cutpoints=np.array([-1.0, 0.0, 1.0])),
     # multivariate / matrix / simplex
     "MvNormal": lambda: pm.MvNormal("x", mu=[0, 0], cov=np.eye(2)),
     "MvStudentT": lambda: pm.MvStudentT("x", nu=3, mu=[0, 0], scale=np.eye(2)),
     "Wishart": lambda: pm.Wishart("x", nu=3, V=np.eye(2)),
-    "MatrixNormal": lambda: pm.MatrixNormal("x", mu=np.zeros((2, 2)), rowcov=np.eye(2), colcov=np.eye(2)),
+    "MatrixNormal": lambda: pm.MatrixNormal(
+        "x", mu=np.zeros((2, 2)), rowcov=np.eye(2), colcov=np.eye(2)
+    ),
     "KroneckerNormal": lambda: pm.KroneckerNormal("x", mu=np.zeros(4), covs=[np.eye(2), np.eye(2)]),
     "Dirichlet": lambda: pm.Dirichlet("x", [1.0, 2.0, 3.0]),
     "DirichletMultinomial": lambda: pm.DirichletMultinomial("x", n=10, a=[1.0, 2.0, 3.0]),
@@ -81,7 +85,9 @@ CATALOG = {
     "NormalMixture": lambda: pm.NormalMixture("x", w=[0.5, 0.5], mu=[-2, 2], sigma=[1, 1]),
     "ZeroInflatedPoisson": lambda: pm.ZeroInflatedPoisson("x", psi=0.7, mu=3),
     "ZeroInflatedBinomial": lambda: pm.ZeroInflatedBinomial("x", psi=0.7, n=10, p=0.5),
-    "ZeroInflatedNegativeBinomial": lambda: pm.ZeroInflatedNegativeBinomial("x", psi=0.7, mu=3, alpha=2),
+    "ZeroInflatedNegativeBinomial": lambda: pm.ZeroInflatedNegativeBinomial(
+        "x", psi=0.7, mu=3, alpha=2
+    ),
     "HurdlePoisson": lambda: pm.HurdlePoisson("x", psi=0.7, mu=3),
     "HurdleGamma": lambda: pm.HurdleGamma("x", psi=0.7, alpha=2, beta=2),
     "HurdleLogNormal": lambda: pm.HurdleLogNormal("x", psi=0.7, mu=0, sigma=1),
@@ -99,20 +105,47 @@ CATALOG = {
     "CAR": lambda: pm.CAR("x", mu=np.zeros(3), W=_W, alpha=0.9, tau=1),
     "ICAR": lambda: pm.ICAR("x", W=_W),
     # meta / custom
-    "Interpolated": lambda: pm.Interpolated("x", x_points=np.linspace(-3, 3, 30), pdf_points=np.exp(-np.linspace(-3, 3, 30) ** 2)),
+    "Interpolated": lambda: pm.Interpolated(
+        "x", x_points=np.linspace(-3, 3, 30), pdf_points=np.exp(-(np.linspace(-3, 3, 30) ** 2))
+    ),
     "Flat": lambda: pm.Flat("x"),
     "HalfFlat": lambda: pm.HalfFlat("x"),
-    "CustomDist": lambda: pm.CustomDist("x", 0.0, dist=lambda mu, size: pm.Normal.dist(mu, 1.0, size=size)),
-    "DensityDist": lambda: pm.DensityDist("x", 0.0, dist=lambda mu, size: pm.Normal.dist(mu, 1.0, size=size)),
-    "Simulator": lambda: pm.Simulator("x", lambda rng, m, size: rng.normal(m, 1.0, size), 0.0, observed=np.zeros(3)),
+    "CustomDist": lambda: pm.CustomDist(
+        "x", 0.0, dist=lambda mu, size: pm.Normal.dist(mu, 1.0, size=size)
+    ),
+    "DensityDist": lambda: pm.DensityDist(
+        "x", 0.0, dist=lambda mu, size: pm.Normal.dist(mu, 1.0, size=size)
+    ),
+    "Simulator": lambda: pm.Simulator(
+        "x", lambda rng, m, size: rng.normal(m, 1.0, size), 0.0, observed=np.zeros(3)
+    ),
     "ZeroSumNormal": lambda: pm.ZeroSumNormal("x", sigma=1.0, shape=3),
     "Multinomial": lambda: pm.Multinomial("x", n=5, p=[0.3, 0.3, 0.4]),
-    "OrderedMultinomial": lambda: pm.OrderedMultinomial("x", eta=0.0, cutpoints=np.array([-1.0, 1.0]), n=5),
-    "LKJCholeskyCov": lambda: pm.LKJCholeskyCov("x", n=3, eta=2.0, sd_dist=pm.Exponential.dist(1.0)),
+    "OrderedMultinomial": lambda: pm.OrderedMultinomial(
+        "x", eta=0.0, cutpoints=np.array([-1.0, 1.0]), n=5
+    ),
+    "LKJCholeskyCov": lambda: pm.LKJCholeskyCov(
+        "x", n=3, eta=2.0, sd_dist=pm.Exponential.dist(1.0)
+    ),
     "WishartBartlett": lambda: pm.WishartBartlett("x", S=np.eye(3), nu=4),
-    "MvGaussianRandomWalk": lambda: pm.MvGaussianRandomWalk("x", mu=np.zeros(2), cov=np.eye(2), init_dist=pm.MvNormal.dist(np.zeros(2), np.eye(2)), steps=4),
-    "MvStudentTRandomWalk": lambda: pm.MvStudentTRandomWalk("x", nu=4, mu=np.zeros(2), scale=np.eye(2), init_dist=pm.MvNormal.dist(np.zeros(2), np.eye(2)), steps=4),
-    "EulerMaruyama": lambda: pm.EulerMaruyama("x", dt=0.1, sde_fn=lambda v, a: (-a * v, 1.0), sde_pars=(1.0,), init_dist=_N(0, 1), steps=4),
+    "MvGaussianRandomWalk": lambda: pm.MvGaussianRandomWalk(
+        "x",
+        mu=np.zeros(2),
+        cov=np.eye(2),
+        init_dist=pm.MvNormal.dist(np.zeros(2), np.eye(2)),
+        steps=4,
+    ),
+    "MvStudentTRandomWalk": lambda: pm.MvStudentTRandomWalk(
+        "x",
+        nu=4,
+        mu=np.zeros(2),
+        scale=np.eye(2),
+        init_dist=pm.MvNormal.dist(np.zeros(2), np.eye(2)),
+        steps=4,
+    ),
+    "EulerMaruyama": lambda: pm.EulerMaruyama(
+        "x", dt=0.1, sde_fn=lambda v, a: (-a * v, 1.0), sde_pars=(1.0,), init_dist=_N(0, 1), steps=4
+    ),
 }
 
 # Not distribution families: base classes and one alias PyMC re-exports from `__all__`.

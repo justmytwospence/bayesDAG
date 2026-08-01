@@ -60,7 +60,9 @@ def _log_warmup_failure(fut) -> None:
     except Exception:
         return
     if exc is not None:
-        logging.getLogger(__name__).debug("ELK warm-up failed (will re-raise on layout)", exc_info=exc)
+        logging.getLogger(__name__).debug(
+            "ELK warm-up failed (will re-raise on layout)", exc_info=exc
+        )
 
 
 class ModelGraphView:
@@ -165,7 +167,8 @@ class ModelGraphView:
         # widget SVG omits the legend by default (hover surfaces the same info); the static
         # `self._svg` keeps it. Re-render is cheap (layout + math are already computed).
         widget_svg = (
-            self._svg if self._widget_legend == self._legend
+            self._svg
+            if self._widget_legend == self._legend
             else to_svg(self.ir, self.layout, legend=self._widget_legend)
         )
         return {"svg": widget_svg, "nodes": nodes, "plates": plates, "selected": ""}
@@ -221,6 +224,10 @@ def view(
     plus their direct parents — the same semantics as ``pm.model_to_graphviz(var_names=…)``.
     """
     return ModelGraphView(
-        model_or_ir, idata=idata, rankdir=rankdir, legend=legend, widget_legend=widget_legend,
+        model_or_ir,
+        idata=idata,
+        rankdir=rankdir,
+        legend=legend,
+        widget_legend=widget_legend,
         var_names=var_names,
     )

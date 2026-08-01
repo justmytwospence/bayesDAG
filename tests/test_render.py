@@ -4,8 +4,12 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
+from bayesdag import mathsvg, render_static
 from bayesdag.ir import ModelIR
-from bayesdag.layout import layout as _layout
+from bayesdag.layout import layout
+from bayesdag.render_svg import to_svg
+
+_math = mathsvg.get_renderer().available
 
 
 def test_empty_model_gets_the_placeholder_canvas():
@@ -13,10 +17,8 @@ def test_empty_model_gets_the_placeholder_canvas():
     placeholder never fired — an empty model emitted a 0x0 SVG."""
     import re
 
-    from bayesdag.render_svg import to_svg
-
     ir = ModelIR(nodes=[], edges=[], plates=[])
-    svg = to_svg(ir, _layout(ir))
+    svg = to_svg(ir, layout(ir))
     w, h = (float(v) for v in re.search(r'width="([\d.]+)" height="([\d.]+)"', svg).groups())
     assert w > 0 and h > 0
 
@@ -24,18 +26,9 @@ def test_empty_model_gets_the_placeholder_canvas():
 def test_save_writes_utf8_regardless_of_locale(tmp_path, eight_schools_ir):
     """The SVG always carries non-ASCII (badge glyphs, elision ellipsis, legend dashes), so the
     write must not depend on the platform's default encoding."""
-    from bayesdag.render_static import save
-    from bayesdag.render_svg import to_svg
-
-    svg = to_svg(eight_schools_ir, _layout(eight_schools_ir))
-    p = save(svg, tmp_path / "m.svg")
+    svg = to_svg(eight_schools_ir, layout(eight_schools_ir))
+    p = render_static.save(svg, tmp_path / "m.svg")
     assert p.read_text(encoding="utf-8") == svg
-
-from bayesdag import mathsvg, render_static
-from bayesdag.layout import layout
-from bayesdag.render_svg import to_svg
-
-_math = mathsvg.get_renderer().available
 
 
 def test_svg_is_well_formed_xml(eight_schools_ir):

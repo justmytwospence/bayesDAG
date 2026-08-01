@@ -43,7 +43,9 @@ def _opof(v: Any) -> Any:
 
 
 def _depends_on_rv(t: Any) -> bool:
-    from .constructs import _depends_on_rv as dep  # lazy: constructs imports glyph_data which imports us
+    from .constructs import (
+        _depends_on_rv as dep,
+    )  # lazy: constructs imports glyph_data which imports us
 
     return dep(t)
 
@@ -61,7 +63,9 @@ def _is_leaf(v: Any, named_ids: set, root_id: int) -> bool:
 
 def _is_widening_cast(node: Any) -> bool:
     try:
-        return np.dtype(node.outputs[0].dtype).kind == "f"  # int/float -> float keeps the value's shape
+        return (
+            np.dtype(node.outputs[0].dtype).kind == "f"
+        )  # int/float -> float keeps the value's shape
     except Exception:
         return False
 
@@ -304,7 +308,9 @@ def _classify(var: Any, named: dict):
     core, sign = _strip_framing(var, named_ids, root_id)
     core = _unwrap(core, named_ids, root_id)
 
-    if _is_leaf(core, named_ids, root_id):  # stripped to a single named var via scalar-affine framing
+    if _is_leaf(
+        core, named_ids, root_id
+    ):  # stripped to a single named var via scalar-affine framing
         return GlyphSpec(kind="curve", source=_SRC), _line(sign), None
 
     op = _opof(core)

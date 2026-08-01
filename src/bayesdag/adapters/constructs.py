@@ -151,7 +151,9 @@ def _multivariate(var, params, op_cls):
         return None
     d = cov.shape[0]
     if d <= 4:
-        return GlyphSpec(kind="pairplot", source="prior_analytic"), {"cov": [[float(x) for x in r] for r in cov]}
+        return GlyphSpec(kind="pairplot", source="prior_analytic"), {
+            "cov": [[float(x) for x in r] for r in cov]
+        }
     return GlyphSpec(kind="heatmap", source="prior_analytic"), _heatmap(cov)
 
 
@@ -213,16 +215,22 @@ def _censored(var):
     span = (x1 - x0) or 1.0
     spikes = []
     if lo is not None and np.isfinite(lo):
-        spikes.append({"x": max(0.0, min(1.0, (float(lo) - x0) / span)), "p": float(fr.cdf(float(lo)))})
+        spikes.append(
+            {"x": max(0.0, min(1.0, (float(lo) - x0) / span)), "p": float(fr.cdf(float(lo)))}
+        )
     if hi is not None and np.isfinite(hi):
-        spikes.append({"x": max(0.0, min(1.0, (float(hi) - x0) / span)), "p": float(fr.sf(float(hi)))})
+        spikes.append(
+            {"x": max(0.0, min(1.0, (float(hi) - x0) / span)), "p": float(fr.sf(float(hi)))}
+        )
     # The spike heights are drawn EXAGGERATED (see `_SPIKE_GAIN`): the censored mass is often a
     # few percent, which is invisible next to a peak-normalized density, yet its presence is the
     # whole point of the glyph. The true probability travels as `p` so the reader can be told.
     for sp in spikes:
         sp["h"] = float(min(1.0, sp["p"] * _SPIKE_GAIN))
     return GlyphSpec(kind="censored", source="prior_analytic"), {
-        **dens, "spikes": spikes, "spike_gain": _SPIKE_GAIN,
+        **dens,
+        "spikes": spikes,
+        "spike_gain": _SPIKE_GAIN,
     }
 
 
@@ -249,7 +257,9 @@ def _truncated_normal(var, params):
 
 def _random_walk(var):
     ins = var.owner.inputs
-    innov = next((i for i in ins[1:] if getattr(i, "owner", None) is not None and _dist_name(i)), None)
+    innov = next(
+        (i for i in ins[1:] if getattr(i, "owner", None) is not None and _dist_name(i)), None
+    )
     if innov is None:
         return None
     # The fan is `drift*t ± 2*sd*sqrt(t)`, so we must know which slots ARE (mu, sigma). Only a
@@ -285,7 +295,11 @@ def _random_walk(var):
     def norm(a):
         return [float((v - g0) / rng) for v in a]
 
-    return GlyphSpec(kind="fan", source="prior_analytic"), {"mid": norm(mean), "lo": norm(lo), "hi": norm(hi)}
+    return GlyphSpec(kind="fan", source="prior_analytic"), {
+        "mid": norm(mean),
+        "lo": norm(lo),
+        "hi": norm(hi),
+    }
 
 
 def _lkj(var):
@@ -450,7 +464,8 @@ def _mixture(var):
     gmax = max(float(np.max(p)) for p in pdfs) or 1.0
     curves = [{"xs": [float(x) for x in xs], "ys": [float(y / gmax) for y in p]} for p in pdfs]
     return GlyphSpec(kind="mixture", source="prior_analytic"), {
-        "curves": curves, "weighted": w is not None,
+        "curves": curves,
+        "weighted": w is not None,
     }
 
 
@@ -528,9 +543,19 @@ def special_glyph(var):
             return (*r, None) if r else _badge("spatial (CAR/ICAR)")
         if cls in ("FlatRV", "HalfFlatRV"):
             return _badge("improper prior")
-        if cls.startswith("BART"):  # pymc-bart op is BART_<name>; sum of trees => step-function draws
-            return GlyphSpec(kind="step", source="prior_family_only"), {"ys": list(_BART_STEPS)}, None
-        if cls in ("CustomDistRV", "SymbolicRandomVariable") or "CustomDist" in cls or "Simulator" in cls:
+        if cls.startswith(
+            "BART"
+        ):  # pymc-bart op is BART_<name>; sum of trees => step-function draws
+            return (
+                GlyphSpec(kind="step", source="prior_family_only"),
+                {"ys": list(_BART_STEPS)},
+                None,
+            )
+        if (
+            cls in ("CustomDistRV", "SymbolicRandomVariable")
+            or "CustomDist" in cls
+            or "Simulator" in cls
+        ):
             return _badge("custom density — elided")
     except Exception:
         return _badge("elided")

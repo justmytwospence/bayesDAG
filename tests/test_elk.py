@@ -88,10 +88,14 @@ def _cubic_samples(pts, n=28):
                 t = k / n
                 out.append(
                     (
-                        (1 - t) ** 3 * p0[0] + 3 * (1 - t) ** 2 * t * c1[0]
-                        + 3 * (1 - t) * t * t * c2[0] + t**3 * p3[0],
-                        (1 - t) ** 3 * p0[1] + 3 * (1 - t) ** 2 * t * c1[1]
-                        + 3 * (1 - t) * t * t * c2[1] + t**3 * p3[1],
+                        (1 - t) ** 3 * p0[0]
+                        + 3 * (1 - t) ** 2 * t * c1[0]
+                        + 3 * (1 - t) * t * t * c2[0]
+                        + t**3 * p3[0],
+                        (1 - t) ** 3 * p0[1]
+                        + 3 * (1 - t) ** 2 * t * c1[1]
+                        + 3 * (1 - t) * t * t * c2[1]
+                        + t**3 * p3[1],
                     )
                 )
     return out
@@ -112,8 +116,7 @@ def test_no_edge_passes_through_a_node(fixture, request):
             if nid in (e.source, e.target):
                 continue
             inside = any(
-                b.x + 1 <= x <= b.x + b.w - 1 and b.y + 1 <= y <= b.y + b.h - 1
-                for x, y in samples
+                b.x + 1 <= x <= b.x + b.w - 1 and b.y + 1 <= y <= b.y + b.h - 1 for x, y in samples
             )
             assert not inside, f"edge {e.source}->{e.target} passes through node {nid}"
 

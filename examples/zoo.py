@@ -61,7 +61,9 @@ def build_zero_inflated_counts():
         count_prob = pm.Beta("count_prob", 2.0, 2.0)  # P(a real count vs a structural zero)
         intercept = pm.Normal("intercept", 0, 1)
         # spike-and-slab (sparsity) prior on the slope — a latent Mixture → composite glyph
-        slope = pm.Mixture("slope", w=[0.8, 0.2], comp_dists=[pm.Normal.dist(0, 0.1), pm.Normal.dist(0, 2.0)])
+        slope = pm.Mixture(
+            "slope", w=[0.8, 0.2], comp_dists=[pm.Normal.dist(0, 0.1), pm.Normal.dist(0, 2.0)]
+        )
         xx = pm.Data("x", x, dims="obs")
         rate = pm.Deterministic("rate", pm.math.exp(intercept + slope * xx), dims="obs")
         pm.ZeroInflatedPoisson("y", psi=count_prob, mu=rate, observed=y, dims="obs")
@@ -86,7 +88,9 @@ def build_correlated_slopes():
         sigma = pm.Exponential("sigma", 1.0)
         ci = pm.Data("cafe_idx", cafe_idx, dims="obs")
         aft = pm.Data("afternoon", afternoon, dims="obs")
-        predicted = pm.Deterministic("predicted", cafe_effect[ci, 0] + cafe_effect[ci, 1] * aft, dims="obs")
+        predicted = pm.Deterministic(
+            "predicted", cafe_effect[ci, 0] + cafe_effect[ci, 1] * aft, dims="obs"
+        )
         pm.Normal("y", predicted, sigma, observed=y, dims="obs")
     return model
 
@@ -116,7 +120,9 @@ def build_gaussian_mixture():
     n = 200
     y = np.concatenate([rng.normal(-3, 1, n // 2), rng.normal(3, 1, n // 2)])
     with pm.Model(coords={"comp": [0, 1], "obs": np.arange(n)}) as model:
-        weights = pm.Dirichlet("weights", a=np.array([4.0, 2.0]), dims="comp")  # informative weights prior
+        weights = pm.Dirichlet(
+            "weights", a=np.array([4.0, 2.0]), dims="comp"
+        )  # informative weights prior
         mu = pm.Normal("mu", 0, 5, dims="comp")
         sigma = pm.HalfNormal("sigma", 2, dims="comp")
         pm.NormalMixture("y", w=weights, mu=mu, sigma=sigma, observed=y, dims="obs")
@@ -157,7 +163,12 @@ def build_ar_forecast():
     with pm.Model(coords={"t": np.arange(T)}) as model:
         sigma_obs = pm.HalfNormal("sigma_obs", 1.0)
         level = pm.AR(
-            "level", rho=[0.6, 0.2], sigma=0.4, init_dist=pm.Normal.dist(0, 1), constant=False, dims="t"
+            "level",
+            rho=[0.6, 0.2],
+            sigma=0.4,
+            init_dist=pm.Normal.dist(0, 1),
+            constant=False,
+            dims="t",
         )
         pm.Normal("y", level, sigma_obs, observed=y, dims="t")
     return model
@@ -208,8 +219,12 @@ def build_softmax_categorical():
     with pm.Model(coords={"obs": np.arange(n), "cat": np.arange(K)}) as model:
         intercept = pm.Normal("intercept", 0, 1, dims="cat")
         slope = pm.Normal("slope", 0, 1, dims="cat")
-        category_logits = pm.Deterministic("category_logits", intercept + slope * x[:, None], dims=("obs", "cat"))
-        probs = pm.Deterministic("probs", pm.math.softmax(category_logits, axis=-1), dims=("obs", "cat"))
+        category_logits = pm.Deterministic(
+            "category_logits", intercept + slope * x[:, None], dims=("obs", "cat")
+        )
+        probs = pm.Deterministic(
+            "probs", pm.math.softmax(category_logits, axis=-1), dims=("obs", "cat")
+        )
         pm.Categorical("y", p=probs, observed=y, dims="obs")
     return model
 
@@ -229,7 +244,9 @@ def build_probit_regression():
         intercept = pm.Normal("intercept", 0, 1)
         slope = pm.Normal("slope", 0, 1)
         linear_pred = pm.Deterministic("linear_pred", intercept + slope * x, dims="obs")
-        prob = pm.Deterministic("prob", 0.5 * (1.0 + pt.erf(linear_pred / np.sqrt(2.0))), dims="obs")
+        prob = pm.Deterministic(
+            "prob", 0.5 * (1.0 + pt.erf(linear_pred / np.sqrt(2.0))), dims="obs"
+        )
         pm.Bernoulli("y", p=prob, observed=y, dims="obs")
     return model
 
@@ -310,24 +327,33 @@ def build_bart_sum_of_trees():
     Y = np.sin(xv) + 0.1 * xv + rng.normal(0, 0.3, n)
     with pm.Model(coords={"tree": range(n_trees), "level": range(4), "obs": range(n)}) as model:
         x = pm.Data("x", xv, dims="obs")
-        n_trees_data = pm.Data("n_trees", float(n_trees))           # how many trees are summed (fixed)
-        depth = pm.Data("depth", np.arange(4), dims="level")        # tree depth levels 0..3
+        n_trees_data = pm.Data("n_trees", float(n_trees))  # how many trees are summed (fixed)
+        depth = pm.Data("depth", np.arange(4), dims="level")  # tree depth levels 0..3
         # fully-Bayesian: the tree-structure controls are LEARNED, each with its own prior
-        split_prob = pm.Beta("split_prob", 2, 5)                    # base probability a node splits
-        depth_penalty = pm.Gamma("depth_penalty", 3, 1)            # how fast splitting decays with depth (mean ~3)
-        leaf_shrinkage = pm.Gamma("leaf_shrinkage", 4, 2)          # pulls leaf values toward 0 (mean ~2)
+        split_prob = pm.Beta("split_prob", 2, 5)  # base probability a node splits
+        depth_penalty = pm.Gamma(
+            "depth_penalty", 3, 1
+        )  # how fast splitting decays with depth (mean ~3)
+        leaf_shrinkage = pm.Gamma("leaf_shrinkage", 4, 2)  # pulls leaf values toward 0 (mean ~2)
         # derived controls
-        pm.Deterministic("split_prob_by_depth", split_prob * (1.0 + depth) ** (-depth_penalty), dims="level")
-        leaf_scale = pm.Deterministic("leaf_scale", 0.5 / (leaf_shrinkage * pm.math.sqrt(n_trees_data)))
+        pm.Deterministic(
+            "split_prob_by_depth", split_prob * (1.0 + depth) ** (-depth_penalty), dims="level"
+        )
+        leaf_scale = pm.Deterministic(
+            "leaf_scale", 0.5 / (leaf_shrinkage * pm.math.sqrt(n_trees_data))
+        )
         # each tree's parameters
-        splits = pm.Bernoulli("splits", split_prob, dims="tree")    # does the tree split?
+        splits = pm.Bernoulli("splits", split_prob, dims="tree")  # does the tree split?
         split_point = pm.Uniform("split_point", 0, 10, dims="tree")
         leaf_left = pm.Normal("leaf_left", 0, leaf_scale, dims="tree")
         leaf_right = pm.Normal("leaf_right", 0, leaf_scale, dims="tree")
         tree_output = pm.Deterministic(
             "tree_output",
-            pm.math.where(splits[:, None].astype("bool") & (x[None, :] <= split_point[:, None]),
-                          leaf_left[:, None], leaf_right[:, None]),
+            pm.math.where(
+                splits[:, None].astype("bool") & (x[None, :] <= split_point[:, None]),
+                leaf_left[:, None],
+                leaf_right[:, None],
+            ),
             dims=("tree", "obs"),
         )
         prediction = pm.Deterministic("prediction", tree_output.sum(axis=0), dims="obs")

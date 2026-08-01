@@ -7,7 +7,16 @@ from bayesdag.ir import Box
 def test_registry_has_density_and_nonunivariate_kinds():
     ks = glyph.registered_kinds()
     assert {"density", "histogram", "hist_overlay", "bars", "schematic", "heatmap", "curve"} <= ks
-    assert {"fan", "pairplot", "mixture", "cutpoints", "simplex", "censored", "stem", "step"} <= ks  # special-construct kinds
+    assert {
+        "fan",
+        "pairplot",
+        "mixture",
+        "cutpoints",
+        "simplex",
+        "censored",
+        "stem",
+        "step",
+    } <= ks  # special-construct kinds
 
 
 def test_zero_reference_marker():
@@ -33,9 +42,9 @@ def test_conditional_latent_is_schematic_not_a_random_draw():
 
     def build(scale=1.0):
         with pm.Model() as m:
-            mu = pm.Normal("mu", 0, 5)             # root prior
+            mu = pm.Normal("mu", 0, 5)  # root prior
             sigma = pm.HalfNormal("sigma", scale)  # root prior
-            pm.Normal("x", mu, sigma)              # conditional latent: params depend on parents
+            pm.Normal("x", mu, sigma)  # conditional latent: params depend on parents
         return m
 
     g = {n.id: n.glyph for n in to_ir(build()).nodes}
@@ -57,7 +66,7 @@ def test_varying_vector_prior_does_not_plot_element_zero_as_the_node():
     from bayesdag.convert import to_ir
 
     with pm.Model(coords={"k": [0, 1]}) as m:
-        pm.Normal("iid", 0.0, 1.0, dims="k")                                # broadcast scalars
+        pm.Normal("iid", 0.0, 1.0, dims="k")  # broadcast scalars
         pm.Normal("varying", mu=np.array([0.0, 5.0]), sigma=np.array([1.0, 10.0]), dims="k")
         pm.Categorical("choice", p=np.array([0.2, 0.3, 0.5]))
 
@@ -80,10 +89,16 @@ def test_discrete_posterior_is_bars_and_vector_posterior_says_it_is_pooled():
     from bayesdag.render_svg import render_node_panel
 
     rng = np.random.default_rng(0)
-    idata = xr.DataTree.from_dict({"posterior": xr.Dataset({
-        "k": (("chain", "draw"), rng.poisson(3.0, size=(2, 200))),
-        "theta": (("chain", "draw", "g"), rng.normal(size=(2, 200, 4))),
-    })})
+    idata = xr.DataTree.from_dict(
+        {
+            "posterior": xr.Dataset(
+                {
+                    "k": (("chain", "draw"), rng.poisson(3.0, size=(2, 200))),
+                    "theta": (("chain", "draw", "g"), rng.normal(size=(2, 200, 4))),
+                }
+            )
+        }
+    )
     with pm.Model(coords={"g": range(4)}) as m:
         pm.Poisson("k", 3.0)
         pm.Normal("theta", 0.0, 1.0, dims="g")
@@ -143,12 +158,20 @@ def test_mixture_components_are_weighted_only_when_the_weights_are_known():
 
 def test_special_glyph_kinds_render():
     b = Box(0, 0, 80, 40)
-    assert "<path" in glyph.render("fan", {"mid": [0.5, 0.5, 0.5], "lo": [0.4, 0.3, 0.2], "hi": [0.6, 0.7, 0.8]}, b)
+    assert "<path" in glyph.render(
+        "fan", {"mid": [0.5, 0.5, 0.5], "lo": [0.4, 0.3, 0.2], "hi": [0.6, 0.7, 0.8]}, b
+    )
     assert "<ellipse" in glyph.render("pairplot", {"cov": [[1.0, 0.6], [0.6, 1.0]]}, b)
-    assert glyph.render("mixture", {"curves": [{"xs": [0, 1, 2], "ys": [0, 1, 0]}], "spike": 0.3}, b)
-    assert "<rect" in glyph.render("cutpoints", {"probs": [0.2, 0.5, 0.3], "cutpoints": [-1.0, 1.0]}, b)
+    assert glyph.render(
+        "mixture", {"curves": [{"xs": [0, 1, 2], "ys": [0, 1, 0]}], "spike": 0.3}, b
+    )
+    assert "<rect" in glyph.render(
+        "cutpoints", {"probs": [0.2, 0.5, 0.3], "cutpoints": [-1.0, 1.0]}, b
+    )
     assert "<path" in glyph.render("simplex", {"curves": [{"xs": [0, 0.5, 1], "ys": [0, 1, 0]}]}, b)
-    assert "<rect" in glyph.render("censored", {"xs": [0, 1, 2], "ys": [0.2, 1, 0.2], "spikes": [{"x": 0.0, "h": 0.5}]}, b)
+    assert "<rect" in glyph.render(
+        "censored", {"xs": [0, 1, 2], "ys": [0.2, 1, 0.2], "spikes": [{"x": 0.0, "h": 0.5}]}, b
+    )
 
 
 def test_glyph_sources(eight_schools_ir):

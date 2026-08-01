@@ -32,7 +32,7 @@ def test_relayout_leaves_no_stale_geometry_on_the_ir(eight_schools_ir):
     from bayesdag.render_svg import to_svg
 
     ir = eight_schools_ir
-    first = layout(ir, rankdir="TB")
+    layout(ir, rankdir="TB")
     stale = {n.id: n.box for n in ir.nodes}
     second = layout(ir, rankdir="LR")
 
@@ -66,15 +66,14 @@ def test_param_edges_land_on_token_without_overlap(eight_schools_ir):
     # every node is bordered (incl. the deterministic equation box): arrows land a STANDOFF above the
     # box's TOP border, in the token's column — the column says WHICH parameter, the box stays
     # uncrossed. (edge, node, token)
-    for edge, node, tok in [("theta|y_obs", "y_obs", "loc"),
-                            ("mu|theta", "theta", "mu")]:
+    for edge, node, tok in [("theta|y_obs", "y_obs", "loc"), ("mu|theta", "theta", "mu")]:
         a = res.node_token_anchors[node][tok]
         cx = a.x + a.w / 2.0
         end = res.edge_paths[edge][-1]
-        assert abs(end[0] - cx) < 1.5             # centered on the token column
-        assert end[1] < a.y                       # arrowhead above the token (never covers it)
-        surface = res.node_boxes[node].y           # the box top border
-        assert end[1] < surface + 0.5             # outside/above the box
+        assert abs(end[0] - cx) < 1.5  # centered on the token column
+        assert end[1] < a.y  # arrowhead above the token (never covers it)
+        surface = res.node_boxes[node].y  # the box top border
+        assert end[1] < surface + 0.5  # outside/above the box
         assert abs((surface - end[1]) - STANDOFF) < 1.5
 
 

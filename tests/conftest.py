@@ -105,7 +105,9 @@ def build_irt():
     ii = np.tile(np.arange(ni), ns)
     th, a_t, b_t = rng.normal(0, 1, ns), rng.lognormal(0, 0.3, ni), rng.normal(0, 1, ni)
     y = rng.binomial(1, 1 / (1 + np.exp(-(a_t[ii] * (th[si] - b_t[ii])))))
-    with pm.Model(coords={"student": np.arange(ns), "item": np.arange(ni), "obs": np.arange(no)}) as model:
+    with pm.Model(
+        coords={"student": np.arange(ns), "item": np.arange(ni), "obs": np.arange(no)}
+    ) as model:
         theta = pm.Normal("theta", 0, 1, dims="student")
         mu_a = pm.Normal("mu_a", 0, 1)
         sigma_a = pm.HalfNormal("sigma_a", 1)
@@ -125,11 +127,20 @@ def build_mrp():
     converging on one logit — six plates, ~7 convergent parents."""
     rng = np.random.default_rng(3)
     ns, na, ne, nh, nr, no = 8, 4, 4, 4, 4, 400
-    idx = {k: rng.integers(0, n, no) for k, n in (("s", ns), ("a", na), ("e", ne), ("h", nh), ("r", nr))}
+    idx = {
+        k: rng.integers(0, n, no)
+        for k, n in (("s", ns), ("a", na), ("e", ne), ("h", nh), ("r", nr))
+    }
     male = rng.integers(0, 2, no).astype(float)
     y = rng.binomial(1, 0.5, no)
-    coords = {"state": np.arange(ns), "age": np.arange(na), "edu": np.arange(ne),
-              "eth": np.arange(nh), "region": np.arange(nr), "obs": np.arange(no)}
+    coords = {
+        "state": np.arange(ns),
+        "age": np.arange(na),
+        "edu": np.arange(ne),
+        "eth": np.arange(nh),
+        "region": np.arange(nr),
+        "obs": np.arange(no),
+    }
     with pm.Model(coords=coords) as model:
         a = pm.Normal("a", 0, 1)
 
@@ -139,8 +150,11 @@ def build_mrp():
             return pm.Deterministic(name, z * sg, dims=dim)
 
         a_s, a_a, a_e, a_h, a_r = (
-            re("a_state", "state"), re("a_age", "age"), re("a_edu", "edu"),
-            re("a_eth", "eth"), re("a_region", "region"),
+            re("a_state", "state"),
+            re("a_age", "age"),
+            re("a_edu", "edu"),
+            re("a_eth", "eth"),
+            re("a_region", "region"),
         )
         bm = pm.Normal("b_male", 0, 1)
         S = pm.Data("state_idx", idx["s"], dims="obs")
@@ -149,7 +163,9 @@ def build_mrp():
         H = pm.Data("eth_idx", idx["h"], dims="obs")
         R = pm.Data("region_idx", idx["r"], dims="obs")
         M = pm.Data("male", male, dims="obs")
-        p = pm.Deterministic("p", a + a_s[S] + a_a[A] + a_e[E] + a_h[H] + a_r[R] + bm * M, dims="obs")
+        p = pm.Deterministic(
+            "p", a + a_s[S] + a_a[A] + a_e[E] + a_h[H] + a_r[R] + bm * M, dims="obs"
+        )
         pm.Bernoulli("y", logit_p=p, observed=y, dims="obs")
     return model
 

@@ -29,12 +29,12 @@ Role = Literal["latent", "observed", "deterministic", "data", "potential", "fact
 
 # How a glyph's shape was obtained (orthogonal to the glyph ``kind``).
 GlyphSource = Literal[
-    "prior_analytic",      # family density with the node's real numeric params plugged in
-    "prior_family_only",   # params depend on parents -> prior-predictive or canonical shape
-    "posterior_kde",       # KDE of idata.posterior[name]
-    "posterior_bars",      # posterior of a DISCRETE variable -> per-class proportions, not a KDE
-    "observed_hist",       # observed data -> histogram (auto-binned), not a KDE
-    "deterministic_fn",    # canonical, parameter-free shape of a Deterministic's transfer function
+    "prior_analytic",  # family density with the node's real numeric params plugged in
+    "prior_family_only",  # params depend on parents -> prior-predictive or canonical shape
+    "posterior_kde",  # KDE of idata.posterior[name]
+    "posterior_bars",  # posterior of a DISCRETE variable -> per-class proportions, not a KDE
+    "observed_hist",  # observed data -> histogram (auto-binned), not a KDE
+    "deterministic_fn",  # canonical, parameter-free shape of a Deterministic's transfer function
 ]
 
 
@@ -79,11 +79,13 @@ class GlyphSpec:
     is always the primary mark. ``interval``/``point`` are OPTIONAL annotations a kind may
     ignore (the registry core is glyph-agnostic, so non-univariate kinds are first-class)."""
 
-    kind: str = "density"          # density|cdf|ccdf|histogram|gradient|dotplot|band|heatmap|ternary|rose|...
+    kind: str = (
+        "density"  # density|cdf|ccdf|histogram|gradient|dotplot|band|heatmap|ternary|rose|...
+    )
     source: GlyphSource = "prior_analytic"
-    interval: Optional[list[float]] = None   # credible-interval probabilities, e.g. [0.5, 0.94]
-    point: Optional[str] = None              # "median" | "mean" | "mode" | None
-    layout: Optional[str] = None             # "ridgeline" for vector-valued params, else None
+    interval: Optional[list[float]] = None  # credible-interval probabilities, e.g. [0.5, 0.94]
+    point: Optional[str] = None  # "median" | "mean" | "mode" | None
+    layout: Optional[str] = None  # "ridgeline" for vector-valued params, else None
     transform: Optional[dict[str, Any]] = None  # e.g. {"animate": "hops", "frames": 20}
 
 
@@ -91,8 +93,8 @@ class GlyphSpec:
 class OverlayRef:
     """A pointer into the user's ArviZ InferenceData (we reference, never duplicate)."""
 
-    idata_group: str               # "posterior" | "prior" | "observed_data" | "posterior_predictive" | ...
-    var_name: str                  # MUST equal the idata variable name
+    idata_group: str  # "posterior" | "prior" | "observed_data" | "posterior_predictive" | ...
+    var_name: str  # MUST equal the idata variable name
     var_dims: list[str] = field(default_factory=list)
     sample_dims: list[str] = field(default_factory=lambda: ["chain", "draw"])
 
@@ -100,19 +102,21 @@ class OverlayRef:
 # --------------------------------------------------------------------------- graph
 @dataclass
 class NodeIR:
-    id: str                        # = the constrained idata variable name (universal join key)
+    id: str  # = the constrained idata variable name (universal join key)
     role: Role
-    observed: bool = False         # current conditioning state (mutable; drives shading)
-    dist: Optional[str] = None     # distribution name ("Normal"); None for deterministic/factor/data
+    observed: bool = False  # current conditioning state (mutable; drives shading)
+    dist: Optional[str] = None  # distribution name ("Normal"); None for deterministic/factor/data
     params: list[ParamIR] = field(default_factory=list)
     dims: list[Optional[str]] = field(default_factory=list)
     coords: Optional[dict[str, list[Any]]] = None
     label_tex: str = ""
     label_tree: Optional[TokenIR] = None
-    transform: Optional[str] = None              # e.g. "log", "logodds", "simplex"
+    transform: Optional[str] = None  # e.g. "log", "logodds", "simplex"
     idata_unconstrained_key: Optional[str] = None  # e.g. "tau_log__" in unconstrained_posterior
     glyph: Optional[GlyphSpec] = None
-    glyph_data: Optional[dict[str, Any]] = None  # precomputed shape (xs/ys or edges/counts), shipped in-band
+    glyph_data: Optional[dict[str, Any]] = (
+        None  # precomputed shape (xs/ys or edges/counts), shipped in-band
+    )
     overlays: list[OverlayRef] = field(default_factory=list)
     representable: bool = True
     elision_reason: Optional[str] = None
@@ -127,15 +131,15 @@ class NodeIR:
 class EdgeIR:
     source: str
     target: str
-    target_token_id: Optional[str] = None   # which param token; None => center-anchor fallback
+    target_token_id: Optional[str] = None  # which param token; None => center-anchor fallback
 
 
 @dataclass
 class PlateIR:
     id: str
-    label: str                     # e.g. "school (8)"
+    label: str  # e.g. "school (8)"
     members: list[str] = field(default_factory=list)
-    parent: Optional[str] = None   # enclosing plate id (nested plates)
+    parent: Optional[str] = None  # enclosing plate id (nested plates)
     box: Optional[Box] = None
 
 
@@ -144,21 +148,21 @@ class AuxViewIR:
     """A linked auxiliary panel (posterior geometry, parcoord, energy, ...). Stats are
     precomputed in Python; the JS layer only re-styles on selection (M2+)."""
 
-    kind: str                      # "joint" | "parcoord" | "energy" | "marginal"
+    kind: str  # "joint" | "parcoord" | "energy" | "marginal"
     vars: list[str] = field(default_factory=list)
-    edge: Optional[list[str]] = None         # [source, target] when the panel is edge-driven
-    axis_space: str = "constrained"          # "constrained" | "unconstrained"
+    edge: Optional[list[str]] = None  # [source, target] when the panel is edge-driven
+    axis_space: str = "constrained"  # "constrained" | "unconstrained"
     data_ref: Optional[dict[str, Any]] = None  # precomputed bins/density/divergence masks
 
 
 @dataclass
 class Meta:
     schema_version: str = SCHEMA_VERSION
-    source_ppl: Optional[str] = None         # "pymc" | "numpyro" | "stan" | ...
+    source_ppl: Optional[str] = None  # "pymc" | "numpyro" | "stan" | ...
     creation_library: str = "bayesdag"
     creation_library_version: Optional[str] = None
     creation_library_language: str = "python"
-    created_at: Optional[str] = None         # ISO-8601, stamped at build time
+    created_at: Optional[str] = None  # ISO-8601, stamped at build time
     model_name: Optional[str] = None
 
     @classmethod
@@ -186,7 +190,9 @@ class LayoutResult:
     canvas: Optional[Box] = None
     node_boxes: dict[str, Box] = field(default_factory=dict)
     node_token_anchors: dict[str, dict[str, Box]] = field(default_factory=dict)
-    edge_paths: dict[str, list[list[float]]] = field(default_factory=dict)  # "src|tgt" -> [[x,y],...]
+    edge_paths: dict[str, list[list[float]]] = field(
+        default_factory=dict
+    )  # "src|tgt" -> [[x,y],...]
     plate_boxes: dict[str, Box] = field(default_factory=dict)
 
 

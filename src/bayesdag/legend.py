@@ -39,8 +39,12 @@ def build(ir: ModelIR) -> list[LegendItem]:
             items.append(LegendItem(f"role:{role}", _ROLE_LABELS[role]))
 
     for src in (
-        "prior_analytic", "posterior_kde", "posterior_bars", "observed_hist",
-        "prior_family_only", "deterministic_fn",
+        "prior_analytic",
+        "posterior_kde",
+        "posterior_bars",
+        "observed_hist",
+        "prior_family_only",
+        "deterministic_fn",
     ):
         if any(n.glyph and n.glyph.source == src for n in ir.nodes):
             items.append(LegendItem(f"glyph:{src}", _SOURCE_LABELS[src]))

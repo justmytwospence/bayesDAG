@@ -16,8 +16,8 @@ from bayesdag.adapters.pytensor_latex import _const_tex, _fmt_scalar, _is_wrappe
 @pytest.mark.parametrize(
     "value,expected",
     [
-        (2.0, "2"),                       # a whole float reads as an integer, not "2.0000"
-        (0.6666666666, "0.6667"),         # ~4 significant figures
+        (2.0, "2"),  # a whole float reads as an integer, not "2.0000"
+        (0.6666666666, "0.6667"),  # ~4 significant figures
         (-1.5, "-1.5"),
         (float("inf"), r"\infty"),
         (float("-inf"), r"-\infty"),
@@ -33,7 +33,7 @@ def test_scalar_formatting(value, expected):
     [
         (np.array(3.0), "3"),
         (np.array([]), r"[\,]"),
-        (np.array([2.0, 2.0, 2.0]), "2"),                       # constant vector -> the value
+        (np.array([2.0, 2.0, 2.0]), "2"),  # constant vector -> the value
         (np.array([1.0, 2.0]), r"[1,\,2]"),
         (np.array([1.0, 2.0, 3.0, 4.0, 5.0]), r"[1,\,2,\,3,\,\ldots]"),  # long -> head + ellipsis
     ],

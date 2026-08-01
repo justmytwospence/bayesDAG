@@ -34,7 +34,14 @@ _DIRECTION = {"TB": "DOWN", "BT": "UP", "LR": "RIGHT", "RL": "LEFT"}
 _PLATE_PADDING = "[top=14.0,left=14.0,bottom=28.0,right=14.0]"  # bottom: room for the plate label
 # corner radii of the rendered node chrome (render_svg._CHROME) — edges must exit/enter on the
 # straight part of the border, not the cut corner (deterministic boxes use a small radius).
-_CORNER_RX = {"latent": 9.0, "observed": 9.0, "deterministic": 3.0, "data": 11.0, "potential": 3.0, "factor": 3.0}
+_CORNER_RX = {
+    "latent": 9.0,
+    "observed": 9.0,
+    "deterministic": 3.0,
+    "data": 11.0,
+    "potential": 3.0,
+    "factor": 3.0,
+}
 
 # Synchronous in-process worker: run the GWT engine in its own `self` (inheriting
 # Error/Math from globalThis) and expose a Worker-like handle the elk-api talks to.
@@ -121,7 +128,10 @@ class ElkEngine:
                 "globalThis.setTimeout=function(f,d){return __bd_st(f,(d&&d>0)?d:1);};"
             )
             ctx.eval(_WORKER_SHIM)
-            ctx.eval("globalThis.__elkWorkerSrc = " + json.dumps(self._worker_path.read_text(encoding="utf-8")))
+            ctx.eval(
+                "globalThis.__elkWorkerSrc = "
+                + json.dumps(self._worker_path.read_text(encoding="utf-8"))
+            )
             ctx.eval(
                 "var module={exports:{}},exports=module.exports,require=function(){return {};};\n"
                 + self._api_path.read_text(encoding="utf-8")
@@ -212,8 +222,14 @@ def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
             pid = _port_id(n.id, tok)
             port_ids.add(pid)
             ports.append(
-                {"id": pid, "x": px, "y": 0.0, "width": 1.0, "height": 1.0,
-                 "layoutOptions": {"elk.port.side": "NORTH"}}
+                {
+                    "id": pid,
+                    "x": px,
+                    "y": 0.0,
+                    "width": 1.0,
+                    "height": 1.0,
+                    "layoutOptions": {"elk.port.side": "NORTH"},
+                }
             )
         # a deterministic equation's value flows out of its LHS variable: give it a SOUTH port at
         # that variable's x so ELK routes the outgoing edge from the variable, not the box edge.
@@ -225,8 +241,14 @@ def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
                 pid = _port_id(n.id, LHS_TOKEN)
                 port_ids.add(pid)
                 ports.append(
-                    {"id": pid, "x": px, "y": float(h), "width": 1.0, "height": 1.0,
-                     "layoutOptions": {"elk.port.side": "SOUTH"}}
+                    {
+                        "id": pid,
+                        "x": px,
+                        "y": float(h),
+                        "width": 1.0,
+                        "height": 1.0,
+                        "layoutOptions": {"elk.port.side": "SOUTH"},
+                    }
                 )
         if ports:
             d["ports"] = ports
@@ -234,11 +256,15 @@ def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
         return d
 
     def plate_json(p, seen: frozenset = frozenset()) -> dict:
-        children = [node_json(by_id[m]) for m in p.members if m in by_id and member_plate.get(m) == p.id]
+        children = [
+            node_json(by_id[m]) for m in p.members if m in by_id and member_plate.get(m) == p.id
+        ]
         # `seen` breaks a self- or mutually-parented plate cycle: malformed input should not
         # recurse until the interpreter dies
         nest = seen | {p.id}
-        children += [plate_json(cp, nest) for cp in ir.plates if cp.parent == p.id and cp.id not in nest]
+        children += [
+            plate_json(cp, nest) for cp in ir.plates if cp.parent == p.id and cp.id not in nest
+        ]
         return {"id": p.id, "layoutOptions": {"elk.padding": _PLATE_PADDING}, "children": children}
 
     root_children = [plate_json(p) for p in ir.plates if p.parent is None]
@@ -257,7 +283,9 @@ def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
     edges = []
     for i, e in ordered:
         spid = _port_id(e.source, LHS_TOKEN)
-        src = spid if spid in port_ids else e.source  # deterministic sources exit via their LHS port
+        src = (
+            spid if spid in port_ids else e.source
+        )  # deterministic sources exit via their LHS port
         pid = _port_id(e.target, e.target_token_id) if e.target_token_id else None
         tgt = pid if pid in port_ids else e.target
         edges.append({"id": f"e{i}", "sources": [src], "targets": [tgt]})
@@ -350,8 +378,10 @@ def _attach_source(pts: list, e, res: LayoutResult, roles: dict, anchor) -> None
     if roles.get(e.source) == "deterministic":
         return
     tb = res.node_boxes.get(e.target)
-    tok = (anchor.x + anchor.w / 2.0) if anchor is not None else (
-        tb.x + tb.w / 2.0 if tb is not None else pts[0][0]
+    tok = (
+        (anchor.x + anchor.w / 2.0)
+        if anchor is not None
+        else (tb.x + tb.w / 2.0 if tb is not None else pts[0][0])
     )
     rx = _CORNER_RX.get(roles.get(e.source), 9.0)
     inset = max(1.0, rx - _EXIT_CORNER_INCURSION)

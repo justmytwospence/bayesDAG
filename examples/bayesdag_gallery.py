@@ -102,10 +102,12 @@ def _(bayesdag, es_model, mo):
 
 @app.cell
 def _(es_model, graphviz_fit, mo):
-    mo.vstack([
-        mo.md("**Baseline — PyMC's built-in `model_to_graphviz` for the same model:**"),
-        graphviz_fit(es_model),
-    ])
+    mo.vstack(
+        [
+            mo.md("**Baseline — PyMC's built-in `model_to_graphviz` for the same model:**"),
+            graphviz_fit(es_model),
+        ]
+    )
     return
 
 
@@ -156,7 +158,9 @@ def _(np, pm):
     floor = rng.integers(0, 2, n_obs).astype(float)
     a_true = rng.normal(1.2, 0.5, n_counties)
     radon_log = a_true[county_idx] - 0.6 * floor + rng.normal(0, 0.4, n_obs)
-    with pm.Model(coords={"county": [f"C{i}" for i in range(n_counties)], "obs": np.arange(n_obs)}) as radon_model:
+    with pm.Model(
+        coords={"county": [f"C{i}" for i in range(n_counties)], "obs": np.arange(n_obs)}
+    ) as radon_model:
         mu_a = pm.Normal("mu_a", 0, 5)
         sigma_a = pm.HalfNormal("sigma_a", 5)
         a = pm.Normal("a", mu_a, sigma_a, dims="county")
@@ -190,10 +194,12 @@ def _(bayesdag, mo, radon_model):
 
 @app.cell
 def _(graphviz_fit, mo, radon_model):
-    mo.vstack([
-        mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
-        graphviz_fit(radon_model),
-    ])
+    mo.vstack(
+        [
+            mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
+            graphviz_fit(radon_model),
+        ]
+    )
     return
 
 
@@ -250,7 +256,9 @@ def _(np, pm):
         hr_X1 = pm.Data("x1", hr_x1, dims="obs")
         hr_X2 = pm.Data("x2", hr_x2, dims="obs")
         hr_X3 = pm.Data("x3", hr_x3, dims="obs")
-        pm.Deterministic("mu", hr_a[hr_cc] + hr_b1 * hr_X1 + hr_b2 * hr_X2 + hr_b3 * hr_X3, dims="obs")
+        pm.Deterministic(
+            "mu", hr_a[hr_cc] + hr_b1 * hr_X1 + hr_b2 * hr_X2 + hr_b3 * hr_X3, dims="obs"
+        )
         pm.Normal("y", hr_model.named_vars["mu"], hr_s, observed=hr_y, dims="obs")
     return (hr_model,)
 
@@ -263,10 +271,12 @@ def _(bayesdag, hr_model, mo):
 
 @app.cell
 def _(graphviz_fit, hr_model, mo):
-    mo.vstack([
-        mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
-        graphviz_fit(hr_model),
-    ])
+    mo.vstack(
+        [
+            mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
+            graphviz_fit(hr_model),
+        ]
+    )
     return
 
 
@@ -292,8 +302,12 @@ def _(np, pm):
     irt_th = irt_rng.normal(0, 1, irt_ns)
     irt_at = irt_rng.lognormal(0, 0.3, irt_ni)
     irt_bt = irt_rng.normal(0, 1, irt_ni)
-    irt_obs = irt_rng.binomial(1, 1 / (1 + np.exp(-(irt_at[irt_ii] * (irt_th[irt_si] - irt_bt[irt_ii])))))
-    with pm.Model(coords={"student": np.arange(irt_ns), "item": np.arange(irt_ni), "obs": np.arange(irt_no)}) as irt_model:
+    irt_obs = irt_rng.binomial(
+        1, 1 / (1 + np.exp(-(irt_at[irt_ii] * (irt_th[irt_si] - irt_bt[irt_ii]))))
+    )
+    with pm.Model(
+        coords={"student": np.arange(irt_ns), "item": np.arange(irt_ni), "obs": np.arange(irt_no)}
+    ) as irt_model:
         irt_theta = pm.Normal("theta", 0, 1, dims="student")
         irt_mua = pm.Normal("mu_a", 0, 1)
         irt_saa = pm.HalfNormal("sigma_a", 1)
@@ -316,10 +330,12 @@ def _(bayesdag, irt_model, mo):
 
 @app.cell
 def _(graphviz_fit, irt_model, mo):
-    mo.vstack([
-        mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
-        graphviz_fit(irt_model),
-    ])
+    mo.vstack(
+        [
+            mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
+            graphviz_fit(irt_model),
+        ]
+    )
     return
 
 
@@ -339,10 +355,20 @@ def _(mo):
 def _(np, pm):
     mrp_rng = np.random.default_rng(3)
     mrp_ns, mrp_na, mrp_ne, mrp_nh, mrp_nr, mrp_no = 8, 4, 4, 4, 4, 400
-    mrp_idx = {k: mrp_rng.integers(0, n, mrp_no) for k, n in (("s", mrp_ns), ("a", mrp_na), ("e", mrp_ne), ("h", mrp_nh), ("r", mrp_nr))}
+    mrp_idx = {
+        k: mrp_rng.integers(0, n, mrp_no)
+        for k, n in (("s", mrp_ns), ("a", mrp_na), ("e", mrp_ne), ("h", mrp_nh), ("r", mrp_nr))
+    }
     mrp_male = mrp_rng.integers(0, 2, mrp_no).astype(float)
     mrp_y = mrp_rng.binomial(1, 0.5, mrp_no)
-    mrp_coords = {"state": np.arange(mrp_ns), "age": np.arange(mrp_na), "edu": np.arange(mrp_ne), "eth": np.arange(mrp_nh), "region": np.arange(mrp_nr), "obs": np.arange(mrp_no)}
+    mrp_coords = {
+        "state": np.arange(mrp_ns),
+        "age": np.arange(mrp_na),
+        "edu": np.arange(mrp_ne),
+        "eth": np.arange(mrp_nh),
+        "region": np.arange(mrp_nr),
+        "obs": np.arange(mrp_no),
+    }
     with pm.Model(coords=mrp_coords) as mrp_model:
         mrp_a = pm.Normal("a", 0, 1)
 
@@ -363,7 +389,17 @@ def _(np, pm):
         mrp_H = pm.Data("eth_idx", mrp_idx["h"], dims="obs")
         mrp_R = pm.Data("region_idx", mrp_idx["r"], dims="obs")
         mrp_M = pm.Data("male", mrp_male, dims="obs")
-        pm.Deterministic("p", mrp_a + mrp_as[mrp_S] + mrp_aa[mrp_A] + mrp_ae[mrp_E] + mrp_ah[mrp_H] + mrp_ar[mrp_R] + mrp_bm * mrp_M, dims="obs")
+        pm.Deterministic(
+            "p",
+            mrp_a
+            + mrp_as[mrp_S]
+            + mrp_aa[mrp_A]
+            + mrp_ae[mrp_E]
+            + mrp_ah[mrp_H]
+            + mrp_ar[mrp_R]
+            + mrp_bm * mrp_M,
+            dims="obs",
+        )
         pm.Bernoulli("y", logit_p=mrp_model.named_vars["p"], observed=mrp_y, dims="obs")
     return (mrp_model,)
 
@@ -376,10 +412,12 @@ def _(bayesdag, mo, mrp_model):
 
 @app.cell
 def _(graphviz_fit, mo, mrp_model):
-    mo.vstack([
-        mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
-        graphviz_fit(mrp_model),
-    ])
+    mo.vstack(
+        [
+            mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
+            graphviz_fit(mrp_model),
+        ]
+    )
     return
 
 
@@ -422,7 +460,12 @@ def _(np, pm):
         jm_g0 = pm.Normal("gamma0", 0, 2)
         jm_al = pm.Normal("alpha", 0, 1)
         pm.Deterministic("log_rate", jm_g0 + jm_al * jm_b1, dims="subject")
-        pm.Exponential("event_time", pm.math.exp(-jm_model.named_vars["log_rate"]), observed=jm_ev, dims="subject")
+        pm.Exponential(
+            "event_time",
+            pm.math.exp(-jm_model.named_vars["log_rate"]),
+            observed=jm_ev,
+            dims="subject",
+        )
     return (jm_model,)
 
 
@@ -434,10 +477,12 @@ def _(bayesdag, jm_model, mo):
 
 @app.cell
 def _(graphviz_fit, jm_model, mo):
-    mo.vstack([
-        mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
-        graphviz_fit(jm_model),
-    ])
+    mo.vstack(
+        [
+            mo.md("**Baseline — PyMC `model_to_graphviz`:**"),
+            graphviz_fit(jm_model),
+        ]
+    )
     return
 
 
@@ -451,12 +496,14 @@ def _():
 @app.cell
 def _(bayesdag, graphviz_fit, mo):
     def show(model, title, blurb):
-        return mo.vstack([
-            mo.md(f"## {title}\n\n{blurb}"),
-            mo.ui.anywidget(bayesdag.view(model).widget()),
-            mo.md("**PyMC `model_to_graphviz` for the same model:**"),
-            graphviz_fit(model),
-        ])
+        return mo.vstack(
+            [
+                mo.md(f"## {title}\n\n{blurb}"),
+                mo.ui.anywidget(bayesdag.view(model).widget()),
+                mo.md("**PyMC `model_to_graphviz` for the same model:**"),
+                graphviz_fit(model),
+            ]
+        )
 
     return (show,)
 

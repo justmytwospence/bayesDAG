@@ -25,31 +25,71 @@ def _glyph(builder):
 # (label, builder, expected kind) — each builds a deterministic named "d" that IS provably depictable.
 _DRAW = [
     ("invlogit", lambda: pm.Deterministic("d", pm.math.invlogit(pm.Normal("x", 0, 1))), "curve"),
-    ("exp", lambda: pm.Deterministic("d", pm.math.exp(pm.Normal("a", 0, 1) + pm.Normal("b", 0, 1))), "curve"),
+    (
+        "exp",
+        lambda: pm.Deterministic("d", pm.math.exp(pm.Normal("a", 0, 1) + pm.Normal("b", 0, 1))),
+        "curve",
+    ),
     ("log", lambda: pm.Deterministic("d", pm.math.log(pm.HalfNormal("x", 1))), "curve"),
     ("softplus", lambda: pm.Deterministic("d", pt.softplus(pm.Normal("x", 0, 1))), "curve"),
     ("tanh", lambda: pm.Deterministic("d", pt.tanh(pm.Normal("x", 0, 1))), "curve"),
     ("sqrt", lambda: pm.Deterministic("d", pt.sqrt(pm.HalfNormal("x", 1))), "curve"),
     ("abs", lambda: pm.Deterministic("d", abs(pm.Normal("x", 0, 1))), "curve"),
     ("pow2", lambda: pm.Deterministic("d", pm.Normal("x", 0, 1) ** 2), "curve"),
-    ("probit (0.5(1+erf))", lambda: pm.Deterministic("d", 0.5 * (1 + pt.erf(pm.Normal("x", 0, 1)))), "curve"),
-    ("scaled invlogit", lambda: pm.Deterministic("d", 2.0 * pm.math.invlogit(pm.Normal("x", 0, 1))), "curve"),
+    (
+        "probit (0.5(1+erf))",
+        lambda: pm.Deterministic("d", 0.5 * (1 + pt.erf(pm.Normal("x", 0, 1)))),
+        "curve",
+    ),
+    (
+        "scaled invlogit",
+        lambda: pm.Deterministic("d", 2.0 * pm.math.invlogit(pm.Normal("x", 0, 1))),
+        "curve",
+    ),
     ("reflected -exp", lambda: pm.Deterministic("d", -pm.math.exp(pm.Normal("x", 0, 1))), "curve"),
-    ("affine (a + b*data)", lambda: pm.Deterministic("d", pm.Normal("a", 0, 1) + pm.Normal("b", 0, 1) * np.arange(5.0)), "curve"),
-    ("softmax", lambda: pm.Deterministic("d", pm.math.softmax(pm.Normal("e", 0, 1, shape=3))), "bars"),
+    (
+        "affine (a + b*data)",
+        lambda: pm.Deterministic("d", pm.Normal("a", 0, 1) + pm.Normal("b", 0, 1) * np.arange(5.0)),
+        "curve",
+    ),
+    (
+        "softmax",
+        lambda: pm.Deterministic("d", pm.math.softmax(pm.Normal("e", 0, 1, shape=3))),
+        "bars",
+    ),
 ]
 
 # Builders whose deterministic "d" is NOT provably depictable -> equation-only (glyph is None).
 _SKIP = [
-    ("bilinear tau*eta", lambda: pm.Deterministic("d", pm.HalfNormal("t", 1) * pm.Normal("e", 0, 1))),
-    ("manual sigmoid 1/(1+e^-x)", lambda: pm.Deterministic("d", 1.0 / (1.0 + pm.math.exp(-pm.Normal("x", 0, 1))))),
+    (
+        "bilinear tau*eta",
+        lambda: pm.Deterministic("d", pm.HalfNormal("t", 1) * pm.Normal("e", 0, 1)),
+    ),
+    (
+        "manual sigmoid 1/(1+e^-x)",
+        lambda: pm.Deterministic("d", 1.0 / (1.0 + pm.math.exp(-pm.Normal("x", 0, 1)))),
+    ),
     ("reciprocal 1/x", lambda: pm.Deterministic("d", 1.0 / pm.HalfNormal("x", 1))),
     ("sum reduction", lambda: pm.Deterministic("d", pt.sum(pm.Normal("x", 0, 1, shape=4)))),
     ("mean reduction", lambda: pm.Deterministic("d", pt.mean(pm.Normal("x", 0, 1, shape=4)))),
-    ("exp(x)*parent", lambda: pm.Deterministic("d", pm.math.exp(pm.Normal("x", 0, 1)) * pm.HalfNormal("s", 1))),
-    ("two transfers exp+log", lambda: pm.Deterministic("d", pm.math.exp(pm.Normal("a", 0, 1)) + pm.math.log(pm.HalfNormal("b", 1)))),
-    ("pure gather a[idx]", lambda: pm.Deterministic("d", pm.Normal("a", 0, 1, shape=3)[np.array([0, 1, 2, 0])])),
-    ("non-const exponent x**k", lambda: pm.Deterministic("d", pm.HalfNormal("x", 1) ** pm.Normal("k", 0, 1))),
+    (
+        "exp(x)*parent",
+        lambda: pm.Deterministic("d", pm.math.exp(pm.Normal("x", 0, 1)) * pm.HalfNormal("s", 1)),
+    ),
+    (
+        "two transfers exp+log",
+        lambda: pm.Deterministic(
+            "d", pm.math.exp(pm.Normal("a", 0, 1)) + pm.math.log(pm.HalfNormal("b", 1))
+        ),
+    ),
+    (
+        "pure gather a[idx]",
+        lambda: pm.Deterministic("d", pm.Normal("a", 0, 1, shape=3)[np.array([0, 1, 2, 0])]),
+    ),
+    (
+        "non-const exponent x**k",
+        lambda: pm.Deterministic("d", pm.HalfNormal("x", 1) ** pm.Normal("k", 0, 1)),
+    ),
 ]
 
 
@@ -133,7 +173,9 @@ def test_curve_width_decoupled_from_equation_width():
     assert dr.w == wide.w - 2 * geometry.PAD
     # a narrow node uses the available width (cap is a ceiling, not a fixed size)
     narrow = Box(0, 0, 56, 80)
-    assert geometry.glyph_rect(narrow, "deterministic", 16.0, "curve", data).w == 56 - 2 * geometry.PAD
+    assert (
+        geometry.glyph_rect(narrow, "deterministic", 16.0, "curve", data).w == 56 - 2 * geometry.PAD
+    )
 
 
 def test_deterministic_node_draws_a_box():

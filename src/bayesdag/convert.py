@@ -60,5 +60,10 @@ def subgraph(ir: ModelIR, var_names: Sequence[str]) -> ModelIR:
         ir,
         nodes=[n for n in ir.nodes if n.id in keep],
         edges=[e for e in ir.edges if e.source in keep and e.target in keep],
-        plates=[p if (p.parent is None or p.parent in plate_ids) else dataclasses.replace(p, parent=None) for p in plates],
+        plates=[
+            p
+            if (p.parent is None or p.parent in plate_ids)
+            else dataclasses.replace(p, parent=None)
+            for p in plates
+        ],
     )

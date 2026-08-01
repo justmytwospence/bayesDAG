@@ -64,7 +64,8 @@ def test_sampling_failure_degrades_to_empty(monkeypatch, eight_schools_model):
     import pymc
 
     monkeypatch.setattr(
-        pymc, "sample_prior_predictive",
+        pymc,
+        "sample_prior_predictive",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("cannot simulate")),
     )
     assert _expansions(eight_schools_model) == {}

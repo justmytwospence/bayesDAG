@@ -36,14 +36,18 @@ def _build_dot(ir: ModelIR, info: dict[str, dict], rankdir: str) -> str:
 
     def node_line(n) -> str:
         w, h = geometry.node_size(
-            info[n.id]["w"], info[n.id]["h"], n.role, n.glyph.kind if n.glyph else None, n.glyph_data if n.glyph else None
+            info[n.id]["w"],
+            info[n.id]["h"],
+            n.role,
+            n.glyph.kind if n.glyph else None,
+            n.glyph_data if n.glyph else None,
         )
-        return f'    {json.dumps(n.id)} [width={w / 72.0:.4f}, height={h / 72.0:.4f}];'
+        return f"    {json.dumps(n.id)} [width={w / 72.0:.4f}, height={h / 72.0:.4f}];"
 
     by_id = {n.id: n for n in ir.nodes}
     for p in ir.plates:
         lines.append(f'  subgraph "cluster_{p.id}" {{')
-        lines.append(f'    label={json.dumps(p.label)}; labelloc=b; labeljust=r; style=rounded;')
+        lines.append(f"    label={json.dumps(p.label)}; labelloc=b; labeljust=r; style=rounded;")
         for m in p.members:
             if m in by_id:
                 lines.append(node_line(by_id[m]))
@@ -54,17 +58,18 @@ def _build_dot(ir: ModelIR, info: dict[str, dict], rankdir: str) -> str:
     for e in ir.edges:
         # Heavily weight edges INSIDE a plate so the plate's spine stays straight/vertical
         # and only the cross-plate (external-parent) edges bend -> fewer crossings.
-        same_plate = (
-            member_of.get(e.source) is not None
-            and member_of.get(e.source) == member_of.get(e.target)
-        )
+        same_plate = member_of.get(e.source) is not None and member_of.get(
+            e.source
+        ) == member_of.get(e.target)
         weight = 8 if same_plate else 1
         lines.append(f"  {json.dumps(e.source)} -> {json.dumps(e.target)} [weight={weight}];")
     lines.append("}")
     return "\n".join(lines)
 
 
-def _flip_spline(pos: str, gh: float) -> tuple[list[tuple[float, float]], tuple[float, float] | None]:
+def _flip_spline(
+    pos: str, gh: float
+) -> tuple[list[tuple[float, float]], tuple[float, float] | None]:
     """Parse a graphviz edge ``pos`` into flipped px coords.
 
     Format: ``e,EX,EY  B0 B1 B2 …`` — the B-points are cubic-Bezier control points (``B0``
@@ -90,7 +95,10 @@ _DOT_TIMEOUT_S = 60.0
 def _run_dot(dot_text: str) -> dict:
     try:
         proc = subprocess.run(
-            ["dot", "-Tjson0"], input=dot_text, capture_output=True, text=True,
+            ["dot", "-Tjson0"],
+            input=dot_text,
+            capture_output=True,
+            text=True,
             timeout=_DOT_TIMEOUT_S,
         )
     except FileNotFoundError as exc:
@@ -130,13 +138,15 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
             h = float(o["height"]) * 72.0
             box = Box(px - w / 2.0, (gh - py) - h / 2.0, w, h)
             n = by_id[name]
-            anchors = common.node_token_anchors(box, info[name]["w"], info[name]["h"], info[name]["bboxes"])
+            anchors = common.node_token_anchors(
+                box, info[name]["w"], info[name]["h"], info[name]["bboxes"]
+            )
             n.box, n.port_anchors = box, anchors
             res.node_boxes[name] = box
             res.node_token_anchors[name] = anchors
         elif name.startswith("cluster_") and "bb" in o:  # a plate
             llx, lly, urx, ury = (float(v) for v in o["bb"].split(","))
-            pid = name[len("cluster_"):]
+            pid = name[len("cluster_") :]
             res.plate_boxes[pid] = Box(llx, gh - ury, urx - llx, ury - lly)
 
     # Edges follow dot's OWN spline routing (it minimizes crossings) rendered as one smooth

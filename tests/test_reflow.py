@@ -24,8 +24,14 @@ def _samples(pts, n=40):
                 mt = 1 - t
                 out.append(
                     (
-                        mt**3 * p0[0] + 3 * mt**2 * t * c1[0] + 3 * mt * t * t * c2[0] + t**3 * p3[0],
-                        mt**3 * p0[1] + 3 * mt**2 * t * c1[1] + 3 * mt * t * t * c2[1] + t**3 * p3[1],
+                        mt**3 * p0[0]
+                        + 3 * mt**2 * t * c1[0]
+                        + 3 * mt * t * t * c2[0]
+                        + t**3 * p3[0],
+                        mt**3 * p0[1]
+                        + 3 * mt**2 * t * c1[1]
+                        + 3 * mt * t * t * c2[1]
+                        + t**3 * p3[1],
                     )
                 )
     return out
@@ -127,7 +133,9 @@ def test_token_edges_arrive_vertically(name):
         if not pts or len(pts) < 2:
             continue
         (cx, cy), (px, py) = pts[-2], pts[-1]  # last control handle -> endpoint = tip tangent
-        assert abs(px - cx) <= 0.4 * abs(py - cy) + 0.5, f"{name}: {e.source}->{e.target} tip not vertical"
+        assert abs(px - cx) <= 0.4 * abs(py - cy) + 0.5, (
+            f"{name}: {e.source}->{e.target} tip not vertical"
+        )
 
 
 def test_mrp_hyperparam_edges_avoid_foreign_plates():
@@ -161,7 +169,9 @@ def test_parents_follow_token_ports_not_model_order():
     with pm.Model(coords={"k": range(3)}) as m:
         a = pm.Normal("a", 0, 1, dims="k")
         b = pm.Normal("b", 0, 1, dims="k")
-        eta = pm.Deterministic("eta", a + b, dims="k")  # token order in the equation: a (left), b (right)
+        eta = pm.Deterministic(
+            "eta", a + b, dims="k"
+        )  # token order in the equation: a (left), b (right)
         pm.Normal("y", mu=eta, sigma=1, observed=np.zeros(3), dims="k")
     ir = to_ir(m)
     res = layout(ir)
@@ -190,7 +200,9 @@ def test_no_spurious_exit_kink_when_token_within_source_box():
         sb = res.node_boxes[src]
         tok = res.node_token_anchors[child][src]
         tx = tok.x + tok.w / 2.0
-        assert sb.x <= tx <= sb.x + sb.w  # precondition: the token is within the source box x-extent
+        assert (
+            sb.x <= tx <= sb.x + sb.w
+        )  # precondition: the token is within the source box x-extent
         xs = [p[0] for p in res.edge_paths[f"{src}|{child}"]]
         assert max(xs) - min(xs) < 1.5  # whole edge is one vertical column — no jog/kink
 
@@ -201,5 +213,8 @@ def test_layout_is_deterministic():
     b = layout(to_ir(MODEL_BUILDERS["hier_reg"]()))
     for k, box in a.node_boxes.items():
         assert (box.x, box.y, box.w, box.h) == (
-            b.node_boxes[k].x, b.node_boxes[k].y, b.node_boxes[k].w, b.node_boxes[k].h,
+            b.node_boxes[k].x,
+            b.node_boxes[k].y,
+            b.node_boxes[k].w,
+            b.node_boxes[k].h,
         )

@@ -103,7 +103,7 @@ def token_anchors(svg: str) -> dict[str, tuple[float, float]]:
             e, f = M2[4], M2[5]  # image of the token-local origin (0,0)
             fx = (e - min_x) / vb_w
             fy = (f - min_y) / vb_h
-            anchors[nid[len("tok-"):]] = (fx, fy)
+            anchors[nid[len("tok-") :]] = (fx, fy)
         for child in el:
             walk(child, M2)
 
@@ -162,7 +162,7 @@ def token_bboxes(svg: str) -> dict[str, tuple[float, float, float, float]]:
         M2 = _mat_mul(M, _parse_transform(el.get("transform")))
         nid = el.get("id")
         if nid and nid.startswith("tok-"):
-            tok = nid[len("tok-"):]
+            tok = nid[len("tok-") :]
             origins[tok] = (M2[4], M2[5])
         if tok is not None and _local(el.tag) == "use":
             href = (el.get(_XLINK) or el.get("href") or "").lstrip("#")
@@ -291,7 +291,9 @@ class MathRenderer:
                 self._cache.popitem(last=False)
         return svg, bboxes
 
-    def render_with_anchors(self, tex: str, display: bool = True) -> tuple[str, dict[str, tuple[float, float]]]:
+    def render_with_anchors(
+        self, tex: str, display: bool = True
+    ) -> tuple[str, dict[str, tuple[float, float]]]:
         svg = self.render(tex, display)
         return svg, token_anchors(svg)
 
@@ -313,5 +315,7 @@ def render(tex: str, display: bool = True) -> str:
     return get_renderer().render(tex, display)
 
 
-def render_with_anchors(tex: str, display: bool = True) -> tuple[str, dict[str, tuple[float, float]]]:
+def render_with_anchors(
+    tex: str, display: bool = True
+) -> tuple[str, dict[str, tuple[float, float]]]:
     return get_renderer().render_with_anchors(tex, display)

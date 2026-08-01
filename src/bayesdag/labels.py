@@ -14,11 +14,46 @@ from typing import Optional
 from .ir import TokenIR
 
 _GREEK_LOWER = {
-    "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota",
-    "kappa", "lambda", "mu", "nu", "xi", "pi", "rho", "sigma", "tau", "upsilon",
-    "phi", "chi", "psi", "omega", "varphi", "vartheta", "varepsilon",
+    "alpha",
+    "beta",
+    "gamma",
+    "delta",
+    "epsilon",
+    "zeta",
+    "eta",
+    "theta",
+    "iota",
+    "kappa",
+    "lambda",
+    "mu",
+    "nu",
+    "xi",
+    "pi",
+    "rho",
+    "sigma",
+    "tau",
+    "upsilon",
+    "phi",
+    "chi",
+    "psi",
+    "omega",
+    "varphi",
+    "vartheta",
+    "varepsilon",
 }
-_GREEK_UPPER = {"Gamma", "Delta", "Theta", "Lambda", "Xi", "Pi", "Sigma", "Upsilon", "Phi", "Psi", "Omega"}
+_GREEK_UPPER = {
+    "Gamma",
+    "Delta",
+    "Theta",
+    "Lambda",
+    "Xi",
+    "Pi",
+    "Sigma",
+    "Upsilon",
+    "Phi",
+    "Psi",
+    "Omega",
+}
 
 # Distribution name (the adapter's derived `dist`, i.e. op._print_name[0] or the RV class minus
 # "RV") -> LaTeX symbol. Keys are the VERIFIED derived names for PyMC 6.x; several public dists
@@ -191,12 +226,15 @@ def assemble_stochastic(
     return label, tree
 
 
-def assemble_deterministic(node_name: str, expr_tex: str, leaf_tokens: list[str]) -> tuple[str, TokenIR]:
+def assemble_deterministic(
+    node_name: str, expr_tex: str, leaf_tokens: list[str]
+) -> tuple[str, TokenIR]:
     sym = symbol_for(node_name)
     # wrap the LHS variable so it's anchorable — its outgoing edge originates from the variable
     label = f"{_cssid(LHS_TOKEN, sym)} = {expr_tex}"
     tree = TokenIR(
-        token_id="root", tex=label,
+        token_id="root",
+        tex=label,
         children=[TokenIR(LHS_TOKEN, sym), *[TokenIR(t, t) for t in leaf_tokens]],
     )
     return label, tree
