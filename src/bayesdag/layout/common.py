@@ -17,6 +17,18 @@ from ..ir import Box, ModelIR
 _warned_math_unavailable = False  # once per process — the degradation is global, not per-render
 
 
+def reset_geometry(ir: ModelIR) -> None:
+    """Drop any geometry a PREVIOUS layout left on the IR.
+
+    ``LayoutResult`` is the source of truth; the copies on ``NodeIR`` are a convenience. Without
+    this, laying the same ``ModelIR`` out twice (two views, or a different ``rankdir``) leaves the
+    old box on any node the new layout doesn't place, and stale coordinates are indistinguishable
+    from fresh ones."""
+    for n in ir.nodes:
+        n.box = None
+        n.port_anchors = {}
+
+
 def render_labels(ir: ModelIR) -> dict[str, dict]:
     """Render each node's label to SVG (set ``node.label_svg``) and collect px size +
     fractional token bboxes. Falls back to a size estimate when math isn't available."""

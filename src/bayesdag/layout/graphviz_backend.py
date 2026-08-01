@@ -101,6 +101,7 @@ def _run_dot(dot_text: str) -> dict:
 
 
 def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
+    common.reset_geometry(ir)  # never let a previous layout's coordinates survive into this one
     info = _render_labels(ir)
     data = _run_dot(_build_dot(ir, info, rankdir))
 
@@ -118,10 +119,9 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
             h = float(o["height"]) * 72.0
             box = Box(px - w / 2.0, (gh - py) - h / 2.0, w, h)
             n = by_id[name]
-            n.box = box
-            res.node_boxes[name] = box
             anchors = common.node_token_anchors(box, info[name]["w"], info[name]["h"], info[name]["bboxes"])
-            n.port_anchors = anchors
+            n.box, n.port_anchors = box, anchors
+            res.node_boxes[name] = box
             res.node_token_anchors[name] = anchors
         elif name.startswith("cluster_") and "bb" in o:  # a plate
             llx, lly, urx, ury = (float(v) for v in o["bb"].split(","))

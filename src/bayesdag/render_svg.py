@@ -413,7 +413,8 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, overlay_mode: str = "prior", le
     # data-node, and the widget keys hover/selection off data-node (js/index.js), so splitting a
     # node across two groups is transparent to interactivity. Parity holds: one emitter, both
     # renderers consume this verbatim.
-    drawn = [(n, b) for n in ir.nodes if (b := (n.box or layout.node_boxes.get(n.id))) is not None]
+    # the LayoutResult is authoritative; `n.box` is only a convenience mirror of it
+    drawn = [(n, b) for n in ir.nodes if (b := (layout.node_boxes.get(n.id) or n.box)) is not None]
     for n, b in drawn:  # chrome (boxes) behind everything else node-ish
         body.append(f'<g class="bd-node" data-node="{escape(n.id)}">' + _node_chrome(n, b) + "</g>")
     font_defs: dict[str, str] = {}  # content-hashed glyph id -> path data (shared across labels)

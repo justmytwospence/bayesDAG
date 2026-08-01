@@ -23,6 +23,36 @@ def test_layout_produces_boxes_and_plate(eight_schools_ir):
         assert pb.x - 1 <= b.x and b.x + b.w <= pb.x + pb.w + 1
 
 
+def test_relayout_leaves_no_stale_geometry_on_the_ir(eight_schools_ir):
+    """The LayoutResult is the source of truth; the copies on NodeIR are a convenience mirror.
+    Laying the same IR out twice (two views, or a different rankdir) must not leave a node
+    carrying the previous run's coordinates — stale numbers are indistinguishable from fresh
+    ones, and the renderer would happily draw them."""
+    from bayesdag.layout import common
+    from bayesdag.render_svg import to_svg
+
+    ir = eight_schools_ir
+    first = layout(ir, rankdir="TB")
+    stale = {n.id: n.box for n in ir.nodes}
+    second = layout(ir, rankdir="LR")
+
+    assert {n.id: n.box for n in ir.nodes} == second.node_boxes  # mirrors the NEW layout
+    assert stale != second.node_boxes  # sanity: the two layouts really do differ
+
+    # a node the new layout doesn't place carries no geometry, so it cannot be drawn from a
+    # leftover box: the reset clears every node up front and only placed ones are re-populated
+    common.reset_geometry(ir)
+    assert all(n.box is None and not n.port_anchors for n in ir.nodes)
+
+    dropped = ir.nodes.pop()  # y_obs: a leaf
+    ir.edges = [e for e in ir.edges if dropped.id not in (e.source, e.target)]
+    for p in ir.plates:
+        p.members = [m for m in p.members if m != dropped.id]
+    third = layout(ir, rankdir="TB")
+    assert dropped.id not in third.node_boxes
+    assert f'data-node="{dropped.id}"' not in to_svg(ir, third)
+
+
 @pytest.mark.skipif(not _math, reason="needs the 'math' extra for token anchors")
 def test_token_anchors_are_real_bboxes(eight_schools_ir):
     res = layout(eight_schools_ir)

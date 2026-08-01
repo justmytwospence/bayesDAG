@@ -424,6 +424,7 @@ def _collect_edges(ir: ModelIR, data: dict, res: LayoutResult) -> None:
 
 
 def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
+    common.reset_geometry(ir)  # never let a previous layout's coordinates survive into this one
     info = common.render_labels(ir)
     data = get_engine().layout_graph(_build_graph(ir, info, rankdir))
 
@@ -435,11 +436,10 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
         b = boxes.get(n.id)
         if b is None:
             continue
-        n.box = b
         res.node_boxes[n.id] = b
-        anchors = common.node_token_anchors(b, info[n.id]["w"], info[n.id]["h"], info[n.id]["bboxes"])
-        n.port_anchors = anchors
-        res.node_token_anchors[n.id] = anchors
+        res.node_token_anchors[n.id] = common.node_token_anchors(
+            b, info[n.id]["w"], info[n.id]["h"], info[n.id]["bboxes"]
+        )
 
     for p in ir.plates:
         b = boxes.get(p.id)
@@ -449,11 +449,12 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
     # ELK routed the edges orthogonally; consume those routes (no custom routing / reflow).
     _collect_edges(ir, data, res)
 
-    # sync node geometry back onto the IR nodes + recompute the canvas to cover everything
+    # mirror the final geometry onto the IR nodes (a convenience copy; `res` stays authoritative)
+    # + recompute the canvas to cover everything
     for n in ir.nodes:
         if n.id in res.node_boxes:
             n.box = res.node_boxes[n.id]
-            n.port_anchors = res.node_token_anchors.get(n.id, n.port_anchors)
+            n.port_anchors = res.node_token_anchors.get(n.id, {})
     allboxes = list(res.node_boxes.values()) + list(res.plate_boxes.values())
     if allboxes:
         w = max(b.x + b.w for b in allboxes)
