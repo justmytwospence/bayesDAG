@@ -21,10 +21,13 @@ def test_import_bayesdag_is_light():
         "for name in bayesdag.__all__:\n"
         "    assert hasattr(bayesdag, name), f'{name} in __all__ but not importable'\n"
         "import inspect\n"
-        "for name in ('view', 'layout', 'to_ir', 'to_svg', 'subgraph'):\n"
+        "for name in ('view', 'to_ir', 'to_svg', 'subgraph'):\n"
         "    obj = getattr(bayesdag, name)\n"
         "    assert inspect.isfunction(obj), f'bayesdag.{name} is {obj!r}, not the function'\n"
         "assert inspect.isclass(bayesdag.ModelGraphView) and inspect.isclass(bayesdag.ModelIR)\n"
+        # `layout` is deliberately NOT re-exported: shadowing the package would break this
+        "import bayesdag.layout.elk_backend\n"
+        "assert 'layout' not in bayesdag.__all__\n"
     )
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
