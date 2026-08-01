@@ -2,8 +2,10 @@
 and resolve to a real symbol (named families) or an honest badge. This is the denominator guarantee
 behind the distribution-support work — if PyMC adds/changes a family, this surfaces it.
 
-Families that can't be instantiated in a one-liner toy (EulerMaruyama's sde_fn, Simulator's fn, …)
-are skipped and LOGGED (no silent caps) rather than faked."""
+The guarantee is enforced by `test_catalog_covers_every_pymc_family`, which diffs CATALOG against
+`pm.distributions.__all__` in both directions. Every family is instantiated for real, including the
+ones needing a callable (EulerMaruyama's sde_fn, Simulator's fn, CustomDist's dist) — nothing is
+skipped, so there is no silent cap to log."""
 
 import numpy as np
 import pymc as pm
@@ -100,11 +102,26 @@ CATALOG = {
     "Interpolated": lambda: pm.Interpolated("x", x_points=np.linspace(-3, 3, 30), pdf_points=np.exp(-np.linspace(-3, 3, 30) ** 2)),
     "Flat": lambda: pm.Flat("x"),
     "HalfFlat": lambda: pm.HalfFlat("x"),
+    "CustomDist": lambda: pm.CustomDist("x", 0.0, dist=lambda mu, size: pm.Normal.dist(mu, 1.0, size=size)),
+    "DensityDist": lambda: pm.DensityDist("x", 0.0, dist=lambda mu, size: pm.Normal.dist(mu, 1.0, size=size)),
+    "Simulator": lambda: pm.Simulator("x", lambda rng, m, size: rng.normal(m, 1.0, size), 0.0, observed=np.zeros(3)),
+    "ZeroSumNormal": lambda: pm.ZeroSumNormal("x", sigma=1.0, shape=3),
+    "Multinomial": lambda: pm.Multinomial("x", n=5, p=[0.3, 0.3, 0.4]),
+    "OrderedMultinomial": lambda: pm.OrderedMultinomial("x", eta=0.0, cutpoints=np.array([-1.0, 1.0]), n=5),
+    "LKJCholeskyCov": lambda: pm.LKJCholeskyCov("x", n=3, eta=2.0, sd_dist=pm.Exponential.dist(1.0)),
+    "WishartBartlett": lambda: pm.WishartBartlett("x", S=np.eye(3), nu=4),
+    "MvGaussianRandomWalk": lambda: pm.MvGaussianRandomWalk("x", mu=np.zeros(2), cov=np.eye(2), init_dist=pm.MvNormal.dist(np.zeros(2), np.eye(2)), steps=4),
+    "MvStudentTRandomWalk": lambda: pm.MvStudentTRandomWalk("x", nu=4, mu=np.zeros(2), scale=np.eye(2), init_dist=pm.MvNormal.dist(np.zeros(2), np.eye(2)), steps=4),
+    "EulerMaruyama": lambda: pm.EulerMaruyama("x", dt=0.1, sde_fn=lambda v, a: (-a * v, 1.0), sde_pars=(1.0,), init_dist=_N(0, 1), steps=4),
 }
 
-# named families that must resolve to a real symbol (not the \operatorname{} fallback); the op
-# print-name collapses these, so they're checked by their derived name.
-_FALLBACK_OK = {"CustomDist", "Simulator"}
+# Not distribution families: base classes and one alias PyMC re-exports from `__all__`.
+_NOT_FAMILIES = {"Continuous", "Discrete", "Distribution", "SymbolicRandomVariable", "Lognormal"}
+
+# Every named family must resolve to a real symbol rather than the \operatorname{} fallback —
+# EXCEPT these, whose "symbol" is deliberately an upright word: they have no conventional
+# notation, and inventing one would imply a standard meaning they don't have.
+_FALLBACK_OK = {"CustomDist", "DensityDist", "Simulator"}
 
 
 def _node(build):
@@ -129,12 +146,51 @@ def test_every_distribution_renders(name):
 def test_every_distribution_has_a_symbol(name):
     ir, _m = _node(CATALOG[name])
     sym = dist_symbol(ir.node("x").dist)
+    if name in _FALLBACK_OK:
+        # no conventional notation exists; assert we still print the FAMILY, not the op's
+        # variable-mangled internal name ("CustomDist_x")
+        assert "operatorname" in sym and "_x" not in sym, f"{name}: mangled symbol ({sym})"
+        return
     assert "operatorname" not in sym, f"{name}: no symbol ({sym})"
 
 
-def test_catalog_size_is_substantial():
-    # guardrail so the catalog doesn't silently shrink
-    assert len(CATALOG) >= 70
+def test_catalog_covers_every_pymc_family():
+    """The actual denominator check behind COVERAGE.md's "every distribution in PyMC renders".
+
+    A hand-maintained list plus a size floor could never notice a NEW family — and didn't: 11
+    were missing, several of them ticked off as done. Diffing against `pm.distributions.__all__`
+    means a PyMC release that adds a family fails here instead of silently going unrendered."""
+    published = set(pm.distributions.__all__) - _NOT_FAMILIES
+    missing = sorted(published - set(CATALOG))
+    assert not missing, f"PyMC families absent from CATALOG: {missing}"
+
+    # the reverse direction: a catalog entry PyMC no longer publishes is stale
+    stale = sorted(set(CATALOG) - published)
+    assert not stale, f"CATALOG entries not in pm.distributions.__all__: {stale}"
+
+
+def test_data_and_minibatch_containers_render():
+    """`pm.Data` / `pm.Minibatch` are ticked off in COVERAGE.md but Minibatch appeared in no
+    test. A minibatched likelihood carries no named data node (the batch tensor is anonymous),
+    so what has to hold is that it converts and renders rather than crashing on the
+    unnameable observed input."""
+    rng = np.random.default_rng(0)
+    obs = rng.normal(size=100)
+
+    with pm.Model() as data_model:
+        d = pm.Data("d", obs)
+        pm.Normal("y", pm.Normal("mu", 0, 1), 1.0, observed=d)
+    ir = to_ir(data_model)
+    assert ir.node("d") is not None and ir.node("d").role == "data"
+    assert "<svg" in to_svg(ir, layout(ir))
+
+    with pm.Model() as mb_model:
+        batch = pm.Minibatch(obs, batch_size=10)
+        pm.Normal("y", pm.Normal("mu", 0, 1), 1.0, observed=batch, total_size=100)
+    ir = to_ir(mb_model)
+    assert {n.id for n in ir.nodes} == {"mu", "y"}
+    assert ir.node("y").role == "observed"
+    assert "<svg" in to_svg(ir, layout(ir))
 
 
 def test_showcase_models_render():

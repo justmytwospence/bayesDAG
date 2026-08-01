@@ -28,6 +28,7 @@ DIST_SYMBOLS = {
     # --- continuous univariate ---
     "Normal": r"\mathcal{N}",
     "HalfNormal": r"\mathcal{N}^{+}",
+    "ZeroSumNormal": r"\mathcal{N}_{0}",  # Normal constrained to sum to zero over its last dim
     "Uniform": r"\mathrm{U}",
     "Beta": r"\mathrm{Beta}",
     "Kumaraswamy": r"\mathrm{Kumaraswamy}",
@@ -92,6 +93,7 @@ DIST_SYMBOLS = {
     "RandomWalk": r"\mathrm{RW}",  # also GaussianRandomWalk
     "AR": r"\mathrm{AR}",
     "GARCH11": r"\mathrm{GARCH}",
+    "EulerMaruyama": r"\mathrm{SDE}",  # Euler-Maruyama discretization of an SDE
     # --- spatial ---
     "CAR": r"\mathrm{CAR}",
     "ICAR": r"\mathrm{ICAR}",
@@ -161,6 +163,10 @@ def dist_symbol(dist_name: Optional[str]) -> str:
         base = dist_name[len("Truncated") :]
         base_sym = DIST_SYMBOLS.get(base, rf"\operatorname{{{base}}}")
         return base_sym + r"_{[\,]}"
+    # CustomDist/DensityDist name their op after the VARIABLE ("CustomDist_theta"), so the plain
+    # key never matches — fall back to the family symbol rather than printing the mangled name.
+    if dist_name.startswith("CustomDist"):
+        return DIST_SYMBOLS["CustomDist"]
     return rf"\operatorname{{{dist_name}}}"
 
 
