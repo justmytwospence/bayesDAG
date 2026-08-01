@@ -3,25 +3,114 @@ name: test
 on:
   push:
   pull_request:
+  workflow_dispatch:
+
+# A new push supersedes an in-flight run on the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # pymc 6 requires >=3.12, which is what `requires-python` now says. Testing the floor
+        # and the current release keeps that claim honest rather than assumed.
+        python-version: ["3.12", "3.13"]
+    env:
+      # Turn optional-dependency skips into failures: every extra IS installed below, so a skip
+      # here means a build artifact is missing and the run cannot verify what it claims to.
+      BAYESDAG_REQUIRE_FULL: "1"
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: npm
+
       - uses: astral-sh/setup-uv@v5
-      - name: Install graphviz (the explicit BAYESDAG_LAYOUT=dot opt-in backend)
-        run: sudo apt-get update && sudo apt-get install -y graphviz
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install system libraries
+        # graphviz: the explicit BAYESDAG_LAYOUT=dot rollback backend.
+        # libcairo2: the [export] extra's PNG/PDF path — without it those tests skip, which
+        # under BAYESDAG_REQUIRE_FULL is a failure.
+        run: sudo apt-get update && sudo apt-get install -y graphviz libcairo2
+
       - name: Install JS deps (esbuild bundles widget + mathjax + elk)
-        run: npm install
+        run: npm ci  # honors package-lock.json; `npm install` can silently drift within ranges
+
       - name: Sync Python env (builds the JS bundles via hatch-jupyter-builder)
         run: uv sync
+
       - name: Lint
         run: uv run ruff check
+
+      - name: Format check
+        run: uv run ruff format --check
+
       - name: Test
         run: uv run pytest
-      - name: Build wheel (ensured-targets verifies the JS bundles shipped)
+
+      - name: Build sdist + wheel
         run: uv build
+
+      - name: Verify the distribution is complete
+        # `ensured-targets` covers the JS bundles; this covers everything else the wheel
+        # promises — and checks the sdist can actually rebuild the JS, which is what broke
+        # when `skip-if-exists` was masking a missing package.json.
+        run: |
+          uv run --with twine twine check dist/*
+          uv run --no-project python - <<'PY'
+          import pathlib, sys, tarfile, zipfile
+          whl = next(pathlib.Path("dist").glob("*.whl"))
+          names = set(zipfile.ZipFile(whl).namelist())
+          required = {
+              "bayesdag/static/widget.js",
+              "bayesdag/static/widget.css",
+              "bayesdag/static/mathjax.bundle.js",
+              "bayesdag/static/elk-api.js",
+              "bayesdag/static/elk-worker.min.js",
+              "bayesdag/schema/graph-v1.0.json",
+              "bayesdag/py.typed",
+          }
+          missing = sorted(required - names)
+          licenses = [n for n in names if n.endswith("THIRD_PARTY_LICENSES")]
+          if missing or not licenses:
+              sys.exit(f"wheel is incomplete: missing={missing} third_party_licenses={licenses}")
+
+          sdist = next(pathlib.Path("dist").glob("*.tar.gz"))
+          members = set(tarfile.open(sdist).getnames())
+          need = {"package.json", "js/index.js", "js/mathjax_entry.js"}
+          absent = sorted(n for n in need if not any(m.endswith("/" + n) for m in members))
+          if absent:
+              sys.exit(f"sdist cannot rebuild the JS: missing={absent}")
+          print(f"{whl.name}: {len(names)} entries, all required artifacts present")
+          PY
+
+      - name: Smoke-test the built wheel
+        # Installing into a throwaway env catches anything that only works from the source tree.
+        run: |
+          uv venv /tmp/smoke
+          uv pip install --python /tmp/smoke/bin/python "$(ls dist/*.whl)[interactive]"
+          /tmp/smoke/bin/python - <<'PY'
+          import numpy as np, pymc as pm, bayesdag
+          with pm.Model(coords={"school": list(range(8))}) as m:
+              mu = pm.Normal("mu", 0, 5)
+              tau = pm.HalfNormal("tau", 5)
+              eta = pm.Normal("eta", 0, 1, dims="school")
+              theta = pm.Deterministic("theta", mu + tau * eta, dims="school")
+              pm.Normal("y_obs", theta, np.ones(8), observed=np.zeros(8), dims="school")
+          svg = bayesdag.view(m).to_svg()
+          assert svg.lstrip().startswith("<svg") and "data-mml-node" in svg, "no rendered math"
+          print("wheel smoke test OK:", len(svg), "bytes of SVG")
+          PY
