@@ -147,6 +147,45 @@ def test_special_constructs_render_without_error():
         assert "<svg" in to_svg(ir, layout(ir))
 
 
+def test_eval_safety_gate_fails_closed(monkeypatch):
+    """`_depends_on_rv` is the SINGLE gate in front of every `.eval()` in the adapters, so it must
+    fail CLOSED. If the pytensor traversal API moves (it has moved once — hence the import shim),
+    an unresolvable graph walk must report "prior-governed", degrading the node to a schematic.
+    Failing open would `.eval()` through parent RVs and badge a random draw as an analytic prior."""
+    import sys
+    import types
+
+    import pytensor.tensor as pt
+
+    from bayesdag.adapters import constructs
+    from bayesdag.adapters.glyph_data import glyph_for
+
+    const = pt.as_tensor_variable(3.0)
+    assert constructs._depends_on_rv(const) is False  # baseline: a constant reads as constant
+
+    with pm.Model() as m:
+        mu = pm.Normal("mu", 0.0, 5.0)  # a genuine ROOT prior -> normally an analytic density
+    spec, _data, _elision = glyph_for(mu, "latent", "Normal", m)
+    assert spec.source == "prior_analytic"  # baseline
+
+    # break BOTH import locations of `ancestors`
+    for mod in ("pytensor.graph.traversal", "pytensor.graph.basic"):
+        monkeypatch.setitem(sys.modules, mod, types.ModuleType(mod))
+
+    assert constructs._depends_on_rv(const) is True  # unresolvable -> assume prior-governed
+    spec, _data, _elision = glyph_for(mu, "latent", "Normal", m)
+    assert spec.source == "prior_family_only"  # degraded to the schematic, not a fabricated prior
+
+
+def test_unclassifiable_op_is_not_taken_for_a_mixture_component():
+    """The other direction of the same gate: component SELECTION must fail to "not a component"
+    (-> honest badge), because a leaked non-RV input would draw a wrong glyph."""
+    from bayesdag.adapters import constructs
+
+    assert constructs._op_is_rv(object(), unknown=False) is False
+    assert constructs._op_is_rv(object(), unknown=True) is False  # classifiable: plain object is no RV
+
+
 def test_bart_renders_as_step_function_with_clean_label():
     """BART (sum-of-trees) has no closed-form prior density; its draws are piecewise-constant, so we
     depict it with the canonical STEP-function schematic (honest structure, not the misleading bell),

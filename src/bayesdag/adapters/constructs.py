@@ -34,37 +34,53 @@ def _ev(t) -> Optional[np.ndarray]:
         return None
 
 
-def _op_is_rv(op) -> bool:
-    try:
-        from pytensor.tensor.random.op import RandomVariable
+def _op_is_rv(op, *, unknown: bool = True) -> bool:
+    """True if ``op`` is a random-variable op.
 
-        if isinstance(op, RandomVariable):
+    ``unknown`` is what we report when NEITHER base class can be imported, i.e. when the op
+    cannot be classified at all. Callers pick the direction that degrades honestly: the
+    eval-safety gate passes ``True`` ("assume random", costing a schematic), while component
+    *selection* passes ``False`` ("not a component", costing a badge). Never let an
+    unclassifiable op read as a known constant — that is what licenses a random `.eval()`."""
+    checked = False
+    for mod_name, cls_name in (
+        ("pytensor.tensor.random.op", "RandomVariable"),
+        ("pymc.distributions.distribution", "SymbolicRandomVariable"),
+    ):
+        try:
+            from importlib import import_module
+
+            cls = getattr(import_module(mod_name), cls_name)
+        except Exception:
+            continue
+        checked = True
+        if isinstance(op, cls):
             return True
-    except Exception:
-        pass
-    try:
-        from pymc.distributions.distribution import SymbolicRandomVariable
-
-        return isinstance(op, SymbolicRandomVariable)
-    except Exception:
-        return False
+    return unknown if not checked else False
 
 
 def _depends_on_rv(t) -> bool:
     """True if a tensor's value is governed by a random variable (a prior) rather than fixed
-    constants — i.e. `.eval()` would return an arbitrary random draw, not the real value."""
+    constants — i.e. `.eval()` would return an arbitrary random draw, not the real value.
+
+    **Fails closed.** This is the single gate in front of every `.eval()` in the adapters, so
+    any internal failure (a moved pytensor traversal API — it has moved once already, hence
+    the import shim below) reports True: the node falls to a deterministic schematic instead
+    of silently plotting a random draw badged as an analytic prior."""
     try:
         try:
             from pytensor.graph.traversal import ancestors  # pytensor >= 2.x new location
         except Exception:
             from pytensor.graph.basic import ancestors  # older pytensor
-
+    except Exception:
+        return True  # can't walk the graph -> assume prior-governed
+    try:
         for a in ancestors([t]):
             op = getattr(getattr(a, "owner", None), "op", None)
             if op is not None and _op_is_rv(op):
                 return True
     except Exception:
-        return False
+        return True
     return False
 
 
@@ -368,22 +384,11 @@ def _ar(var):
 
 
 def _is_rv(i) -> bool:
+    """Is this *input* an actual sub-RV (vs a weight vector / plumbing)? Unlike the eval gate,
+    an unclassifiable op must NOT be treated as a component — a leaked `MakeVector` would draw
+    a wrong glyph, whereas dropping it yields an honest badge."""
     op = getattr(getattr(i, "owner", None), "op", None)
-    if op is None:
-        return False
-    try:
-        from pytensor.tensor.random.op import RandomVariable
-
-        if isinstance(op, RandomVariable):
-            return True
-    except Exception:
-        pass
-    try:
-        from pymc.distributions.distribution import SymbolicRandomVariable
-
-        return isinstance(op, SymbolicRandomVariable)
-    except Exception:
-        return False
+    return _op_is_rv(op, unknown=False) if op is not None else False
 
 
 def _mixture(var):
