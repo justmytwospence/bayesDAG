@@ -202,19 +202,26 @@ def _density_from_samples(values) -> Optional[dict]:
         return None
 
 
-def _histogram(values, max_bins: int = 30) -> Optional[dict]:
-    v = np.asarray(values, float).ravel()
-    v = v[np.isfinite(v)]
-    if v.size == 0:
-        return None
-    # numpy "auto" = max(Sturges, Freedman-Diaconis): a robust visual default that avoids
-    # FD's too-few-bins behavior on small/lightly-tailed samples.
+def _binned(v, max_bins: int):
+    """numpy "auto" = max(Sturges, Freedman-Diaconis): a robust visual default that avoids
+    FD's too-few-bins behavior on small/lightly-tailed samples."""
     edges = np.histogram_bin_edges(v, bins="auto")
     if len(edges) > max_bins + 1:
         edges = np.histogram_bin_edges(v, bins=max_bins)
-    counts, edges = np.histogram(v, bins=edges)
-    m = float(counts.max()) or 1.0
-    return {"edges": [float(e) for e in edges], "counts": [float(c / m) for c in counts]}
+    return edges
+
+
+def _histogram(values, max_bins: int = 30) -> Optional[dict]:
+    try:
+        v = np.asarray(values, float).ravel()
+        v = v[np.isfinite(v)]
+        if v.size == 0:
+            return None
+        counts, edges = np.histogram(v, bins=_binned(v, max_bins))
+        m = float(counts.max()) or 1.0
+        return {"edges": [float(e) for e in edges], "counts": [float(c / m) for c in counts]}
+    except Exception:
+        return None
 
 
 # Discrete likelihoods: a continuous best-fit overlay is meaningless (a best-fit Bernoulli is
@@ -306,12 +313,9 @@ def _observed_overlay(vals, dist: Optional[str], max_bins: int = 30) -> Optional
     frozen = _fit_frozen(dist, _thin(v))  # MLE on a thinned view; the histogram keeps full data
     if frozen is None:
         return None
-    edges = np.histogram_bin_edges(v, bins="auto")
-    if len(edges) > max_bins + 1:
-        edges = np.histogram_bin_edges(v, bins=max_bins)
-    dens, edges = np.histogram(v, bins=edges, density=True)
-    xs = np.linspace(float(edges[0]), float(edges[-1]), _GRID)
     try:
+        dens, edges = np.histogram(v, bins=_binned(v, max_bins), density=True)
+        xs = np.linspace(float(edges[0]), float(edges[-1]), _GRID)
         ys = np.asarray(frozen.pdf(xs), float)
     except Exception:
         return None
@@ -331,18 +335,21 @@ def _discrete_bars(values, max_cats: int = 30) -> Optional[dict]:
     as ONE bar per class — the honest representation of a pmf. Avoids the continuous auto-histogram,
     which scatters binary data into edge-pinned bins with empty gaps between. Returns None when the
     value range is too wide to be categorical (caller falls back to a continuous histogram)."""
-    v = np.asarray(values, float).ravel()
-    v = v[np.isfinite(v)]
-    if v.size == 0:
+    try:
+        v = np.asarray(values, float).ravel()
+        v = v[np.isfinite(v)]
+        if v.size == 0:
+            return None
+        vi = np.rint(v).astype(int)
+        lo, hi = int(vi.min()), int(vi.max())
+        cats = list(range(lo, hi + 1))  # keep empty interior classes so a pmf's gaps stay visible
+        if len(cats) > max_cats:
+            return None
+        counts = np.array([float(np.count_nonzero(vi == c)) for c in cats])
+        m = float(counts.max()) or 1.0
+        return {"cats": cats, "heights": [float(c / m) for c in counts], "n": int(v.size)}
+    except Exception:
         return None
-    vi = np.rint(v).astype(int)
-    lo, hi = int(vi.min()), int(vi.max())
-    cats = list(range(lo, hi + 1))  # include empty interior classes so a pmf's gaps stay visible
-    if len(cats) > max_cats:
-        return None
-    counts = np.array([float(np.count_nonzero(vi == c)) for c in cats])
-    m = float(counts.max()) or 1.0
-    return {"cats": cats, "heights": [float(c / m) for c in counts], "n": int(v.size)}
 
 
 def _numeric_params(var) -> Optional[list]:

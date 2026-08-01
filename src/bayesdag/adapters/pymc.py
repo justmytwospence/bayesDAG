@@ -96,7 +96,7 @@ def _rv_dist_and_params(var: Any, named: dict[int, str]) -> tuple[Optional[str],
         if nm is None:  # hidden structural param (steps/size): no label slot, no token
             continue
         parents = _direct_named_parents(val, named, exclude=var.name)
-        value_tex, _ = render_value(val, named, wrap_leaves=False)
+        value_tex, _ = _safe_render_value(val, named, wrap_leaves=False)
         if value_tex.strip() == r"\ldots":  # an elided param that is itself an RV -> show its family
             sym = _rv_family_symbol(val)
             if sym:
@@ -132,6 +132,24 @@ def _overlays(name: str, role: str, dims: list, idata: Any) -> list[OverlayRef]:
     if role == "observed" and "observed_data" in groups and name in getattr(idata, "observed_data", {}):
         out.append(OverlayRef("observed_data", name, list(dims)))
     return out
+
+
+def _safe_glyph(var, role, dist, model, idata, named):
+    """`glyph_for` fans out to every construct/shape provider, so it is the widest surface in the
+    adapter. The honesty contract says a glyph may be missing or badged but must never take down
+    `to_ir` — enforce that here rather than trusting ~40 individual branches to stay guarded."""
+    try:
+        return glyph_for(var, role, dist, model, idata, named=named)
+    except Exception:
+        return None, None, None
+
+
+def _safe_render_value(val, named, **kw) -> tuple[str, set]:
+    """A label is cosmetic; an un-renderable expression must not abort the whole graph."""
+    try:
+        return render_value(val, named, **kw)
+    except Exception:
+        return r"\ldots", set()
 
 
 def from_pymc(model: Any, idata: Any = None) -> ModelIR:
@@ -179,7 +197,7 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
                 name, dist, [(pr.token_id, pr.value_tex or "") for pr in params]
             )
         elif role == "deterministic" and getattr(var, "owner", None) is not None:
-            expr_tex, used = render_value(var, named, wrap_leaves=True, _root=True)
+            expr_tex, used = _safe_render_value(var, named, wrap_leaves=True, _root=True)
             # nested unknown ops (f(f(...))) = auto-generated matrix/plumbing (e.g. LKJ corr/stds,
             # OrderedLogistic class probs). They render as an illegible f-mess -> elide honestly.
             if r"f\!\left(f\!\left" in expr_tex:
@@ -191,7 +209,7 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
         tr = transforms.get(var) if hasattr(transforms, "get") else None
         tname = getattr(tr, "name", None) if tr is not None else None
         unconstrained = f"{name}_{tname}__" if tname else None
-        glyph_spec, glyph_data, elision = glyph_for(var, role, dist, model, idata, named=named)
+        glyph_spec, glyph_data, elision = _safe_glyph(var, role, dist, model, idata, named)
         # A deterministic whose equation was elided to illegible matrix plumbing ([⋯]) shouldn't carry a
         # transfer glyph either (the function isn't a meaningful modeling transform — e.g. LKJ corr/stds).
         # Match ONLY the plumbing marker \cdots; \ldots is a legitimate long-vector/budget abbreviation.

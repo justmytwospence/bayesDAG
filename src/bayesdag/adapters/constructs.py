@@ -445,8 +445,8 @@ def special_glyph(var):
     if op is None:
         return None, None, None
     cls = type(op).__name__
-    params = gd._numeric_params(var)
     try:
+        params = gd._numeric_params(var)  # inside the guard: it walks + evals the param graph
         if cls in ("MvNormalRV", "MvStudentTRV"):
             r = _multivariate(var, params, cls)
             return (*r, None) if r else _badge("multivariate — covariance not numeric")

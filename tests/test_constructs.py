@@ -147,6 +147,29 @@ def test_special_constructs_render_without_error():
         assert "<svg" in to_svg(ir, layout(ir))
 
 
+def test_glyph_and_label_failures_never_crash_to_ir(monkeypatch):
+    """The honesty contract's hard floor: a glyph is optional, a label is cosmetic, but `to_ir`
+    must survive. `glyph_for` fans out to every shape/construct provider and `render_value` walks
+    arbitrary op graphs, so both are guarded at the call site rather than trusting every branch."""
+    from bayesdag.adapters import pymc as adapter
+
+    def boom(*_a, **_k):
+        raise RuntimeError("provider exploded")
+
+    with pm.Model(coords={"g": [0, 1, 2]}) as m:
+        mu = pm.Normal("mu", 0, 1)
+        pm.Deterministic("d", mu * 2.0)
+        pm.Normal("y", mu, 1.0, observed=np.array([1.0, 2.0, 3.0]), dims="g")
+
+    monkeypatch.setattr(adapter, "glyph_for", boom)
+    monkeypatch.setattr(adapter, "render_value", boom)
+    ir = to_ir(m)
+
+    assert {n.id for n in ir.nodes} == {"mu", "d", "y"}
+    assert all(n.glyph is None for n in ir.nodes)  # degraded to no glyph, not a crash
+    assert "<svg" in to_svg(ir, layout(ir))  # and still renders
+
+
 def test_random_walk_fan_only_trusts_a_normal_innovation():
     """The fan is `drift*t ± 2*sd*sqrt(t)`, read positionally from the innovation's params. That
     layout is only known for a Normal ([mu, sigma]); a StudentT is [nu, mu, sigma], so reading
