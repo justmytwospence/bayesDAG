@@ -147,6 +147,28 @@ def test_special_constructs_render_without_error():
         assert "<svg" in to_svg(ir, layout(ir))
 
 
+def test_random_walk_fan_only_trusts_a_normal_innovation():
+    """The fan is `drift*t ± 2*sd*sqrt(t)`, read positionally from the innovation's params. That
+    layout is only known for a Normal ([mu, sigma]); a StudentT is [nu, mu, sigma], so reading
+    slot 0 as the drift would tilt the fan by the degrees of freedom. Non-Normal -> honest badge."""
+    with pm.Model(coords={"t": range(8)}) as m:
+        pm.RandomWalk(
+            "w",
+            init_dist=pm.Normal.dist(0, 1),
+            innovation_dist=pm.StudentT.dist(nu=4.0, mu=0.0, sigma=1.0),
+            dims="t",
+        )
+    n = to_ir(m).node("w")
+    assert n.glyph.kind == "schematic" and n.representable is False
+    assert n.elision_reason == "random walk"
+
+    with pm.Model(coords={"t": range(8)}) as m2:  # the Normal case still draws its fan
+        pm.GaussianRandomWalk("w", mu=0.5, sigma=1.0, init_dist=pm.Normal.dist(0, 1), dims="t")
+    fan = to_ir(m2).node("w")
+    assert fan.glyph.kind == "fan" and fan.glyph.source == "prior_analytic"
+    assert fan.glyph_data["mid"][0] < fan.glyph_data["mid"][-1]  # positive drift tilts the fan up
+
+
 def test_eval_safety_gate_fails_closed(monkeypatch):
     """`_depends_on_rv` is the SINGLE gate in front of every `.eval()` in the adapters, so it must
     fail CLOSED. If the pytensor traversal API moves (it has moved once — hence the import shim),

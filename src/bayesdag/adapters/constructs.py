@@ -239,6 +239,12 @@ def _random_walk(var):
     innov = next((i for i in ins[1:] if getattr(i, "owner", None) is not None and _dist_name(i)), None)
     if innov is None:
         return None
+    # The fan is `drift*t ± 2*sd*sqrt(t)`, so we must know which slots ARE (mu, sigma). Only a
+    # Normal innovation is read positionally: other families reorder/reparametrize the pair (a
+    # StudentT is [nu, mu, sigma], so slot 0 is the df — reading it as drift tilts the fan by
+    # nu*t). Anything else badges rather than draws a wrong slope.
+    if _dist_name(innov) != "Normal":
+        return None
     p = gd._numeric_params(innov)
     if p:
         q = [float(np.asarray(x).reshape(-1)[0]) for x in p]
