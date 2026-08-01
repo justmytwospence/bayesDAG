@@ -30,3 +30,6 @@ src/bayesdag/static/*.map
 
 # Local Claude Code agent state (plans, etc.) — keep out of the repo
 .claude/
+
+# marimo notebook artifacts (layout/session state written on export/edit)
+__marimo__/
