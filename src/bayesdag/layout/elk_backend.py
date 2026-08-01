@@ -21,6 +21,7 @@ separate one — two isolates total, ~35MB / ~67MB RSS respectively):
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -84,6 +85,7 @@ class ElkEngine:
         self._worker_path = worker_path or (sd / "elk-worker.min.js")
         self._ctx = None
         self._executor = None
+        self._lock = threading.Lock()
 
     @property
     def available(self) -> bool:
@@ -98,13 +100,14 @@ class ElkEngine:
         # the thread that creates the context; if that's a thread with a live asyncio loop (a
         # marimo cell), `promise.get()` either asserts or deadlocks. A single private thread that
         # never runs an asyncio loop lets mini-racer own its loop and `.get()` block safely.
-        if self._executor is None:
-            import concurrent.futures
+        with self._lock:
+            if self._executor is None:
+                import concurrent.futures
 
-            self._executor = concurrent.futures.ThreadPoolExecutor(
-                max_workers=1, thread_name_prefix="bayesdag-elk"
-            )
-        return self._executor
+                self._executor = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=1, thread_name_prefix="bayesdag-elk"
+                )
+            return self._executor
 
     def _context(self):  # must run on the worker thread (see _worker)
         if self._ctx is None:
@@ -150,13 +153,15 @@ class ElkEngine:
 
 
 _ENGINE: Optional[ElkEngine] = None
+_ENGINE_LOCK = threading.Lock()
 
 
 def get_engine() -> ElkEngine:
     global _ENGINE
-    if _ENGINE is None:
-        _ENGINE = ElkEngine()
-    return _ENGINE
+    with _ENGINE_LOCK:
+        if _ENGINE is None:
+            _ENGINE = ElkEngine()
+        return _ENGINE
 
 
 def available() -> bool:

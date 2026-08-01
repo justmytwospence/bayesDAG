@@ -21,6 +21,7 @@ Only the first is implemented in M0; the others raise a clear, actionable error.
 from __future__ import annotations
 
 import re
+import threading
 import xml.etree.ElementTree as ET
 from collections import OrderedDict
 from pathlib import Path
@@ -198,7 +199,13 @@ def token_bboxes(svg: str) -> dict[str, tuple[float, float, float, float]]:
 
 
 class MathRenderer:
-    """Lazy in-process MathJax renderer. Construct once and reuse (V8 init is the cost)."""
+    """Lazy in-process MathJax renderer. Construct once and reuse (V8 init is the cost).
+
+    Like the ELK engine, ALL V8 work runs on one dedicated thread: mini-racer binds its event
+    loop to the thread that creates the context, so an isolate built on a thread that owns a
+    live asyncio loop (a marimo cell) can assert or deadlock. Labels are rendered eagerly from
+    the caller's thread — which IS the main thread — so the pinning has to live here, not only
+    in the layout backend that happens to call us."""
 
     _CACHE_MAX = 4096  # LRU bound — long-lived kernels render many models; memory stays flat
 
@@ -206,9 +213,22 @@ class MathRenderer:
         self._bundle_path = bundle_path or _bundle_path()
         self._ctx = None
         self._ctx_error: Optional[Exception] = None
+        self._executor = None
+        self._lock = threading.Lock()
         # (display, tex) -> (svg, token bboxes): bboxes are cached WITH the SVG so a warm
         # re-layout never re-parses the same label (token_bboxes was ~40% of warm layout time)
         self._cache: OrderedDict[tuple[bool, str], tuple[str, dict]] = OrderedDict()
+
+    def _worker(self):
+        """The single thread every V8 call is marshalled onto (see the class docstring)."""
+        with self._lock:
+            if self._executor is None:
+                import concurrent.futures
+
+                self._executor = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=1, thread_name_prefix="bayesdag-mathjax"
+                )
+            return self._executor
 
     @property
     def available(self) -> bool:
@@ -218,7 +238,7 @@ class MathRenderer:
             return False
         return self._bundle_path.exists()
 
-    def _context(self):
+    def _context(self):  # must run on the worker thread (see _worker)
         if self._ctx_error is not None:
             # a failed V8/bundle build is permanent for this renderer — re-raise the cached
             # error instead of paying the multi-MB bundle eval again for every label
@@ -251,18 +271,24 @@ class MathRenderer:
         """Return the SVG markup for ``tex`` (cached by content)."""
         return self.render_with_bboxes(tex, display)[0]
 
+    def _tex2svg(self, tex: str, display: bool) -> str:  # runs on the worker thread
+        return self._context().call("tex2svg", tex, display)
+
     def render_with_bboxes(self, tex: str, display: bool = True) -> tuple[str, dict]:
         """Return ``(svg, fractional token bboxes)`` — both cached together, LRU-bounded."""
         key = (bool(display), tex)
-        cached = self._cache.get(key)
-        if cached is not None:
-            self._cache.move_to_end(key)
-            return cached
-        svg = self._context().call("tex2svg", tex, bool(display))
+        with self._lock:
+            cached = self._cache.get(key)
+            if cached is not None:
+                self._cache.move_to_end(key)
+                return cached
+        # marshal onto the dedicated thread (the context is created there on first use)
+        svg = self._worker().submit(self._tex2svg, tex, bool(display)).result()
         bboxes = token_bboxes(svg)
-        self._cache[key] = (svg, bboxes)
-        if len(self._cache) > self._CACHE_MAX:
-            self._cache.popitem(last=False)
+        with self._lock:
+            self._cache[key] = (svg, bboxes)
+            if len(self._cache) > self._CACHE_MAX:
+                self._cache.popitem(last=False)
         return svg, bboxes
 
     def render_with_anchors(self, tex: str, display: bool = True) -> tuple[str, dict[str, tuple[float, float]]]:
@@ -271,14 +297,16 @@ class MathRenderer:
 
 
 _RENDERER: Optional[MathRenderer] = None
+_RENDERER_LOCK = threading.Lock()
 
 
 def get_renderer() -> MathRenderer:
     """Process-wide singleton (so the V8 context + cache are reused)."""
     global _RENDERER
-    if _RENDERER is None:
-        _RENDERER = MathRenderer()
-    return _RENDERER
+    with _RENDERER_LOCK:
+        if _RENDERER is None:
+            _RENDERER = MathRenderer()
+        return _RENDERER
 
 
 def render(tex: str, display: bool = True) -> str:

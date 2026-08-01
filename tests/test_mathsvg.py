@@ -62,6 +62,51 @@ def test_broken_bundle_fails_once_not_per_label(tmp_path, monkeypatch):
     assert calls["n"] == 1
 
 
+def test_renders_in_a_notebook_kernel_without_deadlocking():
+    """The marimo hazard, and why the MathJax isolate is thread-pinned like ELK's.
+
+    mini-racer binds its event loop to whatever loop is current when the context is BUILT, and
+    a later synchronous call from off-loop does `run_coroutine_threadsafe(...).result()`. So an
+    isolate built while a notebook kernel's loop is current, then driven from ordinary
+    synchronous cell code, blocks forever on a loop nobody is running — verified: the
+    un-pinned construction deadlocks in exactly this shape. Building on a dedicated, loop-free
+    thread makes mini-racer own a private loop instead, so the call always completes.
+
+    Labels are rendered eagerly from the caller's thread, so pinning ELK alone did not cover this.
+    """
+    import asyncio
+    import threading
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+
+        async def build():
+            r = mathsvg.MathRenderer()
+            r.render(r"\gamma")  # first render builds the V8 context — the binding moment
+            return r
+
+        r = loop.run_until_complete(build())  # an async cell warms the process-wide renderer
+
+        out: dict = {}
+        done = threading.Event()
+
+        def sync_cell():  # ordinary synchronous notebook-cell code
+            try:
+                out["svg"] = r.render(r"\cssId{tok-a}{\alpha} + \beta")
+            except BaseException as exc:  # noqa: BLE001 - reported through the assertion below
+                out["err"] = f"{type(exc).__name__}: {exc}"
+            done.set()
+
+        threading.Thread(target=sync_cell, daemon=True).start()
+        assert done.wait(timeout=60), "MathJax render deadlocked under a notebook kernel loop"
+        assert "err" not in out, out.get("err")
+        assert "<svg" in out["svg"] and "data-mml-node" in out["svg"]
+    finally:
+        asyncio.set_event_loop(None)
+        loop.close()
+
+
 def test_bbox_cache_no_reparse_and_bounded(monkeypatch):
     """Warm re-layouts must hit the (svg, bboxes) cache — token_bboxes ran per label per
     layout before — and the cache must evict past its LRU bound."""
