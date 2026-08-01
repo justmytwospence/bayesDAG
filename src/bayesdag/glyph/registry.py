@@ -4,7 +4,8 @@ rose, kde2d, ...) register identically, so non-univariate glyphs are first-class
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from ..ir import Box
 

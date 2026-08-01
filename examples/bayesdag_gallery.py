@@ -40,7 +40,7 @@ def _(mo, pm):
         to infer shapes — which bayesdag handles regardless."""
         try:
             svg = pm.model_to_graphviz(model).pipe(format="svg").decode()
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             return mo.md(
                 f"*(PyMC's `model_to_graphviz` can't render this model — `{type(e).__name__}`: "
                 f"{e}. bayesdag renders it above.)*"

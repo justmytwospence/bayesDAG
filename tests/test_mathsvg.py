@@ -19,7 +19,7 @@ def test_render_produces_self_contained_svg():
 
 def test_token_anchors_are_fractional_and_ordered():
     tex = r"\mathcal{N}(\cssId{tok-mu}{\mu},\ \cssId{tok-sg}{\sigma})"
-    svg, anchors = mathsvg.render_with_anchors(tex)
+    _svg, anchors = mathsvg.render_with_anchors(tex)
     assert set(anchors) == {"mu", "sg"}
     # mu must sit to the left of sigma in N(mu, sigma)
     assert anchors["mu"][0] < anchors["sg"][0]
@@ -94,7 +94,7 @@ def test_renders_in_a_notebook_kernel_without_deadlocking():
         def sync_cell():  # ordinary synchronous notebook-cell code
             try:
                 out["svg"] = r.render(r"\cssId{tok-a}{\alpha} + \beta")
-            except BaseException as exc:  # noqa: BLE001 - reported through the assertion below
+            except BaseException as exc:
                 out["err"] = f"{type(exc).__name__}: {exc}"
             done.set()
 

@@ -75,7 +75,6 @@ def glyph_area(glyph_kind: str | None, glyph_data: dict | None = None) -> tuple[
 def node_size(
     label_w: float,
     label_h: float,
-    role: str,
     glyph_kind: str | None = None,
     glyph_data: dict | None = None,
 ) -> tuple[float, float]:
@@ -89,14 +88,13 @@ def node_size(
     return w, h
 
 
-def label_origin(box: Box, label_w: float, label_h: float) -> tuple[float, float]:
+def label_origin(box: Box, label_w: float) -> tuple[float, float]:
     """Top-left px of the label SVG within a node box (centered horizontally, top-aligned)."""
     return box.x + (box.w - label_w) / 2.0, box.y + PAD
 
 
 def glyph_rect(
     box: Box,
-    role: str,
     label_h: float,
     glyph_kind: str | None = None,
     glyph_data: dict | None = None,

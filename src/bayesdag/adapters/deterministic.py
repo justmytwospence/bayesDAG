@@ -22,7 +22,7 @@ guarded; any failure degrades to skip (never crash ``to_ir``).
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
@@ -88,7 +88,7 @@ def _unwrap(v: Any, named_ids: set, root_id: int) -> Any:
     return v
 
 
-def _scalar_const_sign(t: Any) -> Optional[int]:
+def _scalar_const_sign(t: Any) -> int | None:
     """+1 / -1 if ``t`` is a parent-free SCALAR constant (or all-equal array) of a definite sign; None
     otherwise. Only such factors are safe to strip as shape-preserving framing."""
     if _depends_on_rv(t):
@@ -256,7 +256,7 @@ _TRANSFER_BUILDERS = {
 }
 
 
-def _const_exponent(node: Any) -> Optional[float]:
+def _const_exponent(node: Any) -> float | None:
     """The exponent of a ``Pow`` Apply, if it is a parent-free scalar constant; else None."""
     try:
         exp = node.inputs[1]
@@ -289,7 +289,7 @@ def _softmax_bars(var: Any) -> dict:
 
 
 # --------------------------------------------------------------------------- entry point
-def transform_glyph(var: Any, named: Optional[dict] = None):
+def transform_glyph(var: Any, named: dict | None = None):
     """Return ``(GlyphSpec, glyph_data, elision_reason)`` for a deterministic's transfer function, or
     ``(None, None, None)`` when it isn't provably depictable (→ equation-only). ``named`` is the
     ``id(var)->name`` map of all model variables (the leaf set)."""

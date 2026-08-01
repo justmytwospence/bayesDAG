@@ -11,8 +11,6 @@ The shape is the primary mark; a ``source`` tag records HOW it was obtained
 
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 
 from ..ir import GlyphSpec
@@ -143,7 +141,7 @@ def _discrete_frozen(dist: str, p: list):
         return None
 
 
-def _pmf(dist: str, p: list, max_cats: int = 40) -> Optional[dict]:
+def _pmf(dist: str, p: list, max_cats: int = 40) -> dict | None:
     """Analytic pmf for a discrete prior with numeric params -> ``{cats, heights}`` (bar glyph)."""
     try:
         if dist == "Categorical":  # the prob vector IS the pmf
@@ -165,7 +163,7 @@ def _pmf(dist: str, p: list, max_cats: int = 40) -> Optional[dict]:
         return None
 
 
-def _custom_density(dist: str, p: list) -> Optional[dict]:
+def _custom_density(dist: str, p: list) -> dict | None:
     """Analytic density for continuous families with no direct scipy frozen (closed-form pdf)."""
     import scipy.stats as st
 
@@ -196,7 +194,7 @@ def _custom_density(dist: str, p: list) -> Optional[dict]:
         return None
 
 
-def _density_from_frozen(frozen) -> Optional[dict]:
+def _density_from_frozen(frozen) -> dict | None:
     try:
         lo, hi = frozen.ppf(0.005), frozen.ppf(0.995)
         if not (np.isfinite(lo) and np.isfinite(hi)) or hi <= lo:
@@ -209,7 +207,7 @@ def _density_from_frozen(frozen) -> Optional[dict]:
         return None
 
 
-def _density_from_samples(values) -> Optional[dict]:
+def _density_from_samples(values) -> dict | None:
     v = np.asarray(values, float).ravel()
     v = v[np.isfinite(v)]
     if v.size < 2 or np.allclose(v, v[0]):
@@ -236,7 +234,7 @@ def _binned(v, max_bins: int):
     return edges
 
 
-def _histogram(values, max_bins: int = 30) -> Optional[dict]:
+def _histogram(values, max_bins: int = 30) -> dict | None:
     try:
         v = np.asarray(values, float).ravel()
         v = v[np.isfinite(v)]
@@ -311,7 +309,7 @@ def _fit_frozen(dist: str, v):
         return None
 
 
-def _fit_label(frozen, dist: str) -> str:
+def _fit_label(frozen) -> str:
     """Short, family-agnostic summary of the fit for the card title (empty if no finite moments)."""
     try:
         mean, sd = float(frozen.mean()), float(frozen.std())
@@ -322,7 +320,7 @@ def _fit_label(frozen, dist: str) -> str:
     return ""
 
 
-def _observed_overlay(vals, dist: Optional[str], max_bins: int = 30) -> Optional[dict]:
+def _observed_overlay(vals, dist: str | None, max_bins: int = 30) -> dict | None:
     """Empirical density histogram + MLE best-fit family curve on ONE SHARED vertical scale.
 
     The histogram is area-normalized (``density=True``) and the best-fit pdf is sampled over the
@@ -352,11 +350,11 @@ def _observed_overlay(vals, dist: Optional[str], max_bins: int = 30) -> Optional
         "edges": [float(e) for e in edges],
         "counts": [float(d / m) for d in dens],
         "overlay": {"xs": [float(x) for x in xs], "ys": [float(y / m) for y in ys]},
-        "fit": {"family": dist, "n": int(v.size), "params": _fit_label(frozen, dist)},
+        "fit": {"family": dist, "n": int(v.size), "params": _fit_label(frozen)},
     }
 
 
-def _discrete_bars(values, max_cats: int = 30) -> Optional[dict]:
+def _discrete_bars(values, max_cats: int = 30) -> dict | None:
     """Observed proportions for an integer/categorical likelihood (Bernoulli/Binomial/Poisson/...)
     as ONE bar per class — the honest representation of a pmf. Avoids the continuous auto-histogram,
     which scatters binary data into edge-pinned bins with empty gaps between. Returns None when the
@@ -378,7 +376,7 @@ def _discrete_bars(values, max_cats: int = 30) -> Optional[dict]:
         return None
 
 
-def _numeric_params(var) -> Optional[list]:
+def _numeric_params(var) -> list | None:
     """The node's distribution parameters as numpy arrays — but ONLY for a root prior, i.e. one
     whose every parameter is a fixed constant. Returns None for a conditional latent (any parameter
     governed by a parent RV): there ``.eval()`` would silently draw a random sample rather than read
@@ -442,8 +440,8 @@ def _posterior_samples(name: str, idata):
 
 
 def glyph_for(
-    var, role: str, dist: Optional[str], model, idata=None, named: Optional[dict] = None
-) -> tuple[Optional[GlyphSpec], Optional[dict], Optional[str]]:
+    var, role: str, dist: str | None, model, idata=None, named: dict | None = None
+) -> tuple[GlyphSpec | None, dict | None, str | None]:
     """Return ``(GlyphSpec, glyph_data, elision_reason)``. ``elision_reason`` is non-None only for
     honestly-undrawable constructs (it sets ``NodeIR.representable = False`` and shows a badge).
     ``named`` is the ``id(var)->name`` leaf map (used by the deterministic transfer-function path)."""

@@ -20,4 +20,3 @@ class ModelGraphWidget(anywidget.AnyWidget):
     spec = traitlets.Dict({}).tag(sync=True)
     # Two-way state for linked views (read back in marimo/Jupyter).
     selected_node = traitlets.Unicode("").tag(sync=True)
-    overlay_mode = traitlets.Unicode("prior").tag(sync=True)

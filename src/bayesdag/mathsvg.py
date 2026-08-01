@@ -25,7 +25,6 @@ import threading
 import xml.etree.ElementTree as ET
 from collections import OrderedDict
 from pathlib import Path
-from typing import Optional
 
 _BUNDLE_NAME = "mathjax.bundle.js"
 _PROCESS_SHIM = "globalThis.process = globalThis.process || {env:{}};"
@@ -53,7 +52,7 @@ def _mat_mul(A: tuple, B: tuple) -> tuple:
     )
 
 
-def _parse_transform(s: Optional[str]) -> tuple:
+def _parse_transform(s: str | None) -> tuple:
     """Parse an SVG ``transform`` attribute into a composed affine (translate/scale/matrix)."""
     M = _IDENTITY
     if not s:
@@ -158,7 +157,7 @@ def token_bboxes(svg: str) -> dict[str, tuple[float, float, float, float]]:
         else:
             b[0], b[1], b[2], b[3] = min(b[0], x), min(b[1], y), max(b[2], x), max(b[3], y)
 
-    def walk(el: ET.Element, M: tuple, tok: Optional[str]) -> None:
+    def walk(el: ET.Element, M: tuple, tok: str | None) -> None:
         M2 = _mat_mul(M, _parse_transform(el.get("transform")))
         nid = el.get("id")
         if nid and nid.startswith("tok-"):
@@ -209,10 +208,10 @@ class MathRenderer:
 
     _CACHE_MAX = 4096  # LRU bound — long-lived kernels render many models; memory stays flat
 
-    def __init__(self, bundle_path: Optional[Path] = None) -> None:
+    def __init__(self, bundle_path: Path | None = None) -> None:
         self._bundle_path = bundle_path or _bundle_path()
         self._ctx = None
-        self._ctx_error: Optional[Exception] = None
+        self._ctx_error: Exception | None = None
         self._executor = None
         self._lock = threading.Lock()
         # (display, tex) -> (svg, token bboxes): bboxes are cached WITH the SVG so a warm
@@ -298,7 +297,7 @@ class MathRenderer:
         return svg, token_anchors(svg)
 
 
-_RENDERER: Optional[MathRenderer] = None
+_RENDERER: MathRenderer | None = None
 _RENDERER_LOCK = threading.Lock()
 
 

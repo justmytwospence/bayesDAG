@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import types
 from pathlib import Path
 from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
@@ -25,7 +26,7 @@ def _type_schema(hint: Any, defs: dict[str, Any]) -> dict[str, Any]:
     origin = get_origin(hint)
     if origin is Literal:
         return {"enum": list(get_args(hint))}
-    if origin is Union:
+    if origin is Union or origin is types.UnionType:
         return {"anyOf": [_type_schema(a, defs) for a in get_args(hint)]}
     if origin in (list, tuple):
         args = get_args(hint)

@@ -39,7 +39,7 @@ def _poly(xs, ys, box: Box):
     def sy(y):
         return box.y + box.h - max(0.0, min(1.0, y)) * box.h
 
-    return [(sx(x), sy(y)) for x, y in zip(xs, ys)]
+    return [(sx(x), sy(y)) for x, y in zip(xs, ys, strict=False)]  # provider data; be forgiving
 
 
 def _zero_marker(box: Box, x0: float, x1: float) -> str:
@@ -106,7 +106,7 @@ def _bars(edges, counts, box: Box, fill, stroke) -> str:
     return "".join(out)
 
 
-def render_curve(data: dict[str, Any], box: Box, *, stroke="#7a5bd0", fill="#7a5bd0", **_):
+def render_curve(data: dict[str, Any], box: Box, *, stroke="#7a5bd0", **_):
     """A deterministic's transfer function: an UNFILLED polyline (it depicts a *function*, not a density,
     so no area fill — that's the visual distinction from ``render_density``), over a faint baseline that
     tethers the curve under the borderless equation."""
@@ -123,7 +123,7 @@ def render_curve(data: dict[str, Any], box: Box, *, stroke="#7a5bd0", fill="#7a5
     )
 
 
-def render_step(data: dict[str, Any], box: Box, *, stroke="#999", fill="#999", **_):
+def render_step(data: dict[str, Any], box: Box, *, stroke="#999", **_):
     """A piecewise-constant step function — the canonical shape of a BART (sum-of-regression-trees)
     draw, which is always step-shaped. Schematic (fixed heights, parameter-free): like ``fan`` for a
     random walk, it communicates the construct's STRUCTURE ('flexible step-function regression'),
@@ -190,7 +190,7 @@ def render_bars(data: dict[str, Any], box: Box, *, fill="#5a7fb5", stroke="#3a5f
     bw, centers = bar_layout(len(heights), box)
     base = box.y + box.h
     out = []
-    for hgt, cx in zip(heights, centers):
+    for hgt, cx in zip(heights, centers, strict=False):  # centers derived from len(heights)
         bh = max(0.0, min(1.0, hgt)) * box.h
         out.append(
             f'<rect x="{cx - bw / 2:.1f}" y="{base - bh:.1f}" width="{bw:.1f}" height="{bh:.1f}" '
@@ -367,7 +367,7 @@ def render_simplex(data: dict[str, Any], box: Box, *, stroke="#2a8a55", fill="#2
     return "".join(out)
 
 
-def render_stem(data: dict[str, Any], box: Box, *, stroke="#3a5f95", fill="#3a5f95", **_):
+def render_stem(data: dict[str, Any], box: Box, *, stroke="#3a5f95", **_):
     """Stem plot (e.g. an AR partial-autocorrelation function): one stem per lag from a zero
     baseline, handling +/- values. The AR(p) fingerprint is a sharp cutoff after lag p."""
     vals = data.get("values")

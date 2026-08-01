@@ -30,17 +30,18 @@ try:
 except importlib.metadata.PackageNotFoundError:  # running from a source checkout
     __version__ = "0.0.0+dev"
 
-# noqa: E402 — these must follow __version__, and each shadows a submodule attribute of the
+
+# These sit below __version__ deliberately, and `view` shadows the submodule attribute of the
 # same name, so binding order matters (the import machinery sets the module attr first).
-from .convert import subgraph, to_ir  # noqa: E402
-from .ir import ModelIR  # noqa: E402
-from .render_svg import to_svg  # noqa: E402
-from .view import ModelGraphView, view  # noqa: E402
+from .convert import subgraph, to_ir
+from .ir import ModelIR
+from .render_svg import to_svg
+from .view import ModelGraphView, view
 
 __all__ = [
-    "__version__",
     "ModelGraphView",
     "ModelIR",
+    "__version__",
     "subgraph",
     "to_ir",
     "to_svg",

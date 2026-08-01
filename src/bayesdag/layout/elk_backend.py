@@ -23,7 +23,6 @@ from __future__ import annotations
 import json
 import threading
 from pathlib import Path
-from typing import Optional
 
 from .. import geometry
 from ..ir import Box, LayoutResult, ModelIR
@@ -86,7 +85,7 @@ def _graph_counts(g: dict) -> tuple[int, int]:
 class ElkEngine:
     """Lazy in-process ELK layout engine. Construct once and reuse (V8 init is the cost)."""
 
-    def __init__(self, api_path: Optional[Path] = None, worker_path: Optional[Path] = None) -> None:
+    def __init__(self, api_path: Path | None = None, worker_path: Path | None = None) -> None:
         sd = _static_dir()
         self._api_path = api_path or (sd / "elk-api.js")
         self._worker_path = worker_path or (sd / "elk-worker.min.js")
@@ -165,7 +164,7 @@ class ElkEngine:
         return self._worker().submit(self._layout_blocking, graph, timeout_ms).result()
 
 
-_ENGINE: Optional[ElkEngine] = None
+_ENGINE: ElkEngine | None = None
 _ENGINE_LOCK = threading.Lock()
 
 
@@ -205,7 +204,7 @@ def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
     def node_json(n) -> dict:
         lw, lh = info[n.id]["w"], info[n.id]["h"]
         w, h = geometry.node_size(
-            lw, lh, n.role, n.glyph.kind if n.glyph else None, n.glyph_data if n.glyph else None
+            lw, lh, n.glyph.kind if n.glyph else None, n.glyph_data if n.glyph else None
         )
         d: dict = {"id": n.id, "width": float(w), "height": float(h)}
         ports = []
@@ -401,7 +400,7 @@ def _attach_source(pts: list, e, res: LayoutResult, roles: dict, anchor) -> None
             break
 
 
-def _attach_target(pts: list, e, res: LayoutResult, roles: dict, anchor) -> None:
+def _attach_target(pts: list, e, res: LayoutResult, anchor) -> None:
     """Land the arrow a standoff above the target box's TOP border, in the token's column: every node
     (now including deterministic equation boxes) is bordered, so the arrowhead clears the border and
     points at the box edge directly above the parameter it feeds — the column carries 'which token',
@@ -455,7 +454,7 @@ def _collect_edges(ir: ModelIR, data: dict, res: LayoutResult) -> None:
             else None
         )
         _attach_source(pts, e, res, roles, anchor)
-        _attach_target(pts, e, res, roles, anchor)
+        _attach_target(pts, e, res, anchor)
         res.edge_paths[f"{e.source}|{e.target}"] = common.orthogonal_path(pts, radius=5.0)
 
 

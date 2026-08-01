@@ -9,8 +9,6 @@ resulting strings here for assembly.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from .ir import TokenIR
 
 _GREEK_LOWER = {
@@ -171,7 +169,7 @@ def symbol_for(name: str) -> str:
 # (steps/size) hidden from the label. A variant applies ONLY when its length matches the
 # node's actual ``dist_params`` count (exact match or fall back — never guess). Each entry's
 # order is verified against ``op.dist_params`` introspection; verify before adding.
-DIST_PARAM_TEMPLATES: dict[str, list[list[Optional[str]]]] = {
+DIST_PARAM_TEMPLATES: dict[str, list[list[str | None]]] = {
     "RandomWalk": [["init", "innov", None]],  # [init_dist, innovation_dist, steps]
     "AR": [["rho", "sigma", "init", None]],  # [rho, sigma, init_dist, steps]
     "Censored": [["dist", "lower", "upper"]],
@@ -187,7 +185,7 @@ DIST_PARAM_TEMPLATES: dict[str, list[list[Optional[str]]]] = {
 }
 
 
-def dist_symbol(dist_name: Optional[str]) -> str:
+def dist_symbol(dist_name: str | None) -> str:
     if not dist_name:
         return r"\operatorname{?}"
     if dist_name in DIST_SYMBOLS:
@@ -214,7 +212,7 @@ def _cssid(token_id: str, content: str) -> str:
 
 
 def assemble_stochastic(
-    node_name: str, dist_name: Optional[str], args: list[tuple[str, str]]
+    node_name: str, dist_name: str | None, args: list[tuple[str, str]]
 ) -> tuple[str, TokenIR]:
     """``args`` = list of (token_id, value_tex). Returns (label_tex, token_tree)."""
     sym = symbol_for(node_name)
@@ -240,7 +238,7 @@ def assemble_deterministic(
     return label, tree
 
 
-def assemble_bare(node_name: str, kind_tex: Optional[str] = None) -> tuple[str, TokenIR]:
+def assemble_bare(node_name: str, kind_tex: str | None = None) -> tuple[str, TokenIR]:
     """For data/potential/elided nodes: just the symbol (optionally annotated)."""
     sym = symbol_for(node_name)
     label = f"{sym} {kind_tex}" if kind_tex else sym

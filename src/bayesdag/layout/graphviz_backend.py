@@ -38,7 +38,6 @@ def _build_dot(ir: ModelIR, info: dict[str, dict], rankdir: str) -> str:
         w, h = geometry.node_size(
             info[n.id]["w"],
             info[n.id]["h"],
-            n.role,
             n.glyph.kind if n.glyph else None,
             n.glyph_data if n.glyph else None,
         )
@@ -179,10 +178,10 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
                 ax, ay = anchor.x + anchor.w / 2.0, anchor.y - geometry.STANDOFF
                 lx, ly = ctrl[-1]
                 dy = max(12.0, 0.4 * abs(ay - ly))
-                ctrl = ctrl + [(lx, ly + dy), (ax, ay - dy), (ax, ay)]
+                ctrl = [*ctrl, (lx, ly + dy), (ax, ay - dy), (ax, ay)]
             elif tip is not None:
                 lx, ly = ctrl[-1]
-                ctrl = ctrl + [(lx, ly), tip, tip]
+                ctrl = [*ctrl, (lx, ly), tip, tip]
         else:
             # No usable spline -> a plain cubic with vertical tangents at both ends.
             ex, ey = sb.x + sb.w / 2.0, sb.y + sb.h

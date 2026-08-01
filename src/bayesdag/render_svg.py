@@ -148,7 +148,7 @@ def _panel_curve(xs: list[float], ys: list[float], box: Box, color: str = "#3a6e
     span = (x1 - x0) or 1.0
     pts = [
         (box.x + (x - x0) / span * box.w, box.y + box.h - max(0.0, min(1.0, y)) * box.h)
-        for x, y in zip(xs, ys)
+        for x, y in zip(xs, ys, strict=False)
     ]
     d = "M" + " L".join(f"{px:.1f},{py:.1f}" for px, py in pts)
     return f'<path d="{d}" fill="none" stroke="{color}" stroke-width="1" opacity="0.3"/>'
@@ -421,9 +421,7 @@ def _render_legend(items, ox: float, oy: float) -> tuple[str, float, float]:
     return "".join(out), w, h
 
 
-def to_svg(
-    ir: ModelIR, layout: LayoutResult, *, overlay_mode: str = "prior", legend: bool = True
-) -> str:
+def to_svg(ir: ModelIR, layout: LayoutResult, *, legend: bool = True) -> str:
     # `Box` is a dataclass and therefore always truthy — test the DIMENSIONS, so an empty model
     # gets the intended placeholder canvas instead of a 0x0 SVG
     c = layout.canvas
@@ -450,7 +448,7 @@ def to_svg(
     for n, b in drawn:  # labels + glyphs above all chrome
         if n.label_svg:
             lw, lh = geometry.label_px_size(n.label_svg)
-            ox, oy = geometry.label_origin(b, lw, lh)
+            ox, oy = geometry.label_origin(b, lw)
             parts = [_embed_label(n.label_svg, ox, oy, lw, lh, shared=font_defs)]
         else:
             parts = [
@@ -459,7 +457,7 @@ def to_svg(
             ]
         if n.glyph and n.glyph_data:
             _, lh = geometry.label_px_size(n.label_svg)
-            gr = geometry.glyph_rect(b, n.role, lh, n.glyph.kind, n.glyph_data)
+            gr = geometry.glyph_rect(b, lh, n.glyph.kind, n.glyph_data)
             if gr:
                 stroke, fill = _GLYPH_COLORS.get(n.glyph.source, ("#2a8a55", "#2a8a55"))
                 parts.append(glyph.render(n.glyph.kind, n.glyph_data, gr, stroke=stroke, fill=fill))

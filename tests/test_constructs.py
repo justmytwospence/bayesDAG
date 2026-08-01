@@ -12,7 +12,6 @@ from bayesdag.convert import to_ir
 from bayesdag.layout import layout
 from bayesdag.render_svg import to_svg
 
-
 _W = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]])
 
 

@@ -124,6 +124,30 @@ build_cmd = "build"
 line-length = 100
 target-version = "py312"
 
+[tool.ruff.lint]
+# Bare defaults are only F + a slice of E, so "All checks passed" was a much weaker signal than
+# it read: no import sorting, no bugbear, not even line-length (E501 is off by default, so the
+# line-length above only fed the formatter).
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF", "ARG", "PTH", "C4"]
+ignore = [
+    "SIM105",  # contextlib.suppress is slower and no clearer than try/except: pass here
+    "B008",    # function call in a default arg — not a pattern this codebase uses wrongly
+    # E501 stays off: `ruff format` already holds CODE to line-length, and the remaining hits are
+    # aligned documentation tables (glyph/kinds.py) and prose comments a few chars over, where
+    # reflowing costs readability and buys nothing.
+    "E501",
+    # The prose uses real typography (en/em dashes, ×, ⋯) on purpose — in docstrings, comments,
+    # and the SVG output itself. Flagging those as "ambiguous unicode" is noise here.
+    "RUF001", "RUF002", "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The adapters' whole contract is "never crash to_ir": broad excepts are the design, not a smell.
+"src/bayesdag/adapters/*" = ["BLE001"]
+# Tests deliberately import inside functions (subprocess snippets, optional-dep gating) and use
+# throwaway stub signatures when monkeypatching.
+"tests/*" = ["ARG001", "ARG002", "ARG005"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # -rs lists every skip in the summary: ~17% of the suite sits behind optional-dependency gates,

@@ -5,10 +5,10 @@ overlap, token edges arrive vertically, and hyperparameter edges don't bow throu
 Uses independent fine-grained geometric detectors (not the layout's own metrics)."""
 
 import pytest
+from conftest import CROSSING_FREE_MODELS, MODEL_BUILDERS, RESIDUAL_CROSSING_MODELS
 
 from bayesdag.convert import to_ir
 from bayesdag.layout import elk_backend, layout
-from conftest import CROSSING_FREE_MODELS, MODEL_BUILDERS, RESIDUAL_CROSSING_MODELS
 
 pytestmark = pytest.mark.skipif(not elk_backend.available(), reason="needs mini-racer + elkjs")
 

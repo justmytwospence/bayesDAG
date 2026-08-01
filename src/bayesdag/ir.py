@@ -17,8 +17,9 @@ The dataclasses below are JSON-serializable. ``to_dict``/``from_dict`` round-tri
 from __future__ import annotations
 
 import dataclasses
+import types
 from dataclasses import dataclass, field, is_dataclass
-from typing import Any, Literal, Optional, Union, get_args, get_origin, get_type_hints
+from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
 SCHEMA_VERSION = "1.0"
 
@@ -57,7 +58,7 @@ class TokenIR:
 
     token_id: str
     tex: str
-    children: list["TokenIR"] = field(default_factory=list)
+    children: list[TokenIR] = field(default_factory=list)
 
 
 @dataclass
@@ -69,7 +70,7 @@ class ParamIR:
     name: str
     token_id: str
     parents: list[str] = field(default_factory=list)  # source node ids feeding this slot
-    value_tex: Optional[str] = None  # LaTeX for the slot content (constant / parent symbol / expr)
+    value_tex: str | None = None  # LaTeX for the slot content (constant / parent symbol / expr)
 
 
 # --------------------------------------------------------------------------- glyphs
@@ -83,10 +84,10 @@ class GlyphSpec:
         "density"  # density|cdf|ccdf|histogram|gradient|dotplot|band|heatmap|ternary|rose|...
     )
     source: GlyphSource = "prior_analytic"
-    interval: Optional[list[float]] = None  # credible-interval probabilities, e.g. [0.5, 0.94]
-    point: Optional[str] = None  # "median" | "mean" | "mode" | None
-    layout: Optional[str] = None  # "ridgeline" for vector-valued params, else None
-    transform: Optional[dict[str, Any]] = None  # e.g. {"animate": "hops", "frames": 20}
+    interval: list[float] | None = None  # credible-interval probabilities, e.g. [0.5, 0.94]
+    point: str | None = None  # "median" | "mean" | "mode" | None
+    layout: str | None = None  # "ridgeline" for vector-valued params, else None
+    transform: dict[str, Any] | None = None  # e.g. {"animate": "hops", "frames": 20}
 
 
 @dataclass
@@ -105,25 +106,25 @@ class NodeIR:
     id: str  # = the constrained idata variable name (universal join key)
     role: Role
     observed: bool = False  # current conditioning state (mutable; drives shading)
-    dist: Optional[str] = None  # distribution name ("Normal"); None for deterministic/factor/data
+    dist: str | None = None  # distribution name ("Normal"); None for deterministic/factor/data
     params: list[ParamIR] = field(default_factory=list)
-    dims: list[Optional[str]] = field(default_factory=list)
-    coords: Optional[dict[str, list[Any]]] = None
+    dims: list[str | None] = field(default_factory=list)
+    coords: dict[str, list[Any]] | None = None
     label_tex: str = ""
-    label_tree: Optional[TokenIR] = None
-    transform: Optional[str] = None  # e.g. "log", "logodds", "simplex"
-    idata_unconstrained_key: Optional[str] = None  # e.g. "tau_log__" in unconstrained_posterior
-    glyph: Optional[GlyphSpec] = None
-    glyph_data: Optional[dict[str, Any]] = (
+    label_tree: TokenIR | None = None
+    transform: str | None = None  # e.g. "log", "logodds", "simplex"
+    idata_unconstrained_key: str | None = None  # e.g. "tau_log__" in unconstrained_posterior
+    glyph: GlyphSpec | None = None
+    glyph_data: dict[str, Any] | None = (
         None  # precomputed shape (xs/ys or edges/counts), shipped in-band
     )
     overlays: list[OverlayRef] = field(default_factory=list)
     representable: bool = True
-    elision_reason: Optional[str] = None
-    docstring: Optional[str] = None
+    elision_reason: str | None = None
+    docstring: str | None = None
     # filled by render/layout stages:
-    label_svg: Optional[str] = None
-    box: Optional[Box] = None
+    label_svg: str | None = None
+    box: Box | None = None
     port_anchors: dict[str, Box] = field(default_factory=dict)  # token_id -> bbox in node-local px
 
 
@@ -131,7 +132,7 @@ class NodeIR:
 class EdgeIR:
     source: str
     target: str
-    target_token_id: Optional[str] = None  # which param token; None => center-anchor fallback
+    target_token_id: str | None = None  # which param token; None => center-anchor fallback
 
 
 @dataclass
@@ -139,8 +140,8 @@ class PlateIR:
     id: str
     label: str  # e.g. "school (8)"
     members: list[str] = field(default_factory=list)
-    parent: Optional[str] = None  # enclosing plate id (nested plates)
-    box: Optional[Box] = None
+    parent: str | None = None  # enclosing plate id (nested plates)
+    box: Box | None = None
 
 
 @dataclass
@@ -150,23 +151,23 @@ class AuxViewIR:
 
     kind: str  # "joint" | "parcoord" | "energy" | "marginal"
     vars: list[str] = field(default_factory=list)
-    edge: Optional[list[str]] = None  # [source, target] when the panel is edge-driven
+    edge: list[str] | None = None  # [source, target] when the panel is edge-driven
     axis_space: str = "constrained"  # "constrained" | "unconstrained"
-    data_ref: Optional[dict[str, Any]] = None  # precomputed bins/density/divergence masks
+    data_ref: dict[str, Any] | None = None  # precomputed bins/density/divergence masks
 
 
 @dataclass
 class Meta:
     schema_version: str = SCHEMA_VERSION
-    source_ppl: Optional[str] = None  # "pymc" | "numpyro" | "stan" | ...
+    source_ppl: str | None = None  # "pymc" | "numpyro" | "stan" | ...
     creation_library: str = "bayesdag"
-    creation_library_version: Optional[str] = None
+    creation_library_version: str | None = None
     creation_library_language: str = "python"
-    created_at: Optional[str] = None  # ISO-8601, stamped at build time
-    model_name: Optional[str] = None
+    created_at: str | None = None  # ISO-8601, stamped at build time
+    model_name: str | None = None
 
     @classmethod
-    def stamp(cls, source_ppl: Optional[str] = None, model_name: Optional[str] = None) -> "Meta":
+    def stamp(cls, source_ppl: str | None = None, model_name: str | None = None) -> Meta:
         import datetime
         import importlib.metadata
 
@@ -177,7 +178,7 @@ class Meta:
         return cls(
             source_ppl=source_ppl,
             creation_library_version=ver,
-            created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            created_at=datetime.datetime.now(datetime.UTC).isoformat(),
             model_name=model_name,
         )
 
@@ -187,7 +188,7 @@ class LayoutResult:
     """The geometry both renderers consume verbatim (parity guarantee). All coords in
     SVG px (top-left origin) after the single coordinate transform."""
 
-    canvas: Optional[Box] = None
+    canvas: Box | None = None
     node_boxes: dict[str, Box] = field(default_factory=dict)
     node_token_anchors: dict[str, dict[str, Box]] = field(default_factory=dict)
     edge_paths: dict[str, list[list[float]]] = field(
@@ -205,7 +206,7 @@ class ModelIR:
     meta: Meta = field(default_factory=Meta)
 
     # ---- convenience accessors -------------------------------------------------
-    def node(self, node_id: str) -> Optional[NodeIR]:
+    def node(self, node_id: str) -> NodeIR | None:
         return next((n for n in self.nodes if n.id == node_id), None)
 
     # ---- (de)serialization -----------------------------------------------------
@@ -213,7 +214,7 @@ class ModelIR:
         return dataclasses.asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ModelIR":
+    def from_dict(cls, data: dict[str, Any]) -> ModelIR:
         return _from_dict(cls, data)
 
     def to_json(self, **kw: Any) -> str:
@@ -222,7 +223,7 @@ class ModelIR:
         return json.dumps(self.to_dict(), **kw)
 
     @classmethod
-    def from_json(cls, text: str) -> "ModelIR":
+    def from_json(cls, text: str) -> ModelIR:
         import json
 
         return cls.from_dict(json.loads(text))
@@ -243,7 +244,7 @@ def _structure(value: Any, hint: Any) -> Any:
     if value is None:
         return None
     origin = get_origin(hint)
-    if origin is Union:  # Optional[X] / Union[...]
+    if origin is Union or origin is types.UnionType:  # Optional[X] / Union[...]
         args = [a for a in get_args(hint) if a is not type(None)]
         return _structure(value, args[0]) if args else value
     if origin in (list,):
@@ -257,7 +258,7 @@ def _structure(value: Any, hint: Any) -> Any:
         targs = get_args(hint)
         if len(targs) == 2 and targs[1] is Ellipsis:
             return tuple(_structure(v, targs[0]) for v in value)
-        return tuple(_structure(v, a) for v, a in zip(value, targs))
+        return tuple(_structure(v, a) for v, a in zip(value, targs, strict=False))
     if is_dataclass(hint) and isinstance(value, dict):
         return _from_dict(hint, value)
     return value

@@ -9,6 +9,6 @@ way and are first-class, not exceptions.
 from __future__ import annotations
 
 from . import kinds  # noqa: F401  (registers the built-in kinds on import)
-from .registry import register, render, registered_kinds
+from .registry import register, registered_kinds, render
 
-__all__ = ["register", "render", "registered_kinds"]
+__all__ = ["register", "registered_kinds", "render"]

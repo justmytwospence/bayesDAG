@@ -149,13 +149,13 @@ def test_geometry_gate_is_presence_based():
     b = Box(0, 0, 120, 80)
     data = {"xs": [0, 1], "ys": [0, 1]}
     # a deterministic WITH a glyph reserves a strip; equation-only reserves nothing
-    assert geometry.glyph_rect(b, "deterministic", 16.0, "curve", data) is not None
-    assert geometry.glyph_rect(b, "deterministic", 16.0, None, None) is None
-    _, h_glyph = geometry.node_size(100, 16, "deterministic", "curve", data)
-    _, h_plain = geometry.node_size(100, 16, "deterministic", None, None)
+    assert geometry.glyph_rect(b, 16.0, "curve", data) is not None
+    assert geometry.glyph_rect(b, 16.0, None, None) is None
+    _, h_glyph = geometry.node_size(100, 16, "curve", data)
+    _, h_plain = geometry.node_size(100, 16, None, None)
     assert h_glyph > h_plain
     # latent/observed sizing unchanged (still reserves a strip when it carries glyph data)
-    _, h_latent = geometry.node_size(100, 16, "latent", "density", data)
+    _, h_latent = geometry.node_size(100, 16, "density", data)
     assert h_latent > h_plain
 
 
@@ -164,18 +164,16 @@ def test_curve_width_decoupled_from_equation_width():
     wide equation. The strip is capped and centered, unlike a density strip (which spans the box)."""
     data = {"xs": [0, 1], "ys": [0, 1]}
     wide = Box(0, 0, 400, 80)
-    cr = geometry.glyph_rect(wide, "deterministic", 16.0, "curve", data)
+    cr = geometry.glyph_rect(wide, 16.0, "curve", data)
     assert cr is not None
     assert cr.w == geometry._FN_GLYPH_MAX_W  # capped, NOT 400 - 2*PAD
     assert abs((cr.x + cr.w / 2.0) - (wide.x + wide.w / 2.0)) < 0.01  # centered under the equation
     # a density strip (a distribution) still spans the full box width — only `curve` is capped
-    dr = geometry.glyph_rect(wide, "latent", 16.0, "density", data)
+    dr = geometry.glyph_rect(wide, 16.0, "density", data)
     assert dr.w == wide.w - 2 * geometry.PAD
     # a narrow node uses the available width (cap is a ceiling, not a fixed size)
     narrow = Box(0, 0, 56, 80)
-    assert (
-        geometry.glyph_rect(narrow, "deterministic", 16.0, "curve", data).w == 56 - 2 * geometry.PAD
-    )
+    assert geometry.glyph_rect(narrow, 16.0, "curve", data).w == 56 - 2 * geometry.PAD
 
 
 def test_deterministic_node_draws_a_box():
@@ -232,7 +230,7 @@ def test_glyph_deterministic_edge_exits_from_node_box():
     assert n.glyph is not None
     box = res.node_boxes["d"]
     _, lh = geometry.label_px_size(n.label_svg)
-    gr = geometry.glyph_rect(box, n.role, lh, n.glyph.kind, n.glyph_data)
+    gr = geometry.glyph_rect(box, lh, n.glyph.kind, n.glyph_data)
     pts = res.edge_paths.get("d|y")
     assert pts is not None and gr is not None
     assert pts[0][1] >= gr.y + gr.h - 2.0  # starts at/below the glyph, i.e. the box bottom

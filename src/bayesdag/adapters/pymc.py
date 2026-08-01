@@ -13,7 +13,7 @@ named_vars_to_dims,rvs_to_transforms,coords}`, and `op.dist_params` / `op._print
 from __future__ import annotations
 
 import inspect
-from typing import Any, Optional
+from typing import Any
 
 from .. import labels
 from ..ir import EdgeIR, Meta, ModelIR, NodeIR, OverlayRef, ParamIR, PlateIR
@@ -42,7 +42,7 @@ def _param_names(op: Any, n: int) -> list[str]:
     return names
 
 
-def _resolved_param_names(dist: Optional[str], op: Any, n: int) -> list[Optional[str]]:
+def _resolved_param_names(dist: str | None, op: Any, n: int) -> list[str | None]:
     """Template-first param names: a verified per-construct template variant (which can hide
     structural params via ``None``) when its length matches exactly, else the op-signature
     inspection. SymbolicRandomVariables have a generic ``(inputs, kwargs)`` signature that
@@ -54,7 +54,7 @@ def _resolved_param_names(dist: Optional[str], op: Any, n: int) -> list[Optional
 
 
 def _direct_named_parents(
-    value: Any, named: dict[int, str], exclude: Optional[str] = None
+    value: Any, named: dict[int, str], exclude: str | None = None
 ) -> list[str]:
     """Named model vars that DIRECTLY feed ``value`` (stop descending at named boundaries;
     raw ``ancestors`` would over-collect transitive parents)."""
@@ -82,7 +82,7 @@ def _direct_named_parents(
     return out
 
 
-def _rv_dist_and_params(var: Any, named: dict[int, str]) -> tuple[Optional[str], list[ParamIR]]:
+def _rv_dist_and_params(var: Any, named: dict[int, str]) -> tuple[str | None, list[ParamIR]]:
     node = var.owner
     op = node.op
     pn = getattr(op, "_print_name", None)
@@ -93,7 +93,7 @@ def _rv_dist_and_params(var: Any, named: dict[int, str]) -> tuple[Optional[str],
         dparams = list(node.inputs[2:])  # (rng, size, *params)
     names = _resolved_param_names(dist, op, len(dparams))
     params: list[ParamIR] = []
-    for i, (nm, val) in enumerate(zip(names, dparams)):
+    for i, (nm, val) in enumerate(zip(names, dparams, strict=True)):  # names sized to dparams
         if nm is None:  # hidden structural param (steps/size): no label slot, no token
             continue
         parents = _direct_named_parents(val, named, exclude=var.name)
@@ -108,7 +108,7 @@ def _rv_dist_and_params(var: Any, named: dict[int, str]) -> tuple[Optional[str],
     return dist, params
 
 
-def _rv_family_symbol(val: Any) -> Optional[str]:
+def _rv_family_symbol(val: Any) -> str | None:
     """The LaTeX symbol of a param that is itself a random variable (e.g. a mixture's component),
     so it renders as its family (``\\mathcal{N}``) instead of the bare elision ``\\ldots``."""
     op = getattr(getattr(val, "owner", None), "op", None)
@@ -190,7 +190,7 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
         var = model[name]
         role = role_of.get(id(var), "latent")
         observed = role == "observed"
-        dist: Optional[str] = None
+        dist: str | None = None
         params: list[ParamIR] = []
         label_tex, label_tree = labels.assemble_bare(name)
         if role in ("latent", "observed") and getattr(var, "owner", None) is not None:
@@ -262,7 +262,8 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
             if not di.names:  # the empty-dims group is just ungrouped scalars, not a plate
                 continue
             label = " x ".join(
-                f"{nm} ({ln})" if nm else f"{ln}" for nm, ln in zip(di.names, di.lengths)
+                f"{nm} ({ln})" if nm else f"{ln}"
+                for nm, ln in zip(di.names, di.lengths, strict=False)
             )
             pid = "plate_" + "_".join(str(nm) for nm in di.names)
             plates.append(

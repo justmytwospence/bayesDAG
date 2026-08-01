@@ -13,8 +13,6 @@ means "not special — let the generic univariate path handle it".
 
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 
 from ..ir import GlyphSpec
@@ -23,7 +21,7 @@ from . import glyph_data as gd
 _GRID = 64
 
 
-def _ev(t) -> Optional[np.ndarray]:
+def _ev(t) -> np.ndarray | None:
     """Evaluate a (usually constant) tensor input to a numpy array, or None if it can't sample OR
     is governed by a parent RV (whose ``.eval()`` would be a random draw, not the real value)."""
     if _depends_on_rv(t):
@@ -84,7 +82,7 @@ def _depends_on_rv(t) -> bool:
     return False
 
 
-def _dist_name(rv) -> Optional[str]:
+def _dist_name(rv) -> str | None:
     op = getattr(getattr(rv, "owner", None), "op", None)
     if op is None:
         return None
@@ -92,7 +90,7 @@ def _dist_name(rv) -> Optional[str]:
     return pn[0] if pn else type(op).__name__.removesuffix("RV")
 
 
-def _lead_numeric(var, k: int) -> Optional[list]:
+def _lead_numeric(var, k: int) -> list | None:
     """The first k distribution params as numeric arrays — for constructs that need only a LEADING
     subset (e.g. LKJ's n & eta, a random walk's drift) whose TRAILING params may legitimately be
     priors that must never be sampled (an LKJCholeskyCov's sd_dist, an innovation's scale). Returns
@@ -122,7 +120,7 @@ def _base_frozen(rv):
     return gd._scipy_frozen(name, params) if (name and params is not None) else None
 
 
-def _first_matrix(params) -> Optional[np.ndarray]:
+def _first_matrix(params) -> np.ndarray | None:
     for p in params or []:
         a = np.asarray(p, dtype=float)
         if a.ndim >= 2 and a.shape[-1] > 1 and a.shape[-2] > 1:
@@ -145,7 +143,7 @@ def _badge(reason: str):
 # ---- per-construct handlers (each returns (spec, data) or None) ------------------------------
 
 
-def _multivariate(var, params, op_cls):
+def _multivariate(params):
     cov = _first_matrix(params)
     if cov is None:
         return None
@@ -157,14 +155,14 @@ def _multivariate(var, params, op_cls):
     return GlyphSpec(kind="heatmap", source="prior_analytic"), _heatmap(cov)
 
 
-def _matrix_only(var, params):
+def _matrix_only(params):
     mat = _first_matrix(params)
     if mat is None:
         return None
     return GlyphSpec(kind="heatmap", source="prior_analytic"), _heatmap(mat)
 
 
-def _dirichlet(var, params):
+def _dirichlet(params):
     if not params:
         return None
     a = np.asarray(params[0], float).ravel()
@@ -182,7 +180,7 @@ def _dirichlet(var, params):
     return GlyphSpec(kind="simplex", source="prior_analytic"), {"curves": curves}
 
 
-def _interpolated(var, params):
+def _interpolated(params):
     if len(params or []) < 2:
         return None
     xs = np.asarray(params[0], float).ravel()
@@ -234,7 +232,7 @@ def _censored(var):
     }
 
 
-def _truncated_normal(var, params):
+def _truncated_normal(params):
     if len(params or []) < 4:
         return None
     import scipy.stats as st
@@ -342,7 +340,7 @@ def _ar_acf(rho: np.ndarray, k: int) -> list[float]:
                 c[kk - 1] += rho[j - 1]
             else:
                 mat[kk - 1, m - 1] -= rho[j - 1]
-    acf = [1.0] + list(np.linalg.solve(mat, c))
+    acf = [1.0, *np.linalg.solve(mat, c)]
     for kk in range(p + 1, k + 1):
         acf.append(float(sum(rho[j - 1] * acf[kk - j] for j in range(1, p + 1))))
     return acf
@@ -365,7 +363,7 @@ def _levinson_pacf(acf: list[float], nlags: int) -> list[float]:
     return pacf
 
 
-def _ar_order(rho_in) -> Optional[int]:
+def _ar_order(rho_in) -> int | None:
     """The AR order = number of coefficients. It's STRUCTURAL (the coefficient vector's length), so
     it's knowable from the static shape even when the coefficient VALUES are a prior we must not
     sample — i.e. without ``.eval()``-ing the (random) tensor."""
@@ -460,7 +458,7 @@ def _mixture(var):
     # (prior) weights keep the unweighted overlay — shapes only, no claim about proportions.
     w = _mixture_weights(var, len(pdfs))
     if w is not None:
-        pdfs = [p * wi for p, wi in zip(pdfs, w)]
+        pdfs = [p * wi for p, wi in zip(pdfs, w, strict=True)]  # _mixture_weights matched len
     gmax = max(float(np.max(p)) for p in pdfs) or 1.0
     curves = [{"xs": [float(x) for x in xs], "ys": [float(y / gmax) for y in p]} for p in pdfs]
     return GlyphSpec(kind="mixture", source="prior_analytic"), {
@@ -469,7 +467,7 @@ def _mixture(var):
     }
 
 
-def _mixture_weights(var, k: int) -> Optional[list]:
+def _mixture_weights(var, k: int) -> list | None:
     """The mixture's weight vector, if it is numeric and matches the component count. Returns
     None when the weights are themselves a prior (a Dirichlet) — there is no honest number to
     scale by, and `.eval()` would draw a random one."""
@@ -501,27 +499,27 @@ def special_glyph(var):
     try:
         params = gd._numeric_params(var)  # inside the guard: it walks + evals the param graph
         if cls in ("MvNormalRV", "MvStudentTRV"):
-            r = _multivariate(var, params, cls)
+            r = _multivariate(params)
             return (*r, None) if r else _badge("multivariate — covariance not numeric")
         if cls in ("WishartRV", "MatrixNormalRV", "KroneckerNormalRV"):
-            r = _matrix_only(var, params)
+            r = _matrix_only(params)
             return (*r, None) if r else _badge("matrix-valued — params not numeric")
         if cls in ("LKJCorrRV", "_LKJCholeskyCovRV"):
             r = _lkj(var)
             return (*r, None) if r else _badge("correlation-matrix prior")
         if cls == "DirichletRV":
-            r = _dirichlet(var, params)
+            r = _dirichlet(params)
             return (*r, None) if r else _badge("simplex — concentration not numeric")
         if cls in ("DirichletMultinomialRV", "MultinomialRV", "StickBreakingWeightsRV"):
             return _badge("multivariate count/simplex")
         if cls == "InterpolatedRV":
-            r = _interpolated(var, params)
+            r = _interpolated(params)
             return (*r, None) if r else _badge("interpolated density")
         if cls == "CensoredRV":
             r = _censored(var)
             return (*r, None) if r else _badge("censored")
         if cls == "TruncatedNormalRV":
-            r = _truncated_normal(var, params)
+            r = _truncated_normal(params)
             return (*r, None) if r else _badge("truncated")
         if cls == "TruncatedRV":
             return _badge("truncated")
@@ -539,7 +537,7 @@ def special_glyph(var):
             r = _mixture(var)
             return (*r, None) if r else _badge("mixture")
         if cls in ("CARRV", "ICARRV"):
-            r = _matrix_only(var, params)
+            r = _matrix_only(params)
             return (*r, None) if r else _badge("spatial (CAR/ICAR)")
         if cls in ("FlatRV", "HalfFlatRV"):
             return _badge("improper prior")

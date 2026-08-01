@@ -9,7 +9,7 @@ to ``f(...)`` / ``\\ldots`` rather than exploding.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
@@ -18,7 +18,7 @@ from ..labels import symbol_for
 _UNWRAP_OPS = {"ViewOp"}  # pm.Deterministic wraps its expression in a ViewOp
 
 
-def _scalar_op_name(op: Any) -> Optional[str]:
+def _scalar_op_name(op: Any) -> str | None:
     try:
         from pytensor.tensor.elemwise import Elemwise
 
@@ -51,7 +51,7 @@ def _fmt_scalar(v: Any) -> str:
     return f"{v:.4g}" if isinstance(v, (int, float)) else str(v)  # ~4 sig figs (no -0.666667)
 
 
-def _const_tex(var: Any) -> Optional[str]:
+def _const_tex(var: Any) -> str | None:
     data = getattr(var, "data", None)
     if data is None:
         return None
@@ -77,7 +77,7 @@ def render_value(
     named: dict[int, str],
     *,
     wrap_leaves: bool,
-    budget: Optional[list[int]] = None,
+    budget: list[int] | None = None,
     _root: bool = False,
 ) -> tuple[str, set[str]]:
     """Return ``(latex, used_leaf_names)``. ``named`` maps ``id(var) -> name``."""

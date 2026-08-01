@@ -252,13 +252,13 @@ def test_2d_glyphs_get_a_square_area():
     dens = {"xs": [0, 1], "ys": [0, 1]}
     mat = {"matrix": [[1.0, 0.0], [0.0, 1.0]]}
     cov = {"cov": [[1.0, 0.0], [0.0, 1.0]]}
-    strip = geometry.glyph_rect(b, "latent", 16.0, "density", dens)
-    square = geometry.glyph_rect(b, "latent", 16.0, "heatmap", mat)
+    strip = geometry.glyph_rect(b, 16.0, "density", dens)
+    square = geometry.glyph_rect(b, 16.0, "heatmap", mat)
     assert strip.h == geometry.GLYPH_H
     assert square.h > strip.h and abs(square.w - square.h) < 1.0
     # and the node reserves the taller area
-    _, h_strip = geometry.node_size(120, 16, "latent", "density", dens)
-    _, h_square = geometry.node_size(120, 16, "latent", "pairplot", cov)
+    _, h_strip = geometry.node_size(120, 16, "density", dens)
+    _, h_square = geometry.node_size(120, 16, "pairplot", cov)
     assert h_square > h_strip
 
 

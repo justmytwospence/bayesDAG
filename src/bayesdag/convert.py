@@ -8,7 +8,8 @@ imports pymc/numpyro/stan. New PPL adapters slot in here without touching the IR
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from .ir import ModelIR
 
