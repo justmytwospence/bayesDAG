@@ -31,8 +31,27 @@ def _thin(v: np.ndarray) -> np.ndarray:
 
 
 def _scalars(p) -> list:
-    # representative scalar per param (iid vector priors broadcast params to arrays)
+    # One representative scalar per param. Only valid when the params are elementwise-uniform
+    # (an iid vector prior broadcasts a scalar) — callers gate on `_uniform_params` first.
     return [float(np.asarray(x).reshape(-1)[0]) for x in (p or [])]
+
+
+def _uniform_params(p) -> bool:
+    """True when every param array holds a single value (or a constant broadcast of one), so one
+    scalar per slot describes the WHOLE node.
+
+    A genuinely varying vector prior — ``pm.Normal("b", mu=[0, 5], sigma=[1, 10])`` — gives each
+    element a different density, and no single curve is "the node's prior". Reading element 0 and
+    badging it ``prior_analytic`` would state something false about the other elements, so the
+    caller falls back to the family schematic instead."""
+    try:
+        for x in p or []:
+            a = np.asarray(x).reshape(-1)
+            if a.size > 1 and not np.all(a == a.flat[0]):
+                return False
+    except Exception:
+        return False
+    return True
 
 
 def _canonical_bell() -> dict:
@@ -452,7 +471,10 @@ def glyph_for(
             return spec, data, elision
 
         params = _numeric_params(var)
-        if params is not None:
+        # A varying vector prior gives each element its OWN density, so no single curve is the
+        # node's prior — those fall through to the schematic. Categorical is exempt: its vector
+        # param IS the pmf, not a per-element parameterization.
+        if params is not None and (dist == "Categorical" or _uniform_params(params)):
             # continuous analytic pdf
             frozen = _scipy_frozen(dist, params)
             data = _density_from_frozen(frozen) if frozen is not None else None

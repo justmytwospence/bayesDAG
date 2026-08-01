@@ -46,6 +46,27 @@ def test_conditional_latent_is_schematic_not_a_random_draw():
     assert to_ir(build(1.0)).node("x").glyph_data == to_ir(build(100.0)).node("x").glyph_data
 
 
+def test_varying_vector_prior_does_not_plot_element_zero_as_the_node():
+    """An iid vector prior broadcasts ONE density across its elements, so a single analytic curve
+    is honest. A varying vector prior gives each element its own density — plotting element 0 and
+    badging it `prior_analytic` would state something false about the rest, so it degrades to the
+    family schematic. A Categorical is exempt: its vector param IS the pmf."""
+    import numpy as np
+    import pymc as pm
+
+    from bayesdag.convert import to_ir
+
+    with pm.Model(coords={"k": [0, 1]}) as m:
+        pm.Normal("iid", 0.0, 1.0, dims="k")                                # broadcast scalars
+        pm.Normal("varying", mu=np.array([0.0, 5.0]), sigma=np.array([1.0, 10.0]), dims="k")
+        pm.Categorical("choice", p=np.array([0.2, 0.3, 0.5]))
+
+    g = {n.id: n.glyph for n in to_ir(m).nodes}
+    assert g["iid"].source == "prior_analytic" and g["iid"].kind == "density"
+    assert g["varying"].source == "prior_family_only" and g["varying"].kind == "schematic"
+    assert g["choice"].source == "prior_analytic" and g["choice"].kind == "bars"
+
+
 def test_special_glyph_kinds_render():
     b = Box(0, 0, 80, 40)
     assert "<path" in glyph.render("fan", {"mid": [0.5, 0.5, 0.5], "lo": [0.4, 0.3, 0.2], "hi": [0.6, 0.7, 0.8]}, b)
