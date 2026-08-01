@@ -6,7 +6,7 @@ from bayesdag import mathsvg
 
 _r = mathsvg.get_renderer()
 pytestmark = pytest.mark.skipif(
-    not _r.available, reason="needs the 'math' extra (mini-racer) + a built mathjax bundle"
+    not _r.available, reason="needs a built mathjax bundle (npm run build)"
 )
 
 

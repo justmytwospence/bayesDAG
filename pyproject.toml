@@ -7,7 +7,9 @@ name = "bayesdag"
 version = "0.0.1"
 description = "Shape-first, posterior-aware, interactive visualizations of PyMC models"
 readme = "README.md"
-requires-python = ">=3.10"
+# 3.12+ is not a preference but a constraint: pymc 6 itself requires >=3.12, so the previous
+# ">=3.10" was unsatisfiable (uv rejects it outright) and 3.10/3.11 support was never real.
+requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Spencer Boucher" }]
@@ -22,21 +24,28 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Visualization",
 ]
 dependencies = [
-    "pymc>=5",
+    # 6.x specifically: detection keys on op internals (`type(op).__name__`, `_print_name`,
+    # reparametrized `dist_params`) verified against PyMC 6. Nothing tests 5.x.
+    "pymc>=6",
     "arviz",
     "mini-racer>=0.12",  # in-process V8: runs ELK (the layout engine) AND MathJax. Core.
-    "graphviz",          # `dot`: the explicit BAYESDAG_LAYOUT=dot opt-in / rollback only
     "networkx",
+    "numpy",             # imported directly by the adapters/glyph data providers
+    "scipy",             # ditto (frozen distributions, KDE, MLE fits)
     "traitlets>=5",
 ]
 
 # User-facing feature bundles (ship in the wheel): pip install "bayesdag[interactive]"
+# NB: there is no `math` extra — mini-racer is a CORE dependency (MathJax is not optional), so
+# an extra for it installed nothing while implying math would degrade without it.
 [project.optional-dependencies]
 interactive = ["anywidget>=0.9", "ipywidgets>=8"]
-math = ["mini-racer>=0.12"]
 export = ["cairosvg"]
-interop = ["prov"]
-reparam = ["pymc-extras"]
+
+[project.urls]
+Homepage = "https://github.com/spencerboucher/bayesdag"
+Repository = "https://github.com/spencerboucher/bayesdag"
+Issues = "https://github.com/spencerboucher/bayesdag/issues"
 
 # Dev tooling (PEP 735 groups; never published)
 [dependency-groups]
@@ -48,6 +57,12 @@ dev = [
     "marimo>=0.8",
     "watchfiles",
     "pymc-bart>=0.9.2",
+    # The user-facing extras belong here too: a dev env must run the WHOLE suite. Without them
+    # the anywidget/export tests skip, and a skip reads exactly like a pass
+    # (see BAYESDAG_REQUIRE_FULL in tests/conftest.py).
+    "anywidget>=0.9",
+    "ipywidgets>=8",
+    "cairosvg",
 ]
 
 [tool.uv]
@@ -59,12 +74,45 @@ artifacts = ["src/bayesdag/static/*"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/bayesdag"]
+# The published JSON Schema is advertised as "the language-neutral contract other tools can
+# consume" — it has to actually be IN the wheel, and it isn't a .py so only-packages drops it.
+force-include = { "src/bayesdag/schema/graph-v1.0.json" = "bayesdag/schema/graph-v1.0.json", "THIRD_PARTY_LICENSES" = "bayesdag-0.0.1.dist-info/licenses/THIRD_PARTY_LICENSES" }
+
+# The sdist must carry the JS SOURCES, not just the built bundles: a wheel built from the sdist
+# runs the npm build, and without package.json it failed outright. Shipping both means a source
+# build rebuilds from scratch by default, and still works without Node via
+# HATCH_JUPYTER_BUILDER_SKIP_NPM=1 (the prebuilt artifacts are included too).
+[tool.hatch.build.targets.sdist]
+only-packages = false  # the global setting would drop everything outside src/bayesdag
+include = [
+    "src/bayesdag",
+    "js",
+    "tests",
+    "package.json",
+    "package-lock.json",
+    "pyproject.toml",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_LICENSES",
+]
 
 # Run the esbuild JS build during the PEP 517 build so the wheel ships the bundle.
 [tool.hatch.build.hooks.jupyter-builder]
 build-function = "hatch_jupyter_builder.npm_builder"
-ensured-targets = ["src/bayesdag/static/widget.js", "src/bayesdag/static/elk-worker.min.js"]
-skip-if-exists = ["src/bayesdag/static/widget.js"]
+# Every file here is load-bearing at RUNTIME: widget.js (the front-end), mathjax.bundle.js
+# (mathsvg — all label rendering), elk-api.js + elk-worker.min.js (the layout engine),
+# widget.css (widget.py reads it at import). Listing only two of the five meant a failed
+# `build:mathjax` or `build:elk` step still produced a "successful" wheel that raised at import.
+ensured-targets = [
+    "src/bayesdag/static/widget.js",
+    "src/bayesdag/static/widget.css",
+    "src/bayesdag/static/mathjax.bundle.js",
+    "src/bayesdag/static/elk-api.js",
+    "src/bayesdag/static/elk-worker.min.js",
+]
+# NB: no `skip-if-exists`. It keyed on widget.js alone, so any tree that had ever run
+# `npm run build` (or `npm run dev`) skipped the JS build entirely and packaged whatever bytes
+# happened to be on disk — silently shipping a stale bundle.
 dependencies = ["hatch-jupyter-builder>=0.8.3"]
 optional-editable-build = true
 
@@ -74,7 +122,7 @@ build_cmd = "build"
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

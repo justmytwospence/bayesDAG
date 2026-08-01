@@ -1,0 +1,48 @@
+THIRD-PARTY SOFTWARE NOTICES
+============================
+
+bayesdag itself is MIT-licensed (see LICENSE). The distributed wheel additionally
+BUNDLES the third-party JavaScript below, in `bayesdag/static/`. Those components keep
+their own licenses, reproduced/referenced here as their terms require.
+
+--------------------------------------------------------------------------------
+elkjs — Eclipse Layout Kernel (JavaScript)
+Files:    bayesdag/static/elk-api.js
+          bayesdag/static/elk-worker.min.js
+Version:  0.9.3
+License:  Eclipse Public License 2.0 (EPL-2.0)
+Source:   https://github.com/kieler/elkjs
+Text:     https://www.eclipse.org/legal/epl-2.0/
+
+  This program and the accompanying materials are made available under the terms
+  of the Eclipse Public License 2.0 which is available at
+  https://www.eclipse.org/legal/epl-2.0/.
+
+  The bundled files are unmodified copies taken from the published `elkjs` npm
+  package. Per EPL-2.0 section 3.2, the Source Code for this component is
+  available from the URL above.
+
+--------------------------------------------------------------------------------
+MathJax (mathjax-full)
+Files:    bayesdag/static/mathjax.bundle.js  (an esbuild bundle of mathjax-full)
+Version:  3.2.1
+License:  Apache License 2.0
+Source:   https://github.com/mathjax/MathJax-src
+Text:     https://www.apache.org/licenses/LICENSE-2.0
+
+  Copyright (c) 2009-2022 The MathJax Consortium
+
+  Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+  these files except in compliance with the License. You may obtain a copy of the
+  License at
+
+      https://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software distributed
+  under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+  CONDITIONS OF ANY KIND, either express or implied. See the License for the
+  specific language governing permissions and limitations under the License.
+
+--------------------------------------------------------------------------------
+Note: `d3` is NOT bundled. The front-end (`js/index.js`) imports nothing at
+runtime, so no other third-party code ships in the wheel.

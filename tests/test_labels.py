@@ -96,7 +96,7 @@ def test_deterministic_port_edges(eight_schools_ir):
 
 
 @pytest.mark.skipif(
-    not mathsvg.get_renderer().available, reason="needs the 'math' extra + built bundle"
+    not mathsvg.get_renderer().available, reason="needs the built mathjax bundle (npm run build)"
 )
 def test_all_labels_render_in_mathjax(eight_schools_ir):
     for n in eight_schools_ir.nodes:

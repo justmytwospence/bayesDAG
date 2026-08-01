@@ -53,14 +53,14 @@ def test_relayout_leaves_no_stale_geometry_on_the_ir(eight_schools_ir):
     assert f'data-node="{dropped.id}"' not in to_svg(ir, third)
 
 
-@pytest.mark.skipif(not _math, reason="needs the 'math' extra for token anchors")
+@pytest.mark.skipif(not _math, reason="needs the built mathjax bundle for token anchors")
 def test_token_anchors_are_real_bboxes(eight_schools_ir):
     res = layout(eight_schools_ir)
     b = res.node_token_anchors["theta"]["mu"]
     assert b.w > 0 and b.h > 0  # real bbox, not a zero-size point
 
 
-@pytest.mark.skipif(not _math, reason="needs the 'math' extra for token anchors")
+@pytest.mark.skipif(not _math, reason="needs the built mathjax bundle for token anchors")
 def test_param_edges_land_on_token_without_overlap(eight_schools_ir):
     res = layout(eight_schools_ir)
     # every node is bordered (incl. the deterministic equation box): arrows land a STANDOFF above the
@@ -78,7 +78,7 @@ def test_param_edges_land_on_token_without_overlap(eight_schools_ir):
         assert abs((surface - end[1]) - STANDOFF) < 1.5
 
 
-@pytest.mark.skipif(not _math, reason="needs the 'math' extra")
+@pytest.mark.skipif(not _math, reason="needs the built mathjax bundle")
 def test_labels_rendered_onto_nodes(eight_schools_ir):
     layout(eight_schools_ir)
     for n in eight_schools_ir.nodes:

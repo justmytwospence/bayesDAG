@@ -248,9 +248,9 @@ class MathRenderer:
                 from py_mini_racer import MiniRacer
             except Exception as exc:  # pragma: no cover - exercised only without the extra
                 raise RuntimeError(
-                    "bayesdag math rendering needs the 'math' extra: "
-                    "pip install 'bayesdag[math]' (provides mini-racer). "
-                    "A matplotlib.mathtext fallback (without token anchors) is not yet implemented."
+                    "bayesdag math rendering needs mini-racer, which is a core dependency — "
+                    "reinstall bayesdag (pip install --force-reinstall bayesdag). "
+                    "A matplotlib.mathtext fallback (without token anchors) is not implemented."
                 ) from exc
             if not self._bundle_path.exists():
                 raise RuntimeError(

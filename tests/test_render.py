@@ -50,7 +50,7 @@ def test_svg_is_well_formed_xml(eight_schools_ir):
     assert "#c0392b" in svg  # observed node's MLE best-fit family overlay curve
 
 
-@pytest.mark.skipif(not _math, reason="needs the 'math' extra")
+@pytest.mark.skipif(not _math, reason="needs the built mathjax bundle")
 def test_svg_embeds_labels_and_glyphs(eight_schools_ir):
     res = layout(eight_schools_ir)
     svg = to_svg(eight_schools_ir, res)
@@ -67,7 +67,7 @@ def test_save_svg(tmp_path, eight_schools_ir):
     assert out.exists() and out.read_text().lstrip().startswith("<svg")
 
 
-@pytest.mark.skipif(not _math, reason="needs the 'math' extra")
+@pytest.mark.skipif(not _math, reason="needs the built mathjax bundle")
 def test_mathjax_defs_are_deduped(eight_schools_ir):
     """Labels share one content-hashed <defs>: every glyph reference resolves, no duplicate
     path data remains (per-equation MJX defs were >50% of output bytes)."""
