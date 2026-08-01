@@ -75,41 +75,6 @@ def _local(tag: str) -> str:
     return tag.split("}")[-1]
 
 
-def token_anchors(svg: str) -> dict[str, tuple[float, float]]:
-    """Map ``token_id -> (fx, fy)`` node-local fractional anchors (0..1 within the SVG box).
-
-    Token ids are taken from ``<g id="tok-...">`` groups (the ``tok-`` prefix is stripped to
-    match ``ParamIR.token_id``). The layout post-pass scales these by the node's box to get
-    absolute port-edge endpoints; unresolved params simply get no anchor (center fallback).
-    """
-    try:
-        root = ET.fromstring(svg)
-    except ET.ParseError:
-        return {}
-    vb = root.get("viewBox")
-    if not vb:
-        return {}
-    min_x, min_y, vb_w, vb_h = (float(x) for x in vb.split())
-    if vb_w == 0 or vb_h == 0:
-        return {}
-
-    anchors: dict[str, tuple[float, float]] = {}
-
-    def walk(el: ET.Element, M: tuple) -> None:
-        M2 = _mat_mul(M, _parse_transform(el.get("transform")))
-        nid = el.get("id")
-        if nid and nid.startswith("tok-"):
-            e, f = M2[4], M2[5]  # image of the token-local origin (0,0)
-            fx = (e - min_x) / vb_w
-            fy = (f - min_y) / vb_h
-            anchors[nid[len("tok-") :]] = (fx, fy)
-        for child in el:
-            walk(child, M2)
-
-    walk(root, _IDENTITY)
-    return anchors
-
-
 _XLINK = "{http://www.w3.org/1999/xlink}href"
 _NUM = re.compile(r"-?\d+\.?\d*(?:[eE]-?\d+)?")
 # very rough per-glyph em box used when a <use>'s referenced path can't be measured
@@ -290,12 +255,6 @@ class MathRenderer:
                 self._cache.popitem(last=False)
         return svg, bboxes
 
-    def render_with_anchors(
-        self, tex: str, display: bool = True
-    ) -> tuple[str, dict[str, tuple[float, float]]]:
-        svg = self.render(tex, display)
-        return svg, token_anchors(svg)
-
 
 _RENDERER: MathRenderer | None = None
 _RENDERER_LOCK = threading.Lock()
@@ -312,9 +271,3 @@ def get_renderer() -> MathRenderer:
 
 def render(tex: str, display: bool = True) -> str:
     return get_renderer().render(tex, display)
-
-
-def render_with_anchors(
-    tex: str, display: bool = True
-) -> tuple[str, dict[str, tuple[float, float]]]:
-    return get_renderer().render_with_anchors(tex, display)

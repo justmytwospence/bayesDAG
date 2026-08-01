@@ -39,6 +39,12 @@ def markov_blanket(ir: ModelIR, node_id: str) -> set[str]:
 
 
 def to_elk(ir: ModelIR, default_size: tuple[float, float] = (120.0, 60.0)) -> dict[str, Any]:
+    """ELK JSON for INTEROP — handing the graph to an external ELK consumer.
+
+    This is deliberately not the graph bayesdag lays out with: ``layout.elk_backend._build_graph``
+    builds that one, with measured node sizes, fixed-position token ports and its own port-id
+    scheme. Keep the two separate rather than merging them — this one is a stable exchange format,
+    that one tracks whatever the layout engine currently needs."""
     w, h = default_size
 
     def elk_node(n) -> dict[str, Any]:

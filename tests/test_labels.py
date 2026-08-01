@@ -102,7 +102,7 @@ def test_deterministic_port_edges(eight_schools_ir):
 )
 def test_all_labels_render_in_mathjax(eight_schools_ir):
     for n in eight_schools_ir.nodes:
-        svg, _anchors = mathsvg.render_with_anchors(n.label_tex)
+        svg, _bboxes = mathsvg.get_renderer().render_with_bboxes(n.label_tex)
         assert "<svg" in svg, f"label failed to render: {n.id}: {n.label_tex}"
 
 

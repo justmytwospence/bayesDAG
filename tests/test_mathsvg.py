@@ -17,15 +17,17 @@ def test_render_produces_self_contained_svg():
     assert "data-mml-node" in svg
 
 
-def test_token_anchors_are_fractional_and_ordered():
+def test_token_bboxes_are_fractional_and_ordered():
+    """Token bboxes are what the layout anchors port-edges to: fractional within the label SVG,
+    positioned in reading order, and with real extent (not a zero-size point)."""
     tex = r"\mathcal{N}(\cssId{tok-mu}{\mu},\ \cssId{tok-sg}{\sigma})"
-    _svg, anchors = mathsvg.render_with_anchors(tex)
-    assert set(anchors) == {"mu", "sg"}
+    _svg, bboxes = mathsvg.get_renderer().render_with_bboxes(tex)
+    assert set(bboxes) == {"mu", "sg"}
     # mu must sit to the left of sigma in N(mu, sigma)
-    assert anchors["mu"][0] < anchors["sg"][0]
-    for fx, fy in anchors.values():
-        assert 0.0 <= fx <= 1.0
-        assert 0.0 <= fy <= 1.0
+    assert bboxes["mu"][0] < bboxes["sg"][0]
+    for fx, fy, fw, fh in bboxes.values():
+        assert 0.0 <= fx <= 1.0 and 0.0 <= fy <= 1.0
+        assert fw > 0.0 and fh > 0.0
 
 
 @pytest.mark.parametrize("tex", [r"\sigma^2", r"\frac{a}{b}", r"\alpha + \beta x", r"\Sigma"])

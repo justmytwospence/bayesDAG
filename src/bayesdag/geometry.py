@@ -33,10 +33,6 @@ _W = re.compile(r'\bwidth="([\d.]+)ex"')
 _H = re.compile(r'\bheight="([\d.]+)ex"')
 
 
-def has_glyph(role: str) -> bool:
-    return role in ("latent", "observed")
-
-
 def has_glyph_data(glyph_kind: str | None, glyph_data: dict | None) -> bool:
     """Whether a node actually carries a drawable glyph. Sizing/placement gate on THIS (presence),
     not on role — so a deterministic with a transfer-function glyph reserves a strip, while an

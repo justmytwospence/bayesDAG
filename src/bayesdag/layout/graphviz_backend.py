@@ -19,7 +19,6 @@ import subprocess
 from .. import geometry
 from ..ir import Box, LayoutResult, ModelIR
 from . import common
-from .common import render_labels as _render_labels
 
 
 def _build_dot(ir: ModelIR, info: dict[str, dict], rankdir: str) -> str:
@@ -120,7 +119,7 @@ def _run_dot(dot_text: str) -> dict:
 
 def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
     common.reset_geometry(ir)  # never let a previous layout's coordinates survive into this one
-    info = _render_labels(ir)
+    info = common.render_labels(ir)
     data = _run_dot(_build_dot(ir, info, rankdir))
 
     _, _, gw, gh = (float(v) for v in data["bb"].split(","))

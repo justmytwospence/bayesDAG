@@ -171,7 +171,7 @@ class ModelGraphView:
             if self._widget_legend == self._legend
             else to_svg(self.ir, self.layout, legend=self._widget_legend)
         )
-        return {"svg": widget_svg, "nodes": nodes, "plates": plates, "selected": ""}
+        return {"svg": widget_svg, "nodes": nodes, "plates": plates}
 
     def widget(self):
         if self._widget is None:
