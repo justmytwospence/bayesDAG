@@ -6,15 +6,16 @@ work-plan in [`COVERAGE.md`](COVERAGE.md), and the source/decision log in
 
 ## Dev / test / build commands
 ```bash
-uv sync                              # create .venv (Python 3.12), install deps + dev group, editable install
+uv sync                              # create .venv (Python 3.12+), install deps + dev group + extras, editable install
 npm install                          # JS deps (esbuild, d3-*)  — run before the first `uv sync` build, or set HATCH_JUPYTER_BUILDER_SKIP_NPM=1
 npm run dev                          # esbuild --watch -> src/bayesdag/static/widget.js
 uv run env ANYWIDGET_HMR=1 jupyter lab     # live-reload widget dev (Jupyter)
 uv run env ANYWIDGET_HMR=1 marimo edit examples/bayesdag_gallery.py   # marimo dev
-uv run pytest                        # test suite
+uv run pytest                        # test suite (BAYESDAG_REQUIRE_FULL=1 makes skips failures, as CI does)
+uv run ruff check && uv run ruff format --check   # lint + format gate (both run in CI)
 uv build                             # wheel (runs esbuild via hatch-jupyter-builder; bundle is included)
 ```
-Toolchain present in this environment: `uv`, `node`/`npx`, Graphviz `dot`, `git`. System Python is 3.14 (too new for PyMC) — the venv is pinned to **3.12** via `.python-version`.
+Toolchain present in this environment: `uv`, `node`/`npx`, Graphviz `dot`, `git`. System Python is 3.14 (too new for PyMC) — the venv is pinned to **3.12** via `.python-version`. `requires-python` is **>=3.12** because PyMC 6 itself requires it. Graphviz is optional (the `BAYESDAG_LAYOUT=dot` rollback only).
 
 ## Module map (`src/bayesdag/`)
 - `ir.py` — neutral, **import-light** dataclasses (the single source of truth). No pymc/xarray/render imports.
@@ -23,20 +24,25 @@ Toolchain present in this environment: `uv`, `node`/`npx`, Graphviz `dot`, `git`
 - `adapters/glyph_data.py` — distribution-shape DATA provider: per-node `(GlyphSpec, glyph_data, elision_reason)`. Verified PyMC→scipy param translations (continuous pdf, discrete pmf, closed-form for Kumaraswamy/LogitNormal/HalfStudentT), observed histogram + best-fit overlay, posterior KDE.
 - `adapters/constructs.py` — special-construct glyphs. Detect by **RV class** (`type(op).__name__`); recover sub-RVs/params from `var.owner.inputs`. Faithful glyph (pairplot/heatmap/simplex/fan/censored/mixture/AR-marginal) or an honest `elision_reason` badge. Every branch guarded — never crash, never lie.
 - `adapters/deterministic.py` — `pm.Deterministic` **transfer-function** glyphs (`curve`/`bars`). Find the PRINCIPAL op (unwrap value-preserving wrappers + strip scalar-constant affine framing, sign-tracked), then map a recognized transfer (Sigmoid/Erf/Tanh/Exp/Log/Softplus/Sqrt/Abs/Pow-const-exp) → its canonical curve, Softmax → bars, provably-affine → line. **ZERO false positives by construction**: only draw when the shape is a mathematical consequence of the op graph (elementwise ⇒ pointwise T; `is_affine` is a degree-preserving whitelist that rejects parent×parent); everything else skips. Curves are evaluated from the true function (parameter-free, deterministic). Leaf set = the `named` model vars (mirrors `pytensor_latex`).
-- `adapters/graph.py` — `to_elk`, `to_networkx`, `markov_blanket`. (DOT / GraphML / PROV-JSON-LD exporters are M3 roadmap — not yet written.)
+- `adapters/graph.py` — `to_elk` (an INTEROP export, deliberately separate from the layout's own graph builder), `to_networkx`, `markov_blanket`. (DOT / GraphML / PROV-JSON-LD exporters are M3 roadmap — not yet written.)
+- `adapters/ppc.py` — per-plate prior-predictive expansions (forward simulation → per-instance marginals + the observed points). Interactive-only, computed lazily.
+- `geometry.py` — node sizing, label origin, and the glyph strip. Reserves space by glyph **presence** (`has_glyph_data`), never by role.
+- `legend.py` — the context-aware legend; `_SOURCE_LABELS` is the single source of the glyph-source wording (the node panels reuse it).
+- `schema.py` — builds the JSON Schema from the IR dataclasses and validates against it; `python -m bayesdag.schema` regenerates the published `schema/graph-v1.0.json` (a test asserts the two agree).
 - `labels.py` — `DIST_SYMBOLS` (full catalog, keyed on derived op names) + deterministic graph→LaTeX visitor + token-tree.
-- `mathsvg.py` — TeX→SVG via `mini-racer`/MathJax (cached) + per-token bbox extraction. **Highest-risk module.**
+- `mathsvg.py` — TeX→SVG via `mini-racer`/MathJax (LRU-cached with the token bboxes) + per-token bbox extraction. Its V8 isolate is pinned to a dedicated thread for the same reason ELK's is (see `layout/`). **Highest-risk module.**
 - `layout/` — **ELK is the engine.** `elk_backend.py` runs `elkjs` in-process in `mini-racer` V8 (`hierarchyHandling=INCLUDE_CHILDREN` + fixed-position token **ports** so plates and equation-edges lay out correctly). It runs all V8 work on ONE dedicated thread (mini-racer binds its loop to the creating thread and forbids blocking `.get()` under a live asyncio loop, e.g. a marimo cell). **No automatic fallback**: if ELK can't run, `layout()` *raises* (a silent downgrade once shipped a worse layout while reporting success). `graphviz_backend.py` (`dot -Tjson`) is reachable ONLY via the explicit `BAYESDAG_LAYOUT=dot` opt-in / git-rollback target. `common.py` holds the engine-agnostic bits (label measurement, token-anchor projection, the smooth edge). Token-level port anchors are computed by us from MathJax bboxes (engine-independent).
-- `glyph/` — `registry.py` (glyph-agnostic kind→render-fn) + `kinds.py` (density/histogram/bars/hist_overlay/heatmap/fan/pairplot/mixture/cutpoints/simplex/censored/`curve`). `curve` is an unfilled polyline (a deterministic's transfer function — a function, not a density). `GlyphSpec` lives in `ir.py`; the data provider is `adapters/glyph_data.py`.
+- `glyph/` — `registry.py` (glyph-agnostic kind→render-fn) + `kinds.py` (density/schematic/histogram/bars/hist_overlay/heatmap/fan/pairplot/mixture/cutpoints/simplex/censored/`curve`/`stem`/`step`). `curve` is an unfilled polyline (a deterministic's transfer function — a function, not a density). `GlyphSpec` lives in `ir.py`; the data provider is `adapters/glyph_data.py`.
 - `render_svg.py` — the ONE shared SVG emitter (nodes/edges/plates/glyphs/panels). Both renderers consume it.
-- `render_static.py` — standalone SVG + cairosvg PNG/PDF + TikZ.
+- `render_static.py` — standalone SVG + cairosvg PNG/PDF (TikZ is declared but raises `NotImplementedError` — M2).
 - `widget.py` — `anywidget.AnyWidget` subclass + synced traitlets.
 - `view.py` — `ModelGraphView`: env detection + `_repr_mimebundle_`/`_repr_svg_`/`_display_` fallback.
-- `diagnostics.py` — per-node/edge diagnostics + funnel scores + `AuxViewIR` (M2+).
-- `js/index.js` — thin d3 controller (zoom/hover/highlight only; **never** layout or stats).
+- `diagnostics.py` — **not yet written** (M2): per-node/edge diagnostics + funnel scores. Its `AuxViewIR` placeholder already lives in `ir.py`.
+- `js/index.js` — thin controller: hover-highlight, tooltips, click-to-pin cards, plate expansion. Imports **nothing** (no d3, no pan/zoom — the diagram renders at natural size) and **never** computes layout or stats. `render()` returns anywidget's cleanup function.
 
 ## Load-bearing invariants (do not break)
-1. **Layout once, two dumb emitters.** Python computes one `LayoutResult` + one set of MathJax-SVG fragments; static and widget both consume them verbatim. Parity is checked by a golden-SVG diff test.
+1. **Layout once, two dumb emitters.** Python computes one `LayoutResult` + one set of MathJax-SVG fragments; static and widget both consume them verbatim. `tests/test_view.py` asserts the widget ships the same `to_svg` bytes (the two differ only by the legend, which is opt-out per renderer). NB this is a consistency check, not a golden-image test — there is no committed reference SVG, so it cannot catch a renderer regression that changes both sides. A real golden fixture is still owed.
+   The `LayoutResult` is the geometry source of truth; the `box`/`port_anchors` copies on `NodeIR` are a convenience mirror, cleared at the start of every layout.
 2. **One math artifact.** Each TeX → SVG once; both renderers embed the same bytes; token bboxes from that SVG anchor port-edges.
 3. **`bayesdag.ir` stays import-light** (stdlib only). pymc/xarray/render are extras.
 4. **Honesty/representability contract.** Undrawable constructs → factor glyph / "density-only / elided" badge; every auto-flag (incl. funnels) is a hedged "inspect this," never a verdict.
@@ -51,4 +57,4 @@ Toolchain present in this environment: `uv`, `node`/`npx`, Graphviz `dot`, `git`
 - **Add an exporter:** create `export.py` (doesn't exist yet) with a function taking a `ModelIR`; lossy is fine for reach (document what's dropped).
 
 ## Conventions
-Conventional commits (`feat:`/`fix:`/`refactor:`/`test:`/`docs:`/`chore:`); atomic commits; never force-push main; no Co-Authored-By lines. Run `uv run ruff` and `uv run pytest` before committing.
+Conventional commits (`feat:`/`fix:`/`refactor:`/`test:`/`docs:`/`chore:`); atomic commits; never force-push main; no Co-Authored-By lines. Run `uv run ruff check`, `uv run ruff format --check` and `uv run pytest` before committing.

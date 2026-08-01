@@ -1,5 +1,5 @@
 """anywidget front-end. Ships the SAME SVG the static renderer produced (parity by
-construction); the JS only adds pan/zoom/hover/selection. Imported lazily so the rest of
+construction); the JS only adds hover/selection/plate-expansion. Imported lazily so the rest of
 bayesdag never requires anywidget."""
 
 from __future__ import annotations

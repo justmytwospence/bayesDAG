@@ -1,4 +1,7 @@
-"""Layout via Graphviz ``dot`` (the default ``LayoutBackend``).
+"""Layout via Graphviz ``dot`` — the explicit ``BAYESDAG_LAYOUT=dot`` ROLLBACK backend.
+
+Not the default and never reached automatically (see ``layout/__init__.py``: a silent downgrade
+once shipped a worse layout while reporting success).
 
 We use ``dot`` purely as a layout *oracle*: build DOT with each node sized to its rendered
 label, run ``dot -Tjson0``, parse node positions + cluster boxes + edge splines, and apply
@@ -7,8 +10,8 @@ param-edge post-pass re-routes each edge whose ``target_token_id`` is set to the
 token anchor inside the child's equation (computed from the MathJax token fractions);
 unresolved edges keep their spline (center-anchored).
 
-`dot` is the only requirement (a small system binary). An ELK-subprocess backend can slot
-in behind the same signature later.
+`dot` (a small system binary) is the only requirement, and it is NOT installed by default —
+this path is opt-in, so the binary is only needed by someone who deliberately selects it.
 """
 
 from __future__ import annotations

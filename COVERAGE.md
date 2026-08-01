@@ -15,19 +15,21 @@ arrive with a golden test.
 - [x] **Math + token-anchor spike** — mathjax-full runs **in-process** in py_mini_racer (no runtime Node; `PACKAGE_VERSION` define kills the `eval("require")` branch); `\cssId` token anchors extracted via transform-chain composition. `src/bayesdag/mathsvg.py`.
 - [x] PPL-agnostic `ir` + `from_pymc` (slot-aware edges, roles, dims/coords, log-transform key) + published JSON Schema + `to_elk`/`to_networkx` + duck-typed `to_ir` dispatch
 - [x] Label engine (per-dist LaTeX templates + symbol naming + PyTensor deterministic visitor with port-tokens + token-tree); renders cleanly in MathJax
-- [x] Layout backend (`dot -Tjson0` → `LayoutResult` + coordinate transform + param-edge -> token-anchor post-pass)
+- [x] Layout backend — **ELK** in-process (`dot -Tjson0` remains only as the `BAYESDAG_LAYOUT=dot` rollback) → `LayoutResult` + coordinate transform + param-edge -> token-anchor post-pass
 - [x] Glyph registry (glyph-agnostic) + distribution-data provider: analytic prior densities, observed histograms (FD bins), posterior KDE; `density`/`histogram`/`schematic`/`heatmap` kinds
 - [x] Shared SVG emitter (plates, role-styled chrome, embedded MathJax labels, token-anchored edges, glyphs) + static renderer (SVG; PNG/PDF via cairosvg)
-- [x] anywidget widget (ships identical SVG) + thin d3 controller (pan/zoom) + `view.py` env-fallback (`_repr_mimebundle_`/`_repr_svg_`/`_display_`); `bayesdag.view(model)`
+- [x] anywidget widget (ships identical SVG) + thin dependency-free controller (hover/pin/expand; no pan/zoom) + `view.py` env-fallback (`_repr_mimebundle_`/`_repr_svg_`/`_display_`, all three tested); `bayesdag.view(model)`
 - [x] 8-schools example + marimo notebook (runs end-to-end: prior -> interactive -> fit -> posterior -> export)
-- [x] M0 tests (48): token-anchor, param/label, parity (widget==static SVG), port-edge, glyphs, interop, env-fallback, import-light invariant
+- [x] M0 tests: token-bbox, param/label, widget==static SVG bytes, port-edge, glyphs, interop, env-fallback, import-light invariant (the suite is now ~420 tests overall)
 
 ## PyMC construct coverage
 
-**Full-catalog status:** every distribution in PyMC 6.0.1 (~82 families) now renders correctly and
-honestly — a real symbol + a shape glyph where one exists, a faithful structural glyph for the rich
+**Full-catalog status:** every distribution PyMC publishes (84 families in 6.0.1) renders correctly
+and honestly — a real symbol + a shape glyph where one exists, a faithful structural glyph for the rich
 families, or a hedged `elision_reason` badge where a static picture would mislead. Guaranteed by the
-parametrized `tests/test_coverage.py` (all families: convert + layout + render + non-fallback symbol).
+parametrized `tests/test_coverage.py` (all families: convert + layout + render + non-fallback symbol),
+whose `test_catalog_covers_every_pymc_family` diffs CATALOG against `pm.distributions.__all__` in both
+directions — so a family PyMC adds fails the suite instead of silently going unrendered.
 Detection keys on the **RV class** (`type(op).__name__`); sub-RVs/params come from `var.owner.inputs`
 (see `adapters/constructs.py`). Param→scipy translations are locked by logp-matching tests.
 
@@ -52,11 +54,11 @@ Detection keys on the **RV class** (`type(op).__name__`); sub-RVs/params come fr
 - [x] Censored — base density + probability-mass spikes at the bounds
 - [x] Mixtures / NormalMixture / ZeroInflated* (composite: overlaid components / base pmf + zero-spike) · Hurdle* → badge
 - [x] Timeseries: RandomWalk/GaussianRandomWalk → `fan` chart · AR → stationary marginal · GARCH11/EulerMaruyama → badge
-- [x] LKJCholeskyCov / LKJCorr → badge · Wishart → `heatmap`
+- [x] LKJCholeskyCov / LKJCorr → marginal-correlation density (or badge) · Wishart → `heatmap`
 - [ ] Missing-data imputation (`_observed` + `_unobserved` + join; `PartialObservedRV`)
 
 ### Honest degradation (render what's recoverable + "elided" badge)
-- [x] CustomDist / DensityDist → badge · Simulator (SMC) → badge
+- [x] CustomDist / DensityDist → badge · Simulator (SMC) → badge (all three in CATALOG; their symbol is deliberately an upright word, since no conventional notation exists)
 - [x] Interpolated → density from its `x_points`/`pdf_points` · DiracDelta → point
 - [x] Spatial CAR / ICAR → adjacency `heatmap` of `W`
 - [ ] Oversized Deterministic / ODE (DifferentialEquation)
@@ -75,7 +77,7 @@ Detection keys on the **RV class** (`type(op).__name__`); sub-RVs/params come fr
 - [ ] Experimental `pymc.dims` xtensor RVs (`XRV`) — best-effort or declared experimental
 
 ## Glyph kinds (registry)
-- [x] `density` · `histogram` · `schematic` · `curve` (deterministic transfer function) · `heatmap` · `bars` (discrete pmf) · `hist_overlay` (observed data + best-fit family)
+- [x] `density` · `histogram` · `schematic` · `curve` (deterministic transfer function) · `heatmap` · `bars` (discrete pmf / observed classes / discrete posterior) · `hist_overlay` (observed data + best-fit family) · `stem` (AR PACF) · `step` (BART)
 - [x] special-construct kinds: `fan` (random-walk band) · `pairplot` (marginals + covariance ellipses) · `mixture` (overlaid components / zero-spike) · `cutpoints` (ordinal) · `simplex` (Dirichlet marginal Beta) · `censored` (base + bound spikes)
 - [ ] `cdf`/`ccdf`/`gradient`/`dotplot`/`quantile_dotplot`/`band`; `interval`/`point` annotations
 - [ ] Cross-cutting: `transform.animate="hops"` · `layout="ridgeline"`
