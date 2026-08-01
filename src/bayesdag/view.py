@@ -183,7 +183,10 @@ class ModelGraphView:
         except Exception:
             return None
         if _interactive_available():
-            return mo.ui.anywidget(self.widget())
+            try:
+                return mo.ui.anywidget(self.widget())
+            except Exception:
+                pass  # same contract as _repr_mimebundle_: degrade to the static figure
         return mo.Html(self._svg)
 
 

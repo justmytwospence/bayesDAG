@@ -49,6 +49,33 @@ def test_repr_mimebundle(eight_schools_model):
     assert isinstance(data, dict) and data
 
 
+def test_falls_back_to_static_without_the_interactive_extra(monkeypatch, eight_schools_model):
+    """The advertised "falls back to static automatically when interactivity isn't available".
+    Both extras are installed in dev, so this arm is only ever reached by forcing it."""
+    import importlib
+
+    # NB: `bayesdag.view` the attribute is the FUNCTION (it shadows the submodule of the same
+    # name), so the module has to be fetched through the import machinery.
+    view_mod = importlib.import_module("bayesdag.view")
+
+    v = bayesdag.view(eight_schools_model)
+    monkeypatch.setattr(view_mod, "_interactive_available", lambda: False)
+    mb = v._repr_mimebundle_()
+    assert mb == {"image/svg+xml": v.to_svg()}
+
+
+def test_display_degrades_to_static_when_the_widget_fails(monkeypatch, eight_schools_model):
+    """marimo's `_display_` must degrade like `_repr_mimebundle_` does. `widget()` builds the
+    whole spec (moral graph, prior-predictive panels), so letting it raise would blow up the
+    cell instead of showing the figure that was already rendered."""
+    mo = pytest.importorskip("marimo")
+
+    v = bayesdag.view(eight_schools_model)
+    monkeypatch.setattr(type(v), "widget", lambda self: (_ for _ in ()).throw(RuntimeError("boom")))
+    out = v._display_()
+    assert isinstance(out, mo.Html) and "<svg" in out.text
+
+
 def test_widget_spec_has_nodes_adjacency_and_tags(eight_schools_model):
     pytest.importorskip("anywidget")
     spec = bayesdag.view(eight_schools_model).widget().spec
