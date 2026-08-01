@@ -1,13 +1,22 @@
 """bayesdag — shape-first, posterior-aware, interactive visualizations of PyMC models.
 
-Public API (implemented incrementally during M0)::
+Public API::
 
     import bayesdag
-    view = bayesdag.view(model, idata=None)   # -> ModelGraphView (auto static/interactive)
-    view.to_svg(); view.save("model.svg"); view.widget()
+    v = bayesdag.view(model, idata=None)   # -> ModelGraphView (auto static/interactive)
+    v.to_svg(); v.save("model.svg"); v.widget()
 
-The ``bayesdag.ir`` module is intentionally import-light (stdlib only) so the IR
-can be produced/validated without pymc, xarray, or any renderer installed.
+    ir = bayesdag.to_ir(model)             # the neutral IR
+    sub = bayesdag.subgraph(ir, ["tau"])   # restrict to variables + their direct parents
+    svg = bayesdag.to_svg(ir, bayesdag.layout(ir))
+
+``bayesdag.ir`` is intentionally import-light (stdlib only), and so is this whole chain:
+pymc/pytensor/numpy/scipy/anywidget arrive only when an adapter or renderer actually needs
+them. ``tests/test_import_light.py`` checks that in a clean subprocess.
+
+Note that ``view`` and ``layout`` are the FUNCTIONS here; they deliberately shadow the
+same-named submodules, which stay reachable as ``bayesdag.view``/``bayesdag.layout`` via
+``importlib.import_module``.
 """
 
 from __future__ import annotations
@@ -19,14 +28,21 @@ try:
 except importlib.metadata.PackageNotFoundError:  # running from a source checkout
     __version__ = "0.0.0+dev"
 
-from .view import view  # noqa: E402  (binds the function, shadowing the submodule attr)
+# noqa: E402 — these must follow __version__, and each shadows a submodule attribute of the
+# same name, so binding order matters (the import machinery sets the module attr first).
+from .convert import subgraph, to_ir  # noqa: E402
+from .ir import ModelIR  # noqa: E402
+from .layout import layout  # noqa: E402
+from .render_svg import to_svg  # noqa: E402
+from .view import ModelGraphView, view  # noqa: E402
 
-__all__ = ["__version__", "to_ir", "view"]
-
-
-def __getattr__(name: str):  # lazy: keep heavy/optional deps out of `import bayesdag`
-    if name == "to_ir":
-        from .convert import to_ir
-
-        return to_ir
-    raise AttributeError(f"module 'bayesdag' has no attribute {name!r}")
+__all__ = [
+    "__version__",
+    "ModelGraphView",
+    "ModelIR",
+    "layout",
+    "subgraph",
+    "to_ir",
+    "to_svg",
+    "view",
+]
