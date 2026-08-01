@@ -197,5 +197,11 @@ export default {
 
     draw();
     model.on("change:spec", draw);
+    // anywidget calls this when the view goes away (cell re-run, notebook close). Without it the
+    // model keeps a reference to `draw` — and to this `el` — for every view ever rendered, so a
+    // re-executed cell redraws through all its predecessors' dead DOM.
+    return () => {
+      model.off("change:spec", draw);
+    };
   },
 };
