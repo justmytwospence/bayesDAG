@@ -32,6 +32,7 @@ GlyphSource = Literal[
     "prior_analytic",      # family density with the node's real numeric params plugged in
     "prior_family_only",   # params depend on parents -> prior-predictive or canonical shape
     "posterior_kde",       # KDE of idata.posterior[name]
+    "posterior_bars",      # posterior of a DISCRETE variable -> per-class proportions, not a KDE
     "observed_hist",       # observed data -> histogram (auto-binned), not a KDE
     "deterministic_fn",    # canonical, parameter-free shape of a Deterministic's transfer function
 ]

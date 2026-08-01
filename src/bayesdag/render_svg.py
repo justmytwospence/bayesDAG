@@ -36,6 +36,7 @@ _GLYPH_COLORS = {
     "prior_analytic": ("#2a8a55", "#2a8a55"),
     "prior_family_only": ("#999999", "#999999"),
     "posterior_kde": ("#d2691e", "#d2691e"),
+    "posterior_bars": ("#d2691e", "#d2691e"),
     "observed_hist": ("#3a5f95", "#5a7fb5"),
     "deterministic_fn": ("#7a5bd0", "#7a5bd0"),  # transfer-function curve (a 4th hue: a computed transform)
 }
@@ -311,6 +312,13 @@ def render_node_panel(n) -> str:
     stroke, fill = _GLYPH_COLORS.get(n.glyph.source, ("#2a8a55", "#2a8a55"))
     title = escape(n.id) + (f" ~ {escape(n.dist)}" if n.dist else "")
     caption = escape(_SOURCE_LABELS.get(n.glyph.source, n.glyph.source))
+    pooled = (n.glyph_data or {}).get("pooled")
+    if pooled:  # one density built from ALL elements' draws — not any single element's marginal
+        caption += f" · pooled over {int(pooled)} elements"
+    spikes = (n.glyph_data or {}).get("spikes") or []
+    ps = [sp["p"] for sp in spikes if isinstance(sp, dict) and sp.get("p") is not None]
+    if ps:  # the bars are deliberately exaggerated to be visible — give the real numbers
+        caption += " · censored mass " + ", ".join(f"{p:.1%}" for p in ps)
     out = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{w:.0f}" height="{h:.0f}" '
         f'viewBox="0 0 {w:.0f} {h:.0f}" font-family="system-ui, sans-serif">',

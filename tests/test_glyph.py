@@ -67,6 +67,80 @@ def test_varying_vector_prior_does_not_plot_element_zero_as_the_node():
     assert g["choice"].source == "prior_analytic" and g["choice"].kind == "bars"
 
 
+def test_discrete_posterior_is_bars_and_vector_posterior_says_it_is_pooled():
+    """Two honesty fixes on the posterior path: a discrete variable's posterior is a pmf over
+    integers (a gaussian KDE would put mass on values it cannot take), and a vector parameter's
+    KDE pools every element's draws into one curve — which is not any element's marginal, so the
+    panel has to say so."""
+    import numpy as np
+    import pymc as pm
+    import xarray as xr
+
+    from bayesdag.convert import to_ir
+    from bayesdag.render_svg import render_node_panel
+
+    rng = np.random.default_rng(0)
+    idata = xr.DataTree.from_dict({"posterior": xr.Dataset({
+        "k": (("chain", "draw"), rng.poisson(3.0, size=(2, 200))),
+        "theta": (("chain", "draw", "g"), rng.normal(size=(2, 200, 4))),
+    })})
+    with pm.Model(coords={"g": range(4)}) as m:
+        pm.Poisson("k", 3.0)
+        pm.Normal("theta", 0.0, 1.0, dims="g")
+
+    ir = to_ir(m, idata=idata)
+    k, theta = ir.node("k"), ir.node("theta")
+    assert k.glyph.kind == "bars" and k.glyph.source == "posterior_bars"
+    assert all(float(c).is_integer() for c in k.glyph_data["cats"])
+    assert theta.glyph.kind == "density" and theta.glyph.source == "posterior_kde"
+    assert theta.glyph_data["pooled"] == 4
+    assert "pooled over 4 elements" in render_node_panel(theta)
+    assert "pooled" not in render_node_panel(k)
+
+
+def test_censored_panel_reports_the_real_mass_behind_the_exaggerated_spike():
+    """The spikes are scaled up so a few-percent censored mass is visible next to a
+    peak-normalized density. That makes the BAR a marker, not a readable probability — so the
+    true value travels with the data and is captioned."""
+    import pymc as pm
+
+    from bayesdag.convert import to_ir
+    from bayesdag.render_svg import render_node_panel
+
+    with pm.Model() as m:
+        pm.Censored("x", pm.Normal.dist(0.0, 1.0), lower=-1.5, upper=1.5)
+    n = to_ir(m).node("x")
+    ps = [sp["p"] for sp in n.glyph_data["spikes"]]
+    assert all(0.0 < p < 0.10 for p in ps)  # ~6.7% per tail for N(0,1) beyond ±1.5
+    assert all(sp["h"] > sp["p"] for sp in n.glyph_data["spikes"])  # drawn exaggerated
+    assert "censored mass" in render_node_panel(n)
+
+
+def test_mixture_components_are_weighted_only_when_the_weights_are_known():
+    """A 0.9/0.1 mixture drawn with equal-height components misstates where the mass is. Scale
+    by the weights when they are numeric; with a Dirichlet prior on the weights there is no
+    honest number to scale by, so the overlay stays unweighted (shapes only)."""
+    import numpy as np
+    import pymc as pm
+
+    from bayesdag.convert import to_ir
+
+    with pm.Model() as known:
+        pm.NormalMixture("x", w=[0.9, 0.1], mu=[-2.0, 2.0], sigma=[1.0, 1.0])
+    with pm.Model() as prior_w:
+        w = pm.Dirichlet("w", a=np.ones(2))
+        pm.NormalMixture("x", w=w, mu=[-2.0, 2.0], sigma=[1.0, 1.0])
+
+    kn = to_ir(known).node("x")
+    assert kn.glyph_data["weighted"] is True
+    peaks = [max(c["ys"]) for c in kn.glyph_data["curves"]]
+    assert peaks[0] > peaks[1] * 5  # the 0.9 component dominates, as it should
+
+    pw = to_ir(prior_w).node("x")
+    assert pw.glyph_data["weighted"] is False
+    assert max(abs(max(c["ys"]) - 1.0) for c in pw.glyph_data["curves"]) < 1e-9  # equal heights
+
+
 def test_special_glyph_kinds_render():
     b = Box(0, 0, 80, 40)
     assert "<path" in glyph.render("fan", {"mid": [0.5, 0.5, 0.5], "lo": [0.4, 0.3, 0.2], "hi": [0.6, 0.7, 0.8]}, b)

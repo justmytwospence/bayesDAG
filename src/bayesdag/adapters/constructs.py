@@ -194,6 +194,12 @@ def _interpolated(var, params):
     }
 
 
+# Censored-mass spikes are scaled up by this factor so a few-percent mass is legible beside a
+# peak-normalized density. The bar is therefore a MARKER of censoring, not a readable
+# probability — the exact value ships as `spikes[i]["p"]` and is captioned in the panel.
+_SPIKE_GAIN = 3.0
+
+
 def _censored(var):
     ins = var.owner.inputs
     fr = _base_frozen(ins[0])
@@ -207,10 +213,17 @@ def _censored(var):
     span = (x1 - x0) or 1.0
     spikes = []
     if lo is not None and np.isfinite(lo):
-        spikes.append({"x": max(0.0, min(1.0, (float(lo) - x0) / span)), "h": float(min(1.0, fr.cdf(float(lo)) * 3))})
+        spikes.append({"x": max(0.0, min(1.0, (float(lo) - x0) / span)), "p": float(fr.cdf(float(lo)))})
     if hi is not None and np.isfinite(hi):
-        spikes.append({"x": max(0.0, min(1.0, (float(hi) - x0) / span)), "h": float(min(1.0, fr.sf(float(hi)) * 3))})
-    return GlyphSpec(kind="censored", source="prior_analytic"), {**dens, "spikes": spikes}
+        spikes.append({"x": max(0.0, min(1.0, (float(hi) - x0) / span)), "p": float(fr.sf(float(hi)))})
+    # The spike heights are drawn EXAGGERATED (see `_SPIKE_GAIN`): the censored mass is often a
+    # few percent, which is invisible next to a peak-normalized density, yet its presence is the
+    # whole point of the glyph. The true probability travels as `p` so the reader can be told.
+    for sp in spikes:
+        sp["h"] = float(min(1.0, sp["p"] * _SPIKE_GAIN))
+    return GlyphSpec(kind="censored", source="prior_analytic"), {
+        **dens, "spikes": spikes, "spike_gain": _SPIKE_GAIN,
+    }
 
 
 def _truncated_normal(var, params):
@@ -428,9 +441,34 @@ def _mixture(var):
         return None
     xs = np.linspace(lo, hi, _GRID)
     pdfs = [np.asarray(fr.pdf(xs), float) for fr in frozens]
+    # Scale each component by its weight when the weights are KNOWN: a 0.9/0.1 mixture whose
+    # components are drawn at equal height misrepresents which one carries the mass. Unknown
+    # (prior) weights keep the unweighted overlay — shapes only, no claim about proportions.
+    w = _mixture_weights(var, len(pdfs))
+    if w is not None:
+        pdfs = [p * wi for p, wi in zip(pdfs, w)]
     gmax = max(float(np.max(p)) for p in pdfs) or 1.0
     curves = [{"xs": [float(x) for x in xs], "ys": [float(y / gmax) for y in p]} for p in pdfs]
-    return GlyphSpec(kind="mixture", source="prior_analytic"), {"curves": curves}
+    return GlyphSpec(kind="mixture", source="prior_analytic"), {
+        "curves": curves, "weighted": w is not None,
+    }
+
+
+def _mixture_weights(var, k: int) -> Optional[list]:
+    """The mixture's weight vector, if it is numeric and matches the component count. Returns
+    None when the weights are themselves a prior (a Dirichlet) — there is no honest number to
+    scale by, and `.eval()` would draw a random one."""
+    try:
+        for i in var.owner.inputs:
+            a = _ev(i)
+            if a is None:
+                continue
+            a = np.asarray(a, float).ravel()
+            if a.size == k and np.all(a >= 0) and abs(float(a.sum()) - 1.0) < 1e-6:
+                return [float(x) for x in a]
+    except Exception:
+        return None
+    return None
 
 
 # Canonical step heights for the BART glyph — a fixed, plausible sum-of-trees draw (parameter-free,

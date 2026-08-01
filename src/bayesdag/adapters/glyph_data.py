@@ -410,6 +410,17 @@ def _observed_values(var, model):
     return None
 
 
+def _element_count(samples) -> int:
+    """How many elements of a vector/matrix parameter are pooled into one glyph. Posterior
+    arrays are ``(chain, draw, *element dims)``, so everything past the first two axes is a
+    distinct element of the variable."""
+    try:
+        shape = np.asarray(samples).shape
+        return int(np.prod(shape[2:])) if len(shape) > 2 else 1
+    except Exception:
+        return 1
+
+
 def _posterior_samples(name: str, idata):
     if idata is None:
         return None
@@ -439,8 +450,19 @@ def glyph_for(
     # Posterior overlay wins when available (fitted result).
     samples = _posterior_samples(getattr(var, "name", ""), idata)
     if samples is not None:
+        # A discrete posterior is a pmf over integers. A gaussian KDE would smear mass onto
+        # values the variable cannot take and hide the gaps between the ones it can.
+        if dist and dist in _DISCRETE:
+            bars = _discrete_bars(samples)
+            if bars is not None:
+                return GlyphSpec(kind="bars", source="posterior_bars"), bars, None
         data = _density_from_samples(samples)
         if data is not None:
+            k = _element_count(samples)
+            if k > 1:
+                # every element's draws went into ONE density, so this is the pooled marginal,
+                # not any single element's — say so rather than implying a per-element posterior
+                data["pooled"] = k
             return GlyphSpec(kind="density", source="posterior_kde"), data, None
 
     if role == "observed":

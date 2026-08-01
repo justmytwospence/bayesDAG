@@ -284,6 +284,7 @@
             "prior_analytic",
             "prior_family_only",
             "posterior_kde",
+            "posterior_bars",
             "observed_hist",
             "deterministic_fn"
           ]
