@@ -228,11 +228,7 @@ def test_data_and_minibatch_containers_render():
 
 def test_showcase_models_render():
     """The canonical gallery models (examples/zoo.py) all convert + render."""
-    import pathlib
-    import sys
-
-    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "examples"))
-    from zoo import ZOO_MODELS
+    from zoo import ZOO_MODELS  # examples/ is on sys.path via conftest
 
     assert len(ZOO_MODELS) == 16
     for name, build in ZOO_MODELS.items():

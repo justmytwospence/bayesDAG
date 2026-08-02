@@ -13,9 +13,11 @@ This is the load-bearing module the M0 spike validated:
 Rendering once here and embedding the identical SVG in both renderers is what makes the
 math byte-identical across the static and interactive outputs (parity principle #2).
 
-Backend ladder: in-process ``py_mini_racer`` (preferred; ships the bundle, no Node) ->
-[TODO: bundled Node subprocess] -> [TODO: matplotlib.mathtext, which loses token anchors].
-Only the first is implemented in M0; the others raise a clear, actionable error.
+There is exactly ONE backend: in-process ``py_mini_racer`` with the bundled MathJax. If it is
+unavailable the labels degrade to plain text (with the warning in ``layout.common``) and edges
+fall back to center anchors — there is no second rung. A Node subprocess and a
+``matplotlib.mathtext`` path were both considered and rejected; mathtext in particular cannot
+give us token anchors, which is the whole point of rendering math here.
 """
 
 from __future__ import annotations

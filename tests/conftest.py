@@ -8,10 +8,17 @@ Six models of escalating generative-structure complexity, used both as fixtures 
 
 import os
 import pathlib
+import sys
 
 import numpy as np
 import pymc as pm
 import pytest
+
+# `examples/` on the path once, here, so `from zoo import ...` works anywhere in the suite —
+# rather than each test re-deriving it (which is what zoo.py's docstring already claimed).
+_EXAMPLES = str(pathlib.Path(__file__).resolve().parent.parent / "examples")
+if _EXAMPLES not in sys.path:
+    sys.path.insert(0, _EXAMPLES)
 
 # ~17% of the suite sits behind optional-dependency gates (mini-racer + the built JS bundles,
 # anywidget, pymc-bart). Locally a missing bundle should just skip; in CI — where every extra IS

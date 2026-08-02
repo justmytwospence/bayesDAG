@@ -8,8 +8,12 @@ broken out into its sum-of-trees model, and the deterministic **transfer-functio
 S-curve, a probit S-curve, a log-link exponential, a softplus positive ramp, a tanh saturating curve,
 a quadratic power curve, a softmax simplex, and affine-predictor lines).
 
-Importable from the gallery notebook (``examples/`` is on ``sys.path``) and re-exported to the test
-suite via ``conftest``. Builders are pure (seeded) functions returning a ``pm.Model``.
+Importable from the gallery notebook and from the test suite — ``tests/conftest.py`` puts
+``examples/`` on ``sys.path``. Builders are pure (seeded) functions returning a ``pm.Model``.
+
+Note that ordinal models render their cutpoints as ordinary Categorical bars:
+``OrderedLogistic`` is indistinguishable from ``Categorical`` at the op level, so the dedicated
+``cutpoints`` glyph is not reachable from a PyMC model (see COVERAGE.md).
 """
 
 from __future__ import annotations
