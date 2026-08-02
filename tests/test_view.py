@@ -103,6 +103,55 @@ def test_plate_prior_predictive_panel(eight_schools_model):
     assert "y_obs" in panel  # observed member row (with data ticks)
 
 
+def test_ppc_draws_zero_skips_the_forward_simulation(monkeypatch, eight_schools_model):
+    """Building a widget forward-simulates the user's model for the plate panels — the one place
+    bayesdag samples anything. `ppc_draws=0` must opt out of it entirely, not just discard it."""
+    pytest.importorskip("anywidget")
+    import bayesdag.adapters.ppc as ppc_mod
+
+    monkeypatch.setattr(
+        ppc_mod,
+        "prior_predictive_expansions",
+        lambda *a, **k: pytest.fail("prior predictive ran despite ppc_draws=0"),
+    )
+    assert bayesdag.view(eight_schools_model, ppc_draws=0).widget().spec["plates"] == {}
+
+
+def test_ppc_draws_is_threaded_through(monkeypatch, eight_schools_model):
+    pytest.importorskip("anywidget")
+    import bayesdag.adapters.ppc as ppc_mod
+
+    seen = {}
+    real = ppc_mod.prior_predictive_expansions
+
+    def spy(model, ir, draws=200):
+        seen["draws"] = draws
+        return real(model, ir, draws=draws)
+
+    monkeypatch.setattr(ppc_mod, "prior_predictive_expansions", spy)
+    bayesdag.view(eight_schools_model, ppc_draws=25).widget()
+    assert seen["draws"] == 25
+
+
+def test_failing_prior_predictive_still_builds_a_widget(monkeypatch, caplog, eight_schools_model):
+    """A model whose forward simulation raises must degrade to "no plate panels" — visibly in the
+    log, never as a silently swallowed exception."""
+    pytest.importorskip("anywidget")
+    import logging
+
+    import bayesdag.adapters.ppc as ppc_mod
+
+    def boom(*a, **k):
+        raise RuntimeError("no forward sampling here")
+
+    monkeypatch.setattr(ppc_mod, "prior_predictive_expansions", boom)
+    with caplog.at_level(logging.DEBUG, logger="bayesdag.view"):
+        spec = bayesdag.view(eight_schools_model).widget().spec
+    assert spec["plates"] == {}
+    assert "<svg" in spec["svg"]  # the diagram itself is unaffected
+    assert any("prior-predictive" in r.message for r in caplog.records)
+
+
 def test_rich_glyph_nodes_get_card_panels():
     """Every glyph-bearing node ships a large pinned-card panel — not just observed nodes.
     Panels are widget-only: the static SVG bytes are untouched (parity)."""

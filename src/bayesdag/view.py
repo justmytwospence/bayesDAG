@@ -75,11 +75,13 @@ class ModelGraphView:
         legend: bool = True,
         widget_legend: bool = False,
         var_names: Any = None,
+        ppc_draws: int | None = 200,
     ) -> None:
         _warm_layout_engine()  # build the ELK V8 isolate on its worker WHILE to_ir runs
         # keep the source model (if any) so the interactive plate prior-predictive panels
         # can be computed lazily — static rendering never pays that cost.
         self._model = None if isinstance(model_or_ir, ModelIR) else model_or_ir
+        self._ppc_draws = ppc_draws
         self.ir = to_ir(model_or_ir, idata=idata)
         if var_names is not None:
             self.ir = subgraph(self.ir, list(var_names))
@@ -153,17 +155,27 @@ class ModelGraphView:
                 if panel:
                     nodes[n.id]["panel"] = panel
         plates: dict = {}
-        if self._model is not None and self.ir.plates:
+        if self._model is not None and self.ir.plates and self._ppc_draws:
+            # NB this forward-simulates the user's model (`pm.sample_prior_predictive`) — the one
+            # place bayesdag samples anything. `ppc_draws=0` opts out.
             try:
                 from .adapters.ppc import prior_predictive_expansions
                 from .render_svg import render_plate_panel
 
-                for pid, exp in prior_predictive_expansions(self._model, self.ir).items():
+                expansions = prior_predictive_expansions(
+                    self._model, self.ir, draws=self._ppc_draws
+                )
+                for pid, exp in expansions.items():
                     panel = render_plate_panel(exp)
                     if panel:
                         plates[pid] = {"panel": panel}
             except Exception:
                 plates = {}
+                logging.getLogger(__name__).debug(
+                    "plate prior-predictive expansion failed; the widget degrades to no plate "
+                    "panels",
+                    exc_info=True,
+                )
         # widget SVG omits the legend by default (hover surfaces the same info); the static
         # `self._svg` keeps it. Re-render is cheap (layout + math are already computed).
         widget_svg = (
@@ -213,6 +225,7 @@ def view(
     legend: bool = True,
     widget_legend: bool = False,
     var_names: Any = None,
+    ppc_draws: int | None = 200,
 ) -> ModelGraphView:
     """Visualize a PyMC model (or a ``ModelIR``). Returns a :class:`ModelGraphView` that
     renders interactively in a notebook and statically elsewhere.
@@ -222,6 +235,9 @@ def view(
     omits the legend by default since hovering a node already surfaces the same information.
     ``var_names`` (default ``None`` = everything) restricts the diagram to those variables
     plus their direct parents — the same semantics as ``pm.model_to_graphviz(var_names=…)``.
+    ``ppc_draws`` (default 200) is the draw count for the **interactive** plate
+    prior-predictive panels, which forward-simulate the model; ``0`` skips them entirely.
+    Static rendering never pays this cost.
     """
     return ModelGraphView(
         model_or_ir,
@@ -230,4 +246,5 @@ def view(
         legend=legend,
         widget_legend=widget_legend,
         var_names=var_names,
+        ppc_draws=ppc_draws,
     )
