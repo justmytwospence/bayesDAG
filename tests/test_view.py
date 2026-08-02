@@ -103,6 +103,65 @@ def test_plate_prior_predictive_panel(eight_schools_model):
     assert "y_obs" in panel  # observed member row (with data ticks)
 
 
+def test_spec_carries_every_key_the_js_reads(eight_schools_model):
+    """The Python/JS contract, pinned from the Python side.
+
+    js/index.js has no tests of its own — deliberately: the "JS computes nothing" invariant keeps
+    all the logic here, and a DOM harness for 200 lines of class-toggling would buy little. What
+    it cannot catch is a rename on THIS side quietly stranding the front end, since the JS reads
+    every field with `?.`-ish defaults and simply renders nothing. So enumerate the contract.
+
+    Keep this list in sync with js/index.js when either side changes.
+    """
+    pytest.importorskip("anywidget")
+    spec = bayesdag.view(eight_schools_model, widget_legend=False).widget().spec
+
+    assert set(spec) >= {"svg", "nodes", "plates"}
+
+    # per-node detail: tooltip, pinned card, constructor line, and the highlight/trace sets
+    required = {
+        "role",
+        "dist",
+        "observed",
+        "dims",
+        "params",
+        "transform",
+        "parents",
+        "children",
+        "blanket",
+        "ancestors",
+        "descendants",
+        "label_svg",
+    }
+    for nid, node in spec["nodes"].items():
+        missing = required - set(node)
+        assert not missing, f"{nid} is missing {sorted(missing)} that js/index.js reads"
+        for p in node["params"]:
+            assert set(p) >= {"name", "value"}  # paramsText()/constructorText()
+
+    # plate panels are looked up as plates[pid].panel
+    for pid, plate in spec["plates"].items():
+        assert "panel" in plate, f"plate {pid} has no panel key"
+
+    # the SVG hooks the JS queries for: selectors and the data-* attributes it keys off
+    svg = spec["svg"]
+    for hook in (
+        'class="bd-node"',
+        'class="bd-edge"',
+        'class="bd-plate"',
+        'class="bd-chrome"',
+        "data-node=",
+        "data-src=",
+        "data-tgt=",
+        "data-plate=",
+    ):
+        assert hook in svg, f"js/index.js queries {hook} but the emitter no longer produces it"
+
+    # the arrowhead markers the pinned-trace CSS swaps in must exist in <defs>
+    for marker in ("bd-arrow", "bd-arrow-up", "bd-arrow-down"):
+        assert f'id="{marker}"' in svg
+
+
 def test_ppc_draws_zero_skips_the_forward_simulation(monkeypatch, eight_schools_model):
     """Building a widget forward-simulates the user's model for the plate panels — the one place
     bayesdag samples anything. `ppc_draws=0` must opt out of it entirely, not just discard it."""
