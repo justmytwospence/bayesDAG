@@ -133,8 +133,10 @@ def _(bayesdag, es_idata, es_model, mo):
 
 
 @app.cell
-def _(es_view):
-    es_view.save("examples/eight_schools.svg")  # publication SVG (PNG/PDF via [export])
+def _(es_view, mo):
+    # This cell IS the regeneration path for the README's hero image. Anchored to the notebook
+    # directory so it always lands in examples/, whatever the working directory happens to be.
+    es_view.save(mo.notebook_dir() / "eight_schools.svg")  # publication SVG (PNG/PDF via [export])
     return
 
 
