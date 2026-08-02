@@ -26,6 +26,8 @@ import xml.etree.ElementTree as ET
 from collections import OrderedDict
 from pathlib import Path
 
+from . import _v8
+
 _BUNDLE_NAME = "mathjax.bundle.js"
 _PROCESS_SHIM = "globalThis.process = globalThis.process || {env:{}};"
 
@@ -209,7 +211,7 @@ class MathRenderer:
             raise self._ctx_error
         if self._ctx is None:
             try:
-                from py_mini_racer import MiniRacer
+                import py_mini_racer  # noqa: F401
             except Exception as exc:  # pragma: no cover - exercised only without the extra
                 raise RuntimeError(
                     "bayesdag math rendering needs mini-racer, which is a core dependency — "
@@ -222,7 +224,7 @@ class MathRenderer:
                     "`npm install && npm run build` (produces static/mathjax.bundle.js)."
                 )
             try:
-                ctx = MiniRacer()
+                ctx = _v8.new_isolate()  # shared lock: never build two isolates at once
                 ctx.eval(_PROCESS_SHIM)
                 ctx.eval(self._bundle_path.read_text(encoding="utf-8"))
             except Exception as exc:

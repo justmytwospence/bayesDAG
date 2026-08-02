@@ -109,6 +109,46 @@ def test_renders_in_a_notebook_kernel_without_deadlocking():
         loop.close()
 
 
+def test_building_both_v8_isolates_at_once_does_not_abort_the_process():
+    """bayesdag runs two isolates — MathJax and ELK — each pinned to its own thread. Building
+    both at the same moment used to abort the whole interpreter inside V8's allocator
+    ("Check failed: !pool->IsInitialized()"), taking the user's kernel with it.
+
+    This is reachable on the ordinary path: `view()` warms the ELK context on its worker thread
+    precisely so it overlaps the work that goes on to render labels through MathJax, so whether
+    the cold starts collide is a timing accident. Run in a subprocess — the failure mode is a
+    fatal signal, not an exception, so an in-process check would kill the test session itself.
+    """
+    import subprocess
+    import sys
+
+    code = (
+        "import threading\n"
+        "from bayesdag import mathsvg\n"
+        "from bayesdag.layout import elk_backend\n"
+        "err = []\n"
+        "def m():\n"
+        "    try: mathsvg.get_renderer().render(r'x \\sim \\mathcal{N}(0,1)')\n"
+        "    except Exception as e: err.append(('math', repr(e)))\n"
+        "def e():\n"
+        "    try:\n"
+        "        eng = elk_backend.get_engine()\n"
+        "        eng._worker().submit(eng._context).result()\n"
+        "    except Exception as exc: err.append(('elk', repr(exc)))\n"
+        "ts = [threading.Thread(target=m), threading.Thread(target=e)]\n"
+        "for t in ts: t.start()\n"
+        "for t in ts: t.join()\n"
+        "assert not err, err\n"
+        "print('OK')\n"
+    )
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=300)
+    assert r.returncode == 0, (
+        f"concurrent V8 isolate construction failed (returncode {r.returncode}); "
+        f"stdout={r.stdout!r} stderr={r.stderr[-2000:]!r}"
+    )
+    assert "OK" in r.stdout
+
+
 def test_bbox_cache_no_reparse_and_bounded(monkeypatch):
     """Warm re-layouts must hit the (svg, bboxes) cache — token_bboxes ran per label per
     layout before — and the cache must evict past its LRU bound."""

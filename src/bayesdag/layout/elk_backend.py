@@ -24,7 +24,7 @@ import json
 import threading
 from pathlib import Path
 
-from .. import geometry
+from .. import _v8, geometry
 from ..ir import Box, LayoutResult, ModelIR
 from ..labels import LHS_TOKEN
 from . import common
@@ -117,9 +117,7 @@ class ElkEngine:
 
     def _context(self):  # must run on the worker thread (see _worker)
         if self._ctx is None:
-            from py_mini_racer import MiniRacer
-
-            ctx = MiniRacer()
+            ctx = _v8.new_isolate()  # shared lock: never build two isolates at once
             ctx.eval("var global=globalThis, self=globalThis, window=globalThis;")
             # mini-racer setTimeout(fn,0) hits a non-promise Atomics.waitAsync path -> coerce 0->1ms
             ctx.eval(
