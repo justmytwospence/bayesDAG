@@ -88,6 +88,10 @@
   right: 8px;
   z-index: 11;
   max-width: 300px;
+  /* the card can carry a large glyph panel; `.bayesdag` clips its overflow, so the card must
+     scroll within the diagram's height rather than run past its bottom edge (as `.bd-panel` does) */
+  max-height: 92%;
+  overflow: auto;
   padding: 10px 12px;
   font-size: 12px;
   line-height: 1.5;
