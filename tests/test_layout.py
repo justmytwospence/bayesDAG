@@ -23,6 +23,61 @@ def test_layout_produces_boxes_and_plate(eight_schools_ir):
         assert pb.x - 1 <= b.x and b.x + b.w <= pb.x + pb.w + 1
 
 
+@pytest.mark.parametrize(
+    ("rankdir", "axis", "sign"),
+    [("TB", 1, +1), ("BT", 1, -1), ("LR", 0, +1), ("RL", 0, -1)],
+)
+def test_every_advertised_rankdir_actually_flows_that_way(rankdir, axis, sign):
+    """`_DIRECTION` advertises four directions; only TB was ever exercised. A parameter that
+    silently produces a wrong figure is worse than one that isn't offered, so pin all four:
+    the child must sit on the correct side of its parent along the correct axis."""
+    import numpy as np
+    import pymc as pm
+
+    from bayesdag.convert import to_ir
+
+    with pm.Model() as m:
+        mu = pm.Normal("mu", 0, 1)
+        pm.Normal("y", mu, 1.0, observed=np.zeros(5))
+    res = layout(to_ir(m), rankdir=rankdir)
+
+    a, b = res.node_boxes["mu"], res.node_boxes["y"]
+    centers = ((a.x + a.w / 2, b.x + b.w / 2), (a.y + a.h / 2, b.y + b.h / 2))
+    parent_c, child_c = centers[axis]
+    assert sign * (child_c - parent_c) > 0, (
+        f"{rankdir}: the child landed on the wrong side of its parent "
+        f"(parent={parent_c:.0f}, child={child_c:.0f})"
+    )
+    assert res.canvas.w > 0 and res.canvas.h > 0
+
+
+@pytest.mark.parametrize("rankdir", ["TB", "BT", "LR", "RL"])
+def test_token_edges_currently_approach_from_above_in_every_direction(rankdir):
+    """A known, deliberate limitation rather than a hidden one: token ports are placed
+    NORTH/SOUTH and `_attach_target` lands every edge on the target's TOP border, whatever the
+    flow direction. Nothing is drawn wrongly — no edge cuts through a node in any direction
+    (test_reflow covers that) — but a BT or LR figure approaches its tokens the TB way.
+
+    If someone makes attachment direction-aware, this test should fail and be updated on purpose.
+    """
+    import numpy as np
+    import pymc as pm
+
+    from bayesdag.convert import to_ir
+    from bayesdag.geometry import STANDOFF
+
+    with pm.Model() as m:
+        mu = pm.Normal("mu", 0, 1)
+        pm.Normal("y", mu, 1.0, observed=np.zeros(5))
+    ir = to_ir(m)
+    res = layout(ir, rankdir=rankdir)
+    if not res.node_token_anchors.get("y"):
+        pytest.skip("no token anchors without the math bundle")
+    target = res.node_boxes["y"]
+    end_y = next(iter(res.edge_paths.values()))[-1][1]
+    assert abs(end_y - (target.y - STANDOFF)) < 0.6
+
+
 def test_math_unavailable_warning_points_at_a_real_install_path(monkeypatch, eight_schools_ir):
     """The degradation message used to advertise `pip install 'bayesdag[math]'` — an extra that
     has never existed (mini-racer is a core dependency). Pointing users at a no-op install is
