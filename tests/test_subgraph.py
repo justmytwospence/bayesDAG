@@ -3,8 +3,29 @@
 import pytest
 
 import bayesdag
-from bayesdag.convert import subgraph
+from bayesdag.convert import subgraph, to_ir
 from bayesdag.ir import ModelIR
+
+
+def test_idata_with_a_prebuilt_ir_warns_instead_of_silently_dropping(eight_schools_ir):
+    """Posterior glyphs are computed by the ADAPTER from the model's random variables, so there
+    is nothing to attach them to once the IR exists. Returning silently would hand back a
+    prior-only diagram to a caller who believes they asked for posteriors."""
+    with pytest.warns(UserWarning, match="idata is ignored"):
+        to_ir(eight_schools_ir, idata=object())
+    with pytest.warns(UserWarning, match="idata is ignored"):
+        to_ir(eight_schools_ir.to_dict(), idata=object())
+    with pytest.warns(UserWarning, match="idata is ignored"):
+        bayesdag.view(eight_schools_ir, idata=object())
+
+
+def test_no_warning_on_the_ordinary_paths(eight_schools_ir, eight_schools_model):
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        to_ir(eight_schools_ir)  # idempotent, no idata
+        to_ir(eight_schools_model)  # the real adapter path
 
 
 def test_subgraph_keeps_selection_plus_direct_parents(eight_schools_ir):

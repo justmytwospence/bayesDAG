@@ -8,6 +8,7 @@ imports pymc/numpyro/stan. New PPL adapters slot in here without touching the IR
 from __future__ import annotations
 
 import dataclasses
+import warnings
 from collections.abc import Sequence
 from typing import Any
 
@@ -15,9 +16,20 @@ from .ir import ModelIR
 
 
 def to_ir(obj: Any, idata: Any = None) -> ModelIR:
-    if isinstance(obj, ModelIR):
-        return obj  # idempotent
-    if isinstance(obj, dict):
+    if isinstance(obj, ModelIR | dict):
+        # Posterior glyphs are computed by the ADAPTER, from the model's random variables —
+        # there is nothing left to attach them to once the IR is built. Returning silently
+        # would render a prior-only diagram while the caller believes they asked for posteriors.
+        if idata is not None:
+            warnings.warn(
+                "bayesdag.to_ir: idata is ignored for a prebuilt ModelIR/dict — posterior "
+                "glyphs are computed by the adapter, so pass the pymc.Model together with "
+                "idata (bayesdag.view(model, idata=idata)) to see them.",
+                UserWarning,
+                stacklevel=2,
+            )
+        if isinstance(obj, ModelIR):
+            return obj  # idempotent
         return ModelIR.from_dict(obj)  # low-level escape hatch
 
     cls = type(obj)
