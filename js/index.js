@@ -196,6 +196,16 @@ export default {
         card.style.display = "none";
         panel.style.display = "none";
       });
+
+      // A spec push (view.update(...)) redraws from scratch, and `pinned` lives in this closure.
+      // Without this the user's selection silently drops on every update — which is exactly when
+      // they are watching one node. Restore it from the synced trait; classes/innerHTML only.
+      const wasPinned = model.get("selected_node");
+      if (wasPinned && nodes[wasPinned]) {
+        pinned = wasPinned;
+        trace(wasPinned);
+        showCard(wasPinned);
+      }
     }
 
     draw();

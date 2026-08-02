@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from . import render_static
+from . import geometry, render_static
 from .convert import subgraph, to_ir
 from .ir import ModelIR
 from .layout import layout
@@ -85,6 +85,7 @@ class ModelGraphView:
         self.ir = to_ir(model_or_ir, idata=idata)
         if var_names is not None:
             self.ir = subgraph(self.ir, list(var_names))
+        self._rankdir = rankdir
         self.layout = layout(self.ir, rankdir=rankdir)
         # The static figure carries the legend by default (it can't hover); the interactive
         # widget omits it by default since the same info is one hover away.
@@ -92,6 +93,9 @@ class ModelGraphView:
         self._widget_legend = widget_legend
         self._svg = to_svg(self.ir, self.layout, legend=legend)
         self._widget = None
+        # the as-built data layer, so update() can put it back (a prior<->posterior toggle)
+        self._base_glyphs = {n.id: (n.glyph, n.glyph_data) for n in self.ir.nodes}
+        self._plate_panels: dict | None = None  # built once; independent of idata
 
     # ---- outputs ---------------------------------------------------------------
     def to_svg(self) -> str:
@@ -100,6 +104,98 @@ class ModelGraphView:
     def save(self, path):
         """Save to .svg / .png / .pdf (format from the extension)."""
         return render_static.save(self._svg, path)
+
+    # ---- live update -----------------------------------------------------------
+    def update(self, idata: Any = None):
+        """Re-render this diagram's data layer against ``idata`` — in place.
+
+        Sample in one cell, call this in the next, and every prior curve becomes its posterior
+        **without the diagram moving**: the same ``LayoutResult`` is reused whenever no node's
+        size changes, which is the common case (a 30px density strip becomes a 30px density
+        strip). ``update(None)`` restores the as-built view, so the two are a toggle.
+
+        Geometry is not assumed. A posterior can change a node's size class — an MvNormal's
+        pairplot square becoming a pooled KDE strip, or a `Flat` that had no glyph at all
+        gaining one — so every node is re-measured and a full relayout runs if any differ.
+        Honest either way; the no-move promise is just the fast path.
+
+        This is imperative mutation, deliberately outside marimo's dataflow graph — which is
+        exactly what lets the figure change without being rebuilt. Passing ``idata=`` to
+        ``view()`` remains the pure-dataflow alternative.
+        """
+        from .adapters.glyph_data import posterior_glyph
+        from .adapters.pymc import overlays_for
+
+        for n in self.ir.nodes:
+            base_spec, base_data = self._base_glyphs[n.id]
+            # deterministics depict a transfer FUNCTION, and observed nodes their data; neither is
+            # a posterior, so both keep what they were built with
+            post = (
+                posterior_glyph(n.id, n.dist, idata)
+                if idata is not None and n.role not in ("deterministic", "observed")
+                else None
+            )
+            n.glyph, n.glyph_data = post if post is not None else (base_spec, base_data)
+            n.overlays = overlays_for(n.id, n.role, n.dims, idata)
+
+        if self._layout_still_fits():
+            layout_result = self.layout  # nothing resized: the diagram must not jump
+        else:
+            logging.getLogger(__name__).debug(
+                "update(): a glyph changed size class, so the diagram is being laid out again"
+            )
+            layout_result = self.layout = layout(self.ir, rankdir=self._rankdir)
+
+        self._svg = to_svg(self.ir, layout_result, legend=self._legend)
+        if self._widget is not None:
+            self._widget.spec = self._build_spec()
+        return self
+
+    def _layout_still_fits(self) -> bool:
+        """Whether every node still wants exactly the box the current layout gave it."""
+        for n in self.ir.nodes:
+            box = self.layout.node_boxes.get(n.id)
+            if box is None:
+                return False
+            lw, lh = geometry.label_px_size(n.label_svg)
+            kind = n.glyph.kind if n.glyph else None
+            w, h = geometry.node_size(lw, lh, kind, n.glyph_data)
+            if abs(w - box.w) > 0.5 or abs(h - box.h) > 0.5:
+                return False
+        return True
+
+    def _plate_panels_once(self) -> dict:
+        """The plate prior-predictive panels, computed at most once per view.
+
+        These forward-simulate the user's model (``pm.sample_prior_predictive``) — the one place
+        bayesdag samples anything, and by far the most expensive part of building a spec. They
+        describe the PRIOR, so they cannot change when a posterior is attached: caching them is
+        what keeps ``update()`` from re-sampling the model on every push. ``ppc_draws=0`` skips.
+        """
+        if self._plate_panels is not None:
+            return self._plate_panels
+        panels: dict = {}
+        if self._model is not None and self.ir.plates and self._ppc_draws:
+            try:
+                from .adapters.ppc import prior_predictive_expansions
+                from .render_svg import render_plate_panel
+
+                expansions = prior_predictive_expansions(
+                    self._model, self.ir, draws=self._ppc_draws
+                )
+                for pid, exp in expansions.items():
+                    panel = render_plate_panel(exp)
+                    if panel:
+                        panels[pid] = {"panel": panel}
+            except Exception:
+                panels = {}
+                logging.getLogger(__name__).debug(
+                    "plate prior-predictive expansion failed; the widget degrades to no plate "
+                    "panels",
+                    exc_info=True,
+                )
+        self._plate_panels = panels
+        return panels
 
     def _build_spec(self) -> dict:
         """SVG + per-node detail + adjacency (Markov blanket) for the interactive layer."""
@@ -154,28 +250,7 @@ class ModelGraphView:
                     panel = render_node_panel(n)
                 if panel:
                     nodes[n.id]["panel"] = panel
-        plates: dict = {}
-        if self._model is not None and self.ir.plates and self._ppc_draws:
-            # NB this forward-simulates the user's model (`pm.sample_prior_predictive`) — the one
-            # place bayesdag samples anything. `ppc_draws=0` opts out.
-            try:
-                from .adapters.ppc import prior_predictive_expansions
-                from .render_svg import render_plate_panel
-
-                expansions = prior_predictive_expansions(
-                    self._model, self.ir, draws=self._ppc_draws
-                )
-                for pid, exp in expansions.items():
-                    panel = render_plate_panel(exp)
-                    if panel:
-                        plates[pid] = {"panel": panel}
-            except Exception:
-                plates = {}
-                logging.getLogger(__name__).debug(
-                    "plate prior-predictive expansion failed; the widget degrades to no plate "
-                    "panels",
-                    exc_info=True,
-                )
+        plates = self._plate_panels_once()
         # widget SVG omits the legend by default (hover surfaces the same info); the static
         # `self._svg` keeps it. Re-render is cheap (layout + math are already computed).
         widget_svg = (

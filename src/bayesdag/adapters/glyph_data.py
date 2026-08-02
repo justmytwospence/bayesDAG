@@ -439,6 +439,33 @@ def _posterior_samples(name: str, idata):
     return None
 
 
+def posterior_glyph(name: str, dist: str | None, idata) -> tuple[GlyphSpec, dict] | None:
+    """The posterior glyph for a variable, or None if this idata has no draws for it.
+
+    Deliberately takes only a NAME — no ``pm.Model``, no PyTensor variable — because the node id
+    is by construction the constrained idata variable name (invariant 6). That is what lets
+    ``ModelGraphView.update(idata=...)`` re-derive the data-bearing layer for a diagram that has
+    already been laid out, without going back to the model."""
+    samples = _posterior_samples(name, idata)
+    if samples is None:
+        return None
+    # A discrete posterior is a pmf over integers. A gaussian KDE would smear mass onto values
+    # the variable cannot take and hide the gaps between the ones it can.
+    if dist and dist in _DISCRETE:
+        bars = _discrete_bars(samples)
+        if bars is not None:
+            return GlyphSpec(kind="bars", source="posterior_bars"), bars
+    data = _density_from_samples(samples)
+    if data is None:
+        return None
+    k = _element_count(samples)
+    if k > 1:
+        # every element's draws went into ONE density, so this is the pooled marginal, not any
+        # single element's — say so rather than implying a per-element posterior
+        data["pooled"] = k
+    return GlyphSpec(kind="density", source="posterior_kde"), data
+
+
 def glyph_for(
     var, role: str, dist: str | None, model, idata=None, named: dict | None = None
 ) -> tuple[GlyphSpec | None, dict | None, str | None]:
@@ -455,22 +482,9 @@ def glyph_for(
         return transform_glyph(var, named)
 
     # Posterior overlay wins when available (fitted result).
-    samples = _posterior_samples(getattr(var, "name", ""), idata)
-    if samples is not None:
-        # A discrete posterior is a pmf over integers. A gaussian KDE would smear mass onto
-        # values the variable cannot take and hide the gaps between the ones it can.
-        if dist and dist in _DISCRETE:
-            bars = _discrete_bars(samples)
-            if bars is not None:
-                return GlyphSpec(kind="bars", source="posterior_bars"), bars, None
-        data = _density_from_samples(samples)
-        if data is not None:
-            k = _element_count(samples)
-            if k > 1:
-                # every element's draws went into ONE density, so this is the pooled marginal,
-                # not any single element's — say so rather than implying a per-element posterior
-                data["pooled"] = k
-            return GlyphSpec(kind="density", source="posterior_kde"), data, None
+    post = posterior_glyph(getattr(var, "name", ""), dist, idata)
+    if post is not None:
+        return post[0], post[1], None
 
     if role == "observed":
         vals = _observed_values(var, model)

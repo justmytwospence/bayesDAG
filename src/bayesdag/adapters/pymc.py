@@ -137,7 +137,7 @@ def _idata_groups(idata: Any) -> set[str]:
         return set()
 
 
-def _overlays(name: str, role: str, dims: list, idata: Any) -> list[OverlayRef]:
+def overlays_for(name: str, role: str, dims: list, idata: Any) -> list[OverlayRef]:
     if idata is None:
         return []
     groups = _idata_groups(idata)
@@ -253,7 +253,7 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
                 idata_unconstrained_key=unconstrained,
                 glyph=glyph_spec,
                 glyph_data=glyph_data,
-                overlays=_overlays(name, role, dims, idata),
+                overlays=overlays_for(name, role, dims, idata),
                 representable=elision is None,
                 elision_reason=elision,
             )

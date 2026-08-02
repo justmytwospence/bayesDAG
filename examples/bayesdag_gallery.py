@@ -136,6 +136,38 @@ def _(bayesdag, es_idata, es_model, mo):
 @app.cell
 def _(mo):
     mo.md(r"""
+    ### ...or attach the posterior to the diagram you already have
+
+    `view()` above builds a second figure. `update(idata=...)` instead re-renders the *existing*
+    one's data layer against the same layout, so the green priors become orange posteriors
+    **without the diagram moving** — and `update(None)` puts them back. Toggle it and watch:
+    nothing shifts, because nothing needs to.
+
+    (If a posterior did change a node's size — an `MvNormal`'s pairplot square collapsing to a
+    pooled KDE strip — the layout is redone rather than reused. The no-move promise is the fast
+    path, not a fib.)
+    """)
+    return
+
+
+@app.cell
+def _(mo):
+    show_posterior = mo.ui.switch(label="attach posterior")
+    show_posterior  # noqa: B018 — marimo renders a cell's trailing expression
+    return (show_posterior,)
+
+
+@app.cell
+def _(bayesdag, es_idata, es_model, mo, show_posterior):
+    live = bayesdag.view(es_model, ppc_draws=0)
+    live.update(idata=es_idata if show_posterior.value else None)
+    mo.ui.anywidget(live.widget())
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""
     ### Linked views — the diagram as a navigation surface
 
     A node id **is** the constrained `idata` variable name, so a click can drive any ArviZ plot.
