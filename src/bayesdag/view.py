@@ -169,18 +169,27 @@ class ModelGraphView:
                 return False
         return True
 
-    def _plate_panels_once(self) -> dict:
-        """The plate prior-predictive panels, computed at most once per view.
+    @property
+    def _can_expand_plates(self) -> bool:
+        return bool(self._model is not None and self.ir.plates and self._ppc_draws)
 
-        These forward-simulate the user's model (``pm.sample_prior_predictive``) — the one place
-        bayesdag samples anything, and by far the most expensive part of building a spec. They
-        describe the PRIOR, so they cannot change when a posterior is attached: caching them is
-        what keeps ``update()`` from re-sampling the model on every push. ``ppc_draws=0`` skips.
+    def expand_plates(self) -> dict:
+        """Compute (once) the plate prior-predictive panels: ``{plate_id: {"panel": svg}}``.
+
+        This forward-simulates the user's model — the one place bayesdag samples anything, and by
+        far the most expensive thing it can do. So it is **on demand**: building a widget costs
+        nothing, and the cost is paid the first time someone actually opens a plate. That is what
+        makes a slider → rebuild → re-render loop usable, where a per-construction simulation
+        would put seconds between every drag.
+
+        One simulation yields every plate, so all of them are cached together. The panels describe
+        the PRIOR and cannot change when a posterior is attached, which is also why ``update()``
+        never re-runs this. ``ppc_draws=0`` disables it entirely.
         """
         if self._plate_panels is not None:
             return self._plate_panels
         panels: dict = {}
-        if self._model is not None and self.ir.plates and self._ppc_draws:
+        if self._can_expand_plates:
             try:
                 from .adapters.ppc import prior_predictive_expansions
                 from .render_svg import render_plate_panel
@@ -201,6 +210,14 @@ class ModelGraphView:
                 )
         self._plate_panels = panels
         return panels
+
+    def _on_plate_expand(self, change) -> None:
+        """A plate was clicked in the browser: compute the panels and push them back."""
+        if not change["new"] or self._widget is None:
+            return
+        if self._plate_panels is None:
+            self.expand_plates()
+            self._widget.spec = self._build_spec()
 
     def _build_spec(self) -> dict:
         """SVG + per-node detail + adjacency (Markov blanket) for the interactive layer."""
@@ -257,7 +274,9 @@ class ModelGraphView:
                     panel = render_node_panel(n)
                 if panel:
                     nodes[n.id]["panel"] = panel
-        plates = self._plate_panels_once()
+        # Panels only if they have already been computed — clicking a plate is what triggers the
+        # simulation. `expandable` tells the JS which plates to offer the affordance for.
+        plates = self._plate_panels or {}
         # widget SVG omits the legend by default (hover surfaces the same info); the static
         # `self._svg` keeps it. Re-render is cheap (layout + math are already computed).
         widget_svg = (
@@ -265,7 +284,12 @@ class ModelGraphView:
             if self._widget_legend == self._legend
             else to_svg(self.ir, self.layout, legend=self._widget_legend)
         )
-        spec = {"svg": widget_svg, "nodes": nodes, "plates": plates}
+        spec = {
+            "svg": widget_svg,
+            "nodes": nodes,
+            "plates": plates,
+            "expandable": [p.id for p in self.ir.plates] if self._can_expand_plates else [],
+        }
         if self._diagnostics.get("divergences"):
             d, total = self._diagnostics["divergences"], self._diagnostics["draws"]
             spec["diagnostics"] = (
@@ -280,6 +304,7 @@ class ModelGraphView:
             from .widget import ModelGraphWidget
 
             self._widget = ModelGraphWidget(spec=self._build_spec())
+            self._widget.observe(self._on_plate_expand, names="expanded_plate")
         return self._widget
 
     # ---- linked views ----------------------------------------------------------

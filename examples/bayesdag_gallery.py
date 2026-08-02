@@ -168,6 +168,44 @@ def _(bayesdag, es_idata, es_model, mo, show_posterior):
 @app.cell
 def _(mo):
     mo.md(r"""
+    ### Tactile priors — drag, and watch the shape follow
+
+    Drag `tau`'s prior scale. The model is genuinely **rebuilt** each tick and re-rendered from
+    scratch — there is no "pretend the prior is different" mode, because the diagram's whole job
+    is to depict the `pm.Model` you actually have. A warm re-render is tens of milliseconds
+    (`uv run python examples/benchmark.py` prints the breakdown), which is what makes honest
+    rebuilding feel live.
+
+    Watch the half-normal on `tau` widen, and the arrow from `tau` follow the changing number
+    inside `theta = mu + tau*eta`.
+    """)
+    return
+
+
+@app.cell
+def _(mo):
+    tau_scale = mo.ui.slider(
+        start=0.5, stop=25.0, step=0.5, value=5.0, label="tau prior scale", show_value=True
+    )
+    tau_scale  # noqa: B018 — marimo renders a cell's trailing expression
+    return (tau_scale,)
+
+
+@app.cell
+def _(bayesdag, es_sigma, es_y, mo, pm, tau_scale):
+    with pm.Model(coords={"school": [f"S{i}" for i in range(8)]}) as slider_model:
+        s_mu = pm.Normal("mu", 0, 5)
+        s_tau = pm.HalfNormal("tau", tau_scale.value)
+        s_eta = pm.Normal("eta", 0, 1, dims="school")
+        s_theta = pm.Deterministic("theta", s_mu + s_tau * s_eta, dims="school")
+        pm.Normal("y_obs", s_theta, es_sigma, observed=es_y, dims="school")
+    mo.ui.anywidget(bayesdag.view(slider_model, ppc_draws=0).widget())
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""
     ### Diagnostics where the model is — the centered parameterization
 
     The same eight schools, written the *centered* way (`theta ~ Normal(mu, tau)` directly). That

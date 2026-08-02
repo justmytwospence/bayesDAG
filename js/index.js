@@ -183,20 +183,33 @@ export default {
         });
       });
 
+      function openPlate(pid) {
+        const p = (spec.plates || {})[pid];
+        card.style.display = "none";
+        panel.innerHTML =
+          `<div class="bd-panel-head">${esc(pid)}<span>click empty space to close</span></div>` +
+          (p && p.panel
+            ? p.panel
+            : '<div class="bd-placeholder">simulating the prior predictive&hellip;</div>');
+        panel.style.display = "block";
+      }
+
       Array.from(svg.querySelectorAll(".bd-plate")).forEach((plEl) => {
         const pid = plEl.dataset.plate;
-        // only advertise the affordance when there is actually a panel behind it
-        if ((spec.plates || {})[pid]) plEl.style.cursor = "zoom-in";
+        const expandable = (spec.expandable || []).includes(pid) || (spec.plates || {})[pid];
+        // only advertise the affordance when there is something behind it
+        if (expandable) plEl.style.cursor = "zoom-in";
         plEl.addEventListener("click", (ev) => {
-          // bail BEFORE stopPropagation, so a panel-less plate never swallows the
+          // bail BEFORE stopPropagation, so a non-expandable plate never swallows the
           // background click that dismisses the pinned card
-          const p = (spec.plates || {})[pid];
-          if (!p || !p.panel) return;
+          if (!expandable) return;
           ev.stopPropagation();
-          card.style.display = "none";
-          panel.innerHTML =
-            `<div class="bd-panel-head">${esc(pid)}<span>click empty space to close</span></div>` + p.panel;
-          panel.style.display = "block";
+          openPlate(pid);
+          // ask Python for the panel; it forward-simulates on first request and pushes `spec`
+          if (!(spec.plates || {})[pid]) {
+            model.set("expanded_plate", pid);
+            model.save_changes();
+          }
         });
       });
 
@@ -207,6 +220,10 @@ export default {
         clearHl();
         card.style.display = "none";
         panel.style.display = "none";
+        if (model.get("expanded_plate")) {
+          model.set("expanded_plate", "");
+          model.save_changes();
+        }
       });
 
       // A spec push (view.update(...)) redraws from scratch, and `pinned` lives in this closure.
@@ -217,6 +234,11 @@ export default {
         pinned = wasPinned;
         trace(wasPinned);
         showCard(wasPinned);
+      }
+      // a push carrying the plate panel the user is waiting on replaces the placeholder in place
+      const openPid = model.get("expanded_plate");
+      if (openPid && (spec.plates || {})[openPid] && panel.style.display === "block") {
+        openPlate(openPid);
       }
     }
 

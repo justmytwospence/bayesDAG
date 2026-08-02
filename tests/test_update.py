@@ -164,8 +164,10 @@ def test_update_never_resamples_the_prior_predictive(monkeypatch, fitted_eight_s
 
     v = bayesdag.view(model)
     w = v.widget()
+    assert calls["n"] == 0  # lazy: nothing simulated until a plate is opened
+    v.expand_plates()
     assert calls["n"] == 1
-    panels_before = w.spec["plates"]
+    panels_before = dict(v._plate_panels)
 
     v.update(idata=idata)
     v.update(None)

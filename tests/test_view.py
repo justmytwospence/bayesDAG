@@ -95,7 +95,8 @@ def test_widget_spec_has_nodes_adjacency_and_tags(eight_schools_model):
 
 def test_plate_prior_predictive_panel(eight_schools_model):
     pytest.importorskip("anywidget")
-    plates = bayesdag.view(eight_schools_model).widget().spec.get("plates", {})
+    v = bayesdag.view(eight_schools_model)
+    plates = v.expand_plates()  # on demand: see test_lazy_ppc.py
     assert "plate_school" in plates
     panel = plates["plate_school"]["panel"]
     assert "prior predictive" in panel
@@ -174,7 +175,10 @@ def test_ppc_draws_zero_skips_the_forward_simulation(monkeypatch, eight_schools_
         "prior_predictive_expansions",
         lambda *a, **k: pytest.fail("prior predictive ran despite ppc_draws=0"),
     )
-    assert bayesdag.view(eight_schools_model, ppc_draws=0).widget().spec["plates"] == {}
+    v = bayesdag.view(eight_schools_model, ppc_draws=0)
+    assert v.widget().spec["plates"] == {}
+    assert v.widget().spec["expandable"] == []  # no affordance offered either
+    assert v.expand_plates() == {}  # even when asked directly
 
 
 def test_ppc_draws_is_threaded_through(monkeypatch, eight_schools_model):
@@ -189,7 +193,7 @@ def test_ppc_draws_is_threaded_through(monkeypatch, eight_schools_model):
         return real(model, ir, draws=draws)
 
     monkeypatch.setattr(ppc_mod, "prior_predictive_expansions", spy)
-    bayesdag.view(eight_schools_model, ppc_draws=25).widget()
+    bayesdag.view(eight_schools_model, ppc_draws=25).expand_plates()
     assert seen["draws"] == 25
 
 
@@ -205,10 +209,10 @@ def test_failing_prior_predictive_still_builds_a_widget(monkeypatch, caplog, eig
         raise RuntimeError("no forward sampling here")
 
     monkeypatch.setattr(ppc_mod, "prior_predictive_expansions", boom)
+    v = bayesdag.view(eight_schools_model)
     with caplog.at_level(logging.DEBUG, logger="bayesdag.view"):
-        spec = bayesdag.view(eight_schools_model).widget().spec
-    assert spec["plates"] == {}
-    assert "<svg" in spec["svg"]  # the diagram itself is unaffected
+        assert v.expand_plates() == {}
+    assert "<svg" in v.widget().spec["svg"]  # the diagram itself is unaffected
     assert any("prior-predictive" in r.message for r in caplog.records)
 
 

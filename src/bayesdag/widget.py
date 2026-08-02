@@ -20,3 +20,7 @@ class ModelGraphWidget(anywidget.AnyWidget):
     spec = traitlets.Dict({}).tag(sync=True)
     # Two-way state for linked views (read back in marimo/Jupyter).
     selected_node = traitlets.Unicode("").tag(sync=True)
+    # Set by the JS when a plate is clicked. The prior-predictive expansion forward-simulates the
+    # user's model, so it is computed on demand rather than for every widget ever built; the view
+    # observes this, computes, and pushes the panel back through `spec`.
+    expanded_plate = traitlets.Unicode("").tag(sync=True)
