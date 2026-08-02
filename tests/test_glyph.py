@@ -327,3 +327,17 @@ def test_to_ir_bounded_on_large_observed_data():
     n = ir.node("y")
     assert n.glyph is not None and n.glyph_data  # overlay still computed
     assert elapsed < 5.0, f"to_ir took {elapsed:.1f}s on 1M observed points"
+
+
+def test_cutpoints_glyph_renders_bars_and_ticks():
+    """`cutpoints` is registered but no adapter emits it: OrderedLogistic is indistinguishable
+    from Categorical at the op level, so ordinal models route through the generic pmf path. The
+    registry is deliberately producer-agnostic though — a hand-built IR may ask for this kind —
+    so the renderer itself has to keep working."""
+    out = glyph.render(
+        "cutpoints",
+        {"probs": [0.1, 0.3, 0.4, 0.2], "cutpoints": [-1.0, 0.2, 1.1]},
+        Box(0, 0, 80, 44),
+    )
+    assert out.count("<rect") == 4  # one bar per category
+    assert out.count("<line") >= 3  # one tick per cutpoint
