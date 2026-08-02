@@ -2,6 +2,7 @@
 
 import json
 
+from bayesdag import ir as ir_mod
 from bayesdag import schema
 from bayesdag.adapters import to_elk, to_networkx
 from bayesdag.adapters.graph import markov_blanket
@@ -11,6 +12,34 @@ from bayesdag.ir import ModelIR
 
 def test_schema_validates(eight_schools_ir):
     schema.validate(eight_schools_ir.to_dict())
+
+
+def test_schema_rejects_what_it_should():
+    """A validator that accepts everything guards nothing. These two cases pin the parts of the
+    generator that are easy to silently lose: `required` emission, and Literal -> enum."""
+    import copy
+
+    import pytest
+
+    jsonschema = pytest.importorskip("jsonschema")
+
+    valid = {
+        "schema_version": ir_mod.SCHEMA_VERSION,
+        "nodes": [{"id": "x", "role": "latent"}],
+        "edges": [],
+        "plates": [],
+    }
+    schema.validate(valid)  # sanity: the baseline really is valid
+
+    missing_role = copy.deepcopy(valid)
+    del missing_role["nodes"][0]["role"]
+    with pytest.raises(jsonschema.ValidationError):
+        schema.validate(missing_role)
+
+    bad_role = copy.deepcopy(valid)
+    bad_role["nodes"][0]["role"] = "banana"
+    with pytest.raises(jsonschema.ValidationError):
+        schema.validate(bad_role)
 
 
 def test_published_schema_in_sync():
