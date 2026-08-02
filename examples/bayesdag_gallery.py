@@ -24,12 +24,13 @@ def _(mo):
 
 @app.cell
 def _():
+    import arviz as az
     import numpy as np
     import pymc as pm
 
     import bayesdag
 
-    return bayesdag, np, pm
+    return az, bayesdag, np, pm
 
 
 @app.cell
@@ -129,6 +130,43 @@ def _(es_model, pm):
 @app.cell
 def _(bayesdag, es_idata, es_model, mo):
     mo.ui.anywidget(bayesdag.view(es_model, idata=es_idata).widget())
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""
+    ### Linked views — the diagram as a navigation surface
+
+    A node id **is** the constrained `idata` variable name, so a click can drive any ArviZ plot.
+    Take the widget as a named element with `.ui()`, and read `w.value["selected_node"]` from a
+    neighbouring cell: marimo re-runs that cell on every selection. **Click `mu`, `tau` or
+    `theta` below** and watch the trace plot follow.
+    """)
+    return
+
+
+@app.cell
+def _(bayesdag, es_idata, es_model):
+    linked = bayesdag.view(es_model, idata=es_idata).ui()
+    linked  # noqa: B018 — marimo renders a cell's trailing expression
+    return (linked,)
+
+
+@app.cell
+def _(az, es_idata, linked, mo):
+    def _trace_of(name):
+        # arviz >= 1.0 returns a PlotCollection; the matplotlib figure lives in .viz
+        return az.plot_trace(es_idata, var_names=[name]).viz["figure"].item()
+
+    _sel = linked.value.get("selected_node")
+    (
+        mo.vstack([mo.md(f"**`{_sel}`** — posterior trace"), _trace_of(_sel)])
+        if _sel and _sel in es_idata.posterior
+        else mo.md(
+            "*click a node in the diagram above* (deterministics and observed nodes have no posterior trace)"
+        )
+    )
     return
 
 

@@ -192,6 +192,45 @@ class ModelGraphView:
             self._widget = ModelGraphWidget(spec=self._build_spec())
         return self._widget
 
+    # ---- linked views ----------------------------------------------------------
+    def ui(self):
+        """The marimo UI element for this diagram, so a *neighbouring cell* can read which node
+        is selected: ``w = view(model).ui()`` in one cell, ``w.value["selected_node"]`` in the
+        next. marimo re-runs the reader whenever the selection changes, which makes the diagram
+        a navigation surface for the whole ArviZ ecosystem::
+
+            w = bayesdag.view(model, idata=idata).ui()          # cell 1
+            sel = w.value.get("selected_node")                  # cell 2
+            az.plot_trace(idata, var_names=[sel]) if sel else mo.md("click a node")
+
+        The node id IS the constrained idata variable name, so it drops straight into
+        ``var_names``. Displaying the view directly also works, but only a *named* element can
+        be read back — hence this method. ``w.value`` carries every synced trait, so a cell
+        reading it also re-runs when the diagram itself is updated (see ``update``).
+        """
+        import marimo as mo
+
+        return mo.ui.anywidget(self.widget())
+
+    def on_select(self, fn):
+        """Call ``fn(node_id)`` whenever the selection changes (``""`` when cleared).
+
+        The callback form, for Jupyter and for scripts; in marimo prefer :meth:`ui`, whose
+        dataflow does this without a callback. Returns an unsubscribe callable.
+        """
+        w = self.widget()
+
+        def _handler(change):
+            fn(change["new"])
+
+        w.observe(_handler, names="selected_node")
+        return lambda: w.unobserve(_handler, names="selected_node")
+
+    @property
+    def selected_node(self) -> str:
+        """The currently pinned node id (``""`` if none) — the same trait the JS writes."""
+        return self.widget().selected_node if self._widget is not None else ""
+
     # ---- display protocol ------------------------------------------------------
     def _repr_svg_(self) -> str:
         return self._svg

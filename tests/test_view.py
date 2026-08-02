@@ -233,3 +233,45 @@ def test_rich_glyph_nodes_get_card_panels():
         assert f">{coord}</text>" in panel
     assert "panel" in spec["nodes"]["mu"]  # plain latent density gets one too
     assert "bd-card" not in v.to_svg()  # static SVG carries no panels
+
+
+def test_on_select_fires_and_unsubscribes(eight_schools_model):
+    """`selected_node` was synced in both directions but read by nobody — "linked views" was
+    aspirational. The callback form is the Jupyter/script half of making it real."""
+    pytest.importorskip("anywidget")
+    v = bayesdag.view(eight_schools_model, ppc_draws=0)
+    seen = []
+    unsubscribe = v.on_select(seen.append)
+
+    v.widget().selected_node = "tau"  # what the JS does on click
+    assert seen == ["tau"]
+    assert v.selected_node == "tau"
+
+    v.widget().selected_node = ""  # background click clears the pin
+    assert seen == ["tau", ""]
+
+    unsubscribe()
+    v.widget().selected_node = "mu"
+    assert seen == ["tau", ""], "unsubscribe left the handler attached"
+
+
+def test_selected_node_is_empty_before_the_widget_exists(eight_schools_model):
+    v = bayesdag.view(eight_schools_model, ppc_draws=0)
+    assert v.selected_node == ""  # must not force the widget (and its spec) into existence
+    assert v._widget is None
+
+
+def test_ui_returns_a_readable_marimo_element(eight_schools_model):
+    """marimo's anywidget wrapper exposes every synced trait through `.value`, so a neighbouring
+    cell can read the selection with no JS and no callback. It also caches on widget identity,
+    so calling ui() twice must not fork the state into two elements."""
+    pytest.importorskip("anywidget")
+    pytest.importorskip("marimo")
+
+    v = bayesdag.view(eight_schools_model, ppc_draws=0)
+    ui = v.ui()
+    assert "selected_node" in ui.value
+    assert ui.value["selected_node"] == ""
+
+    v.widget().selected_node = "theta"
+    assert v.ui().value["selected_node"] == "theta"  # same element, updated value
