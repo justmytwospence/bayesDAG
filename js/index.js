@@ -173,11 +173,14 @@ export default {
 
       Array.from(svg.querySelectorAll(".bd-plate")).forEach((plEl) => {
         const pid = plEl.dataset.plate;
-        plEl.style.cursor = "zoom-in";
+        // only advertise the affordance when there is actually a panel behind it
+        if ((spec.plates || {})[pid]) plEl.style.cursor = "zoom-in";
         plEl.addEventListener("click", (ev) => {
-          ev.stopPropagation();
+          // bail BEFORE stopPropagation, so a panel-less plate never swallows the
+          // background click that dismisses the pinned card
           const p = (spec.plates || {})[pid];
           if (!p || !p.panel) return;
+          ev.stopPropagation();
           card.style.display = "none";
           panel.innerHTML =
             `<div class="bd-panel-head">${esc(pid)}<span>click empty space to close</span></div>` + p.panel;

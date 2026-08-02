@@ -60,6 +60,15 @@ def test_save_svg(tmp_path, eight_schools_ir):
     assert out.exists() and out.read_text().lstrip().startswith("<svg")
 
 
+def test_plate_click_target_is_the_border_not_the_interior(eight_schools_ir):
+    """A plate encloses most of the canvas. If its interior were a click target it would swallow
+    the background click that dismisses the pinned card — which the card itself tells users to
+    make ("click empty space to close"). The hit area is a transparent stroke band instead."""
+    svg = to_svg(eight_schools_ir, layout(eight_schools_ir))
+    assert 'pointer-events="all"' not in svg  # interior must not be hittable
+    assert 'stroke-opacity="0" stroke-width="10" pointer-events="stroke"' in svg
+
+
 @pytest.mark.skipif(not _math, reason="needs the built mathjax bundle")
 def test_mathjax_defs_are_deduped(eight_schools_ir):
     """Labels share one content-hashed <defs>: every glyph reference resolves, no duplicate

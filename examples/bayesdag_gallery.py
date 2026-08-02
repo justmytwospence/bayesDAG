@@ -86,7 +86,7 @@ def _(mo):
 
     - **Hover** a node: everything outside its Markov blanket fades; a tooltip shows the distribution.
     - **Click** a node for a detail card (distribution, parameters, dims, a copyable `pm.*` line).
-    - **Click the `school` plate** to expand its **prior predictive check** — the 8 per-school
+    - **Click the `school` plate's border or label** to expand its **prior predictive check** — the 8 per-school
       curves overlaid (θ spreads via the shared μ/τ; η's coincide → exchangeability; y_obs shows
       the prior-predictive vs. the observed data as orange ticks).
     """)

@@ -135,9 +135,19 @@ def _edge(pts: list[list[float]], src: str, tgt: str) -> str:
 
 
 def _plate(b: Box, label: str) -> str:
+    """A plate's dashed border + corner label, plus an invisible hit band along the border.
+
+    The click target is deliberately the BORDER, not the interior: a plate usually encloses most
+    of the canvas, so an interior hit area would swallow every "click empty space to close" the
+    pinned card advertises. The visible rect is inert (``pointer-events="none"``); the hit rect is
+    a transparent ~10px stroke on the same box, so interior clicks fall through to the background.
+    """
     return (
         f'<rect x="{b.x:.1f}" y="{b.y:.1f}" width="{b.w:.1f}" height="{b.h:.1f}" rx="6" ry="6" '
-        f'fill="none" stroke="#9aa0a6" stroke-width="1" stroke-dasharray="2,2" pointer-events="all"/>'
+        f'fill="none" stroke="#9aa0a6" stroke-width="1" stroke-dasharray="2,2" '
+        f'pointer-events="none"/>'
+        f'<rect x="{b.x:.1f}" y="{b.y:.1f}" width="{b.w:.1f}" height="{b.h:.1f}" rx="6" ry="6" '
+        f'fill="none" stroke="#000" stroke-opacity="0" stroke-width="10" pointer-events="stroke"/>'
         f'<text x="{b.x + b.w - 4:.1f}" y="{b.y + b.h - 5:.1f}" text-anchor="end" '
         f'font-size="11" fill="#6b7075">{escape(label)}</text>'
     )
