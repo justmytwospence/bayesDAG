@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from . import geometry, render_static
+from . import diagnostics, geometry, render_static
 from .convert import subgraph, to_ir
 from .ir import ModelIR
 from .layout import layout
@@ -85,6 +85,7 @@ class ModelGraphView:
         self.ir = to_ir(model_or_ir, idata=idata)
         if var_names is not None:
             self.ir = subgraph(self.ir, list(var_names))
+        self._diagnostics = diagnostics.annotate(self.ir, idata)
         self._rankdir = rankdir
         self.layout = layout(self.ir, rankdir=rankdir)
         # The static figure carries the legend by default (it can't hover); the interactive
@@ -137,6 +138,10 @@ class ModelGraphView:
             )
             n.glyph, n.glyph_data = post if post is not None else (base_spec, base_data)
             n.overlays = overlays_for(n.id, n.role, n.dims, idata)
+
+        # diagnostics follow the attached idata, and are cleared when it is removed — a diagram
+        # showing its prior must not still be badged with a run it is no longer displaying
+        self._diagnostics = diagnostics.annotate(self.ir, idata)
 
         if self._layout_still_fits():
             layout_result = self.layout  # nothing resized: the diagram must not jump
@@ -238,6 +243,8 @@ class ModelGraphView:
                 # the SAME MathJax SVG embedded in the diagram -> the tooltip/card show real
                 # rendered math (parity), not raw LaTeX source.
                 "label_svg": n.label_svg,
+                # hedged diagnostic rows for the pinned card ([] when there is no idata)
+                "diag": diagnostics.describe(n.diag),
             }
             # every glyph-bearing node gets a large pinned-card panel built straight from the
             # precomputed glyph_data (JS just injects this SVG): observed nodes keep the
@@ -258,7 +265,15 @@ class ModelGraphView:
             if self._widget_legend == self._legend
             else to_svg(self.ir, self.layout, legend=self._widget_legend)
         )
-        return {"svg": widget_svg, "nodes": nodes, "plates": plates}
+        spec = {"svg": widget_svg, "nodes": nodes, "plates": plates}
+        if self._diagnostics.get("divergences"):
+            d, total = self._diagnostics["divergences"], self._diagnostics["draws"]
+            spec["diagnostics"] = (
+                f"{d} divergent transition{'s' if d != 1 else ''} out of {total} draws — "
+                "inspect the flagged nodes; divergences mean the sampler struggled with the "
+                "geometry, not that the model is wrong."
+            )
+        return spec
 
     def widget(self):
         if self._widget is None:

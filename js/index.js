@@ -60,6 +60,13 @@ export default {
       }
       const holder = document.createElement("div");
       holder.innerHTML = spec.svg || '<div class="bd-placeholder">bayesdag &mdash; no spec</div>';
+      // model-level sampling note (divergences), above the figure — Python writes the wording
+      if (spec.diagnostics) {
+        const strip = document.createElement("div");
+        strip.className = "bd-diag-strip";
+        strip.textContent = spec.diagnostics;
+        holder.insertBefore(strip, holder.firstChild);
+      }
       el.insertBefore(holder, tooltip);
       const svg = holder.querySelector("svg");
       if (!svg) return;
@@ -132,6 +139,11 @@ export default {
         if (n.dist) rows.push(`<div>distribution: <b>${esc(n.dist)}</b></div>`);
         if (n.dims && n.dims.length) rows.push(`<div>dims: ${esc(n.dims.join(" × "))}</div>`);
         if (n.transform) rows.push(`<div>transform: ${esc(n.transform)}</div>`);
+        if (n.diag && n.diag.length) {
+          rows.push(
+            `<div class="bd-diag-rows">${n.diag.map((d) => `<div>${esc(d)}</div>`).join("")}</div>`
+          );
+        }
         const ctor = constructorText(id, n);
         if (ctor) rows.push(`<pre class="bd-ctor">${esc(ctor)}</pre>`);
         // observed nodes: the Python-rendered histogram + best-fit-family overlay (data vs theory)

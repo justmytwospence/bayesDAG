@@ -119,6 +119,9 @@ class NodeIR:
     overlays: list[OverlayRef] = field(default_factory=list)
     representable: bool = True
     elision_reason: str | None = None
+    # sampling diagnostics joined by id (see bayesdag.diagnostics); None when there is no idata.
+    # Hedged flags only — this never carries a verdict about the model.
+    diag: dict[str, Any] | None = None
     # filled by render/layout stages:
     label_svg: str | None = None
     box: Box | None = None

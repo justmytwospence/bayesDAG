@@ -172,6 +172,17 @@
             }
           ]
         },
+        "diag": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": {}
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "label_svg": {
           "anyOf": [
             {

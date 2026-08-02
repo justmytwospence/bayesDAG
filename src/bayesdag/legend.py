@@ -62,5 +62,7 @@ def build(ir: ModelIR) -> list[LegendItem]:
         for n in ir.nodes
     ):
         items.append(LegendItem("elision", "[⋯]  more values / elided"))
+    if any((n.diag or {}).get("flags") for n in ir.nodes):
+        items.append(LegendItem("diag", "inspect — sampling diagnostic"))
 
     return items

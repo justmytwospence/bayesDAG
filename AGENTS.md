@@ -39,7 +39,7 @@ Toolchain present in this environment: `uv`, `node`/`npx`, Graphviz `dot`, `git`
 - `render_static.py` — standalone SVG + cairosvg PNG/PDF (TikZ is declared but raises `NotImplementedError` — M2).
 - `widget.py` — `anywidget.AnyWidget` subclass + synced traitlets.
 - `view.py` — `ModelGraphView`: env detection + `_repr_mimebundle_`/`_repr_svg_`/`_display_` fallback.
-- `diagnostics.py` — **not yet written** (M2): per-node/edge diagnostics + funnel scores. Its `AuxViewIR` placeholder already lives in `ir.py`.
+- `diagnostics.py` — sampling diagnostics joined by node id: `per_node` (R-hat/ESS, worst element for vectors), `model_level` (divergences), `funnel_candidates` (structural, IR-only), `annotate` (fills `NodeIR.diag`), `describe` (hedged card rows). Wording lives in `FLAG_LABELS`; arviz is imported lazily. The posterior-geometry panels (`AuxViewIR`) are still M2.
 - `js/index.js` — thin controller: hover-highlight, tooltips, click-to-pin cards, plate expansion. Imports **nothing** (no d3, no pan/zoom — the diagram renders at natural size) and **never** computes layout or stats. `render()` returns anywidget's cleanup function.
 
 ## Load-bearing invariants (do not break)

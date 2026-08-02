@@ -49,6 +49,9 @@ _GLYPH_COLORS = {
 # MLE best-fit family curve drawn over an observed histogram (the conventional "fitted curve" red;
 # distinct from data=blue, prior=green, posterior=orange).
 _OVERLAY = "#c0392b"
+# hedged diagnostic mark (same amber as the elision badge: both mean "read the caption", never
+# "this is wrong")
+_DIAG = "#8a6d3b"
 
 
 def _arrow(mid: str, color: str) -> str:
@@ -400,6 +403,11 @@ def _legend_swatch(kind: str, b: Box) -> str:
         )
     if kind == "elision":
         return f'<text x="{b.x:.1f}" y="{b.y + b.h - 1:.1f}" font-size="11" fill="#333">[⋯]</text>'
+    if kind == "diag":
+        return (
+            f'<circle cx="{b.x + 6:.1f}" cy="{b.y + b.h / 2:.1f}" r="3.2" fill="{_DIAG}" '
+            'fill-opacity="0.85"/>'
+        )
     return ""
 
 
@@ -471,6 +479,14 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, legend: bool = True) -> str:
             if gr:
                 stroke, fill = _GLYPH_COLORS.get(n.glyph.source, ("#2a8a55", "#2a8a55"))
                 parts.append(glyph.render(n.glyph.kind, n.glyph_data, gr, stroke=stroke, fill=fill))
+        if (n.diag or {}).get("flags"):
+            # A hedged "inspect this" mark in the node's top-right. Drawn INSIDE the existing box
+            # and reserving no space, so attaching a posterior can add diagnostics without
+            # changing any node's size — which is what lets update() keep the diagram still.
+            parts.append(
+                f'<circle class="bd-diag" cx="{b.x + b.w - 7:.1f}" cy="{b.y + 7:.1f}" r="3.2" '
+                f'fill="{_DIAG}" fill-opacity="0.85"/>'
+            )
         if getattr(n, "elision_reason", None):  # honesty badge: undrawable construct
             reason = (
                 n.elision_reason if len(n.elision_reason) <= 30 else n.elision_reason[:29] + "…"

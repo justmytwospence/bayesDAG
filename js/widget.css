@@ -129,6 +129,25 @@
   white-space: pre-wrap;
   user-select: all;
 }
+/* hedged sampling diagnostics: an invitation to look, never a verdict — so amber, not red */
+.bd-diag-rows {
+  margin: 6px 0 2px;
+  padding: 5px 7px;
+  background: #fdf8ef;
+  border-left: 3px solid #8a6d3b;
+  border-radius: 3px;
+  color: #6b5527;
+  font-size: 11px;
+}
+.bd-diag-strip {
+  margin-bottom: 6px;
+  padding: 5px 8px;
+  background: #fdf8ef;
+  border: 1px solid #e6d9bd;
+  border-radius: 5px;
+  color: #6b5527;
+  font-size: 11px;
+}
 .bd-card-hint {
   margin-top: 6px;
   color: #9aa0a6;

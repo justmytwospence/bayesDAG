@@ -72,7 +72,7 @@ def _(np, pm):
         eta = pm.Normal("eta", 0, 1, dims="school")
         theta = pm.Deterministic("theta", mu + tau * eta, dims="school")
         pm.Normal("y_obs", theta, es_sigma, observed=es_y, dims="school")
-    return (es_model,)
+    return es_model, es_sigma, es_y
 
 
 @app.cell
@@ -162,6 +162,48 @@ def _(bayesdag, es_idata, es_model, mo, show_posterior):
     live = bayesdag.view(es_model, ppc_draws=0)
     live.update(idata=es_idata if show_posterior.value else None)
     mo.ui.anywidget(live.widget())
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""
+    ### Diagnostics where the model is — the centered parameterization
+
+    The same eight schools, written the *centered* way (`theta ~ Normal(mu, tau)` directly). That
+    is Neal's funnel: `tau` controls a spread that is itself being estimated, and the sampler
+    struggles in the neck. Sample it and the diagram carries the evidence — an amber dot on the
+    flagged nodes, the numbers on their pinned cards, and a divergence note above the figure.
+
+    Every one of these is phrased as **"inspect this"**. R-hat over 1.01 does not mean the model
+    is wrong, and divergences mean the sampler had trouble with the geometry — which is a reason
+    to look at the joint, not a verdict. The funnel hint is structural (read off the graph) so it
+    only appears once there are divergences to explain.
+    """)
+    return
+
+
+@app.cell
+def _(es_sigma, es_y, pm):
+    with pm.Model(coords={"school": [f"S{i}" for i in range(8)]}) as centered_model:
+        c_mu = pm.Normal("mu", 0, 5)
+        c_tau = pm.HalfNormal("tau", 5)
+        c_theta = pm.Normal("theta", c_mu, c_tau, dims="school")
+        pm.Normal("y_obs", c_theta, es_sigma, observed=es_y, dims="school")
+    return (centered_model,)
+
+
+@app.cell
+def _(centered_model, pm):
+    with centered_model:
+        # target_accept left at its default ON PURPOSE: we want the divergences to show up
+        centered_idata = pm.sample(draws=400, tune=400, chains=2, random_seed=0, progressbar=False)
+    return (centered_idata,)
+
+
+@app.cell
+def _(bayesdag, centered_idata, centered_model, mo):
+    mo.ui.anywidget(bayesdag.view(centered_model, idata=centered_idata).widget())
     return
 
 

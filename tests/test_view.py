@@ -132,6 +132,7 @@ def test_spec_carries_every_key_the_js_reads(eight_schools_model):
         "ancestors",
         "descendants",
         "label_svg",
+        "diag",
     }
     for nid, node in spec["nodes"].items():
         missing = required - set(node)
