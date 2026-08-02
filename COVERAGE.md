@@ -6,7 +6,7 @@ arrive with a golden test.
 ## Milestones
 - [x] **M0** — vertical slice (8-schools, both renderers, narrow coverage) ✅
 - [ ] **M1** — coverage to the hard list
-- [ ] **M2** — posterior-geometry explorer + polish
+- [ ] **M2** — posterior-geometry explorer + polish (first slice landed: live posterior attachment, hedged diagnostic badges, funnel joint, linked views)
 - [ ] **M3** — interop exporters, reparam suggestions, scale, cross-PPL, upstream
 
 ## M0 build checklist
@@ -88,6 +88,10 @@ Detection keys on the **RV class** (`type(op).__name__`); sub-RVs/params come fr
 - [x] Published JSON Schema (draft 2020-12) + validation
 
 ## Posterior geometry / diagnostics (M2+)
-- [ ] graph-selected divergence joints · auto unconstrained axis (`log τ`) · diagnostic badges (R-hat/ESS/MCSE/divergence-involvement)
-- [ ] funnel auto-flag (tiered, hedged) · divergence attribution · energy/BFMI · parallel-coordinates
+- [x] live posterior attachment (`view.update(idata=…)`) — same layout reused unless a glyph changes size class
+- [x] diagnostic badges: R-hat / ESS (worst element on vectors, hedged wording, no R-hat from a single chain) + a model-level divergence note
+- [x] funnel auto-flag (structural, and only once a run has divergences to explain)
+- [x] graph-selected divergence joint — the first real `AuxViewIR`; prefers `unconstrained_posterior`, labels a computed `log τ` axis as computed
+- [x] linked views: `selected_node` as a read-back API (`view.ui()` / `view.on_select`)
+- [ ] MCSE badges · divergence attribution · energy/BFMI · parallel-coordinates
 - [ ] reparameterization suggestions (structural → diagnostic → VIP)

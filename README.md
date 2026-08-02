@@ -4,7 +4,7 @@
 
 `bayesdag` renders a PyMC model as a rich generative-model diagram where **every node shows the full shape of its distribution** — so you can read the data-generating story off the curves (Kruschke-style) — with real **LaTeX math inside nodes**, **edges that point at the specific parameter** they feed, and prior/posterior overlays. It has a **static SVG renderer** (publication-quality) and an **interactive [anywidget](https://anywidget.dev)** renderer (Jupyter + [marimo](https://marimo.io)); both consume the same layout pass and the same rendered math, so the diagram itself is identical, and it falls back to static automatically when interactivity isn't available.
 
-> **Status: pre-alpha.** M0 (the vertical slice) has landed and PyMC distribution coverage is complete; the posterior-geometry explorer and the interop exporters are not built yet. See [`COVERAGE.md`](COVERAGE.md) for the live work-plan and [`docs/RESEARCH.md`](docs/RESEARCH.md) for background.
+> **Status: pre-alpha.** M0 (the vertical slice) has landed, PyMC distribution coverage is complete, and the first slice of M2 is in: live posterior attachment, hedged convergence diagnostics on the nodes, and the funnel joint. The remaining M2 panels (parallel coordinates, energy) and the interop exporters are not built. See [`COVERAGE.md`](COVERAGE.md) for the live work-plan and [`docs/RESEARCH.md`](docs/RESEARCH.md) for background.
 
 ## Install
 
@@ -37,7 +37,30 @@ idata = pm.sample(model=model)
 bayesdag.view(model, idata=idata)    # nodes gain posterior overlays
 ```
 
-`view(...)` also takes `var_names=[...]`, which restricts the diagram to those variables plus their direct parents — the same semantics as `pm.model_to_graphviz(var_names=…)`.
+`view(...)` also takes `var_names=[...]`, which restricts the diagram to those variables plus their direct parents — the same semantics as `pm.model_to_graphviz(var_names=…)`, and `ppc_draws=` (`0` to skip the plate prior-predictive panels entirely).
+
+### Working with a fitted model
+
+```python
+v = bayesdag.view(model)             # prior diagram, on screen
+idata = pm.sample(model=model)
+v.update(idata=idata)                # priors become posteriors IN PLACE — nothing moves
+v.update(None)                       # ...and back: it's a toggle
+```
+
+`update` reuses the existing layout whenever no node changes size, which is the usual case, so the figure you are looking at gains its posterior without jumping. If a posterior *does* change a node's size class — an `MvNormal`'s pairplot square collapsing to a pooled KDE strip — the diagram is laid out again rather than drawn at a stale size.
+
+When the `InferenceData` carries `sample_stats`, flagged nodes also pick up a hedged diagnostic mark (R-hat, ESS, divergence count), and a funnel-prone scale offers a **joint panel** showing the child against `log(scale)` with divergent draws in red. Every flag is phrased as "inspect this" — a divergence means the sampler struggled with the geometry, not that the model is wrong.
+
+### Linked views
+
+```python
+w = bayesdag.view(model, idata=idata).ui()   # cell 1 (marimo)
+sel = w.value.get("selected_node")           # cell 2 — re-runs on every click
+az.plot_trace(idata, var_names=[sel])
+```
+
+A node id **is** the constrained `idata` variable name, so a selection drops straight into any ArviZ call. In Jupyter or a script, use `view.on_select(fn)` instead.
 
 ![eight schools](examples/eight_schools.svg)
 
@@ -57,7 +80,7 @@ Roles are distinguished by fill and border rather than by outline shape — ever
 
 - **M0** ✅ — vertical slice: 8-schools in both renderers, LaTeX nodes, port-edges, prior/posterior/observed glyphs, fallback.
 - **M1** — PyMC coverage: every published distribution renders (verified against `pm.distributions.__all__`). Remaining: `pm.Potential` factor glyphs, transforms-as-badges, nested submodels, `pm.do`/`pm.observe`, missing-data imputation.
-- **M2** — posterior-geometry explorer (funnels/divergences), workflow toggle, prior linter, distribution cards.
+- **M2** — in progress: live posterior attachment, hedged R-hat/ESS/divergence badges, and the funnel joint have landed. Remaining: parallel coordinates, energy/BFMI, MCSE, interval/point annotations, prior linter, reparameterization suggestions.
 - **M3** — interop exporters (GraphML/PROV), reparameterization suggestions, scale, cross-PPL (`from_numpyro`), upstreaming to PyMC.
 
 ## License
