@@ -23,6 +23,24 @@ def test_layout_produces_boxes_and_plate(eight_schools_ir):
         assert pb.x - 1 <= b.x and b.x + b.w <= pb.x + pb.w + 1
 
 
+def test_math_unavailable_warning_points_at_a_real_install_path(monkeypatch, eight_schools_ir):
+    """The degradation message used to advertise `pip install 'bayesdag[math]'` — an extra that
+    has never existed (mini-racer is a core dependency). Pointing users at a no-op install is
+    exactly the kind of dishonest instruction the project's own contract forbids."""
+    from bayesdag.layout import common
+
+    class _Unavailable:
+        available = False
+
+    monkeypatch.setattr(common.mathsvg, "get_renderer", lambda: _Unavailable())
+    monkeypatch.setattr(common, "_warned_math_unavailable", False)
+    with pytest.warns(RuntimeWarning) as rec:
+        common.render_labels(eight_schools_ir)
+    msg = str(rec[0].message)
+    assert "[math]" not in msg
+    assert "npm run build" in msg
+
+
 def test_relayout_leaves_no_stale_geometry_on_the_ir(eight_schools_ir):
     """The LayoutResult is the source of truth; the copies on NodeIR are a convenience mirror.
     Laying the same IR out twice (two views, or a different rankdir) must not leave a node

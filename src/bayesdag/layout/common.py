@@ -38,8 +38,9 @@ def render_labels(ir: ModelIR) -> dict[str, dict]:
     if not use and not _warned_math_unavailable and any(n.label_tex for n in ir.nodes):
         warnings.warn(
             "bayesdag: math rendering is unavailable — labels degrade to plain text and "
-            "edges to center anchors. Install the 'math' extra "
-            "(pip install 'bayesdag[math]') or build the bundle (npm install && npm run build).",
+            "edges to center anchors. From a source checkout, build the bundle with "
+            "`npm ci && npm run build`; from an installed wheel the bundle ships with the "
+            "package, so this means a broken install — reinstall bayesdag.",
             RuntimeWarning,
             stacklevel=2,
         )
