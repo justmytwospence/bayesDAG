@@ -7,6 +7,7 @@ Six models of escalating generative-structure complexity, used both as fixtures 
 """
 
 import os
+import pathlib
 
 import numpy as np
 import pymc as pm
@@ -17,6 +18,30 @@ import pytest
 # installed — a skip means the build silently shipped without something load-bearing, and a green
 # "all passed" would hide it. BAYESDAG_REQUIRE_FULL=1 turns those skips into failures.
 _REQUIRE_FULL = os.environ.get("BAYESDAG_REQUIRE_FULL", "").strip() not in ("", "0", "false")
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--golden-update",
+        action="store_true",
+        default=False,
+        help="rewrite the committed golden SVG fixtures instead of comparing against them",
+    )
+
+
+@pytest.fixture
+def golden_update(request):
+    return request.config.getoption("--golden-update")
+
+
+@pytest.fixture
+def golden_path():
+    """Resolve a golden fixture by name (tests/golden/<name>)."""
+
+    def _resolve(name: str) -> pathlib.Path:
+        return pathlib.Path(__file__).resolve().parent / "golden" / name
+
+    return _resolve
 
 
 @pytest.hookimpl(wrapper=True)
