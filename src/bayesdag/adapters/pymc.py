@@ -120,12 +120,28 @@ def _rv_family_symbol(val: Any) -> str | None:
     return sym if "operatorname" not in sym else None
 
 
+def _idata_groups(idata: Any) -> set[str]:
+    """The group names present, for either idata flavour.
+
+    ``xarray.DataTree`` (what ``pm.sample`` returns today) exposes ``groups`` as a PROPERTY
+    holding paths — ``('/', '/posterior', …)`` — while the legacy ``az.InferenceData`` exposes a
+    method returning bare names. Calling the property raises, which a bare except then turned
+    into "this idata has no groups at all"."""
+    groups = getattr(idata, "groups", None)
+    if groups is None:
+        return set()
+    try:
+        names = groups() if callable(groups) else groups
+        return {str(g).lstrip("/") for g in names if str(g).strip("/")}
+    except Exception:
+        return set()
+
+
 def _overlays(name: str, role: str, dims: list, idata: Any) -> list[OverlayRef]:
     if idata is None:
         return []
-    try:
-        groups = set(idata.groups())
-    except Exception:
+    groups = _idata_groups(idata)
+    if not groups:
         return []
     out: list[OverlayRef] = []
     if "posterior" in groups and name in getattr(idata, "posterior", {}):
