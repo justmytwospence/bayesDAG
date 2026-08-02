@@ -117,7 +117,7 @@ def test_spec_carries_every_key_the_js_reads(eight_schools_model):
     pytest.importorskip("anywidget")
     spec = bayesdag.view(eight_schools_model, widget_legend=False).widget().spec
 
-    assert set(spec) >= {"svg", "nodes", "plates"}
+    assert set(spec) >= {"svg", "nodes", "plates", "aux", "expandable"}
 
     # per-node detail: tooltip, pinned card, constructor line, and the highlight/trace sets
     required = {

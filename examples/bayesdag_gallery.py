@@ -217,6 +217,11 @@ def _(mo):
     is wrong, and divergences mean the sampler had trouble with the geometry — which is a reason
     to look at the joint, not a verdict. The funnel hint is structural (read off the graph) so it
     only appears once there are divergences to explain.
+
+    Then **click `tau`** and open **`joint: theta vs log(tau)`** on its card. That is the funnel
+    itself: `theta` against the log scale it depends on, with the divergent draws in red piling
+    into the neck where the sampler could not move. It is the reason the non-centered version at
+    the top of this notebook is written the way it is — same model, different geometry.
     """)
     return
 

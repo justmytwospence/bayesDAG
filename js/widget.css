@@ -148,6 +148,24 @@
   color: #6b5527;
   font-size: 11px;
 }
+/* affordance for a posterior-geometry panel (the funnel joint) */
+.bd-aux-btn {
+  display: block;
+  width: 100%;
+  margin: 6px 0 2px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 11px;
+  color: #3a5f95;
+  text-align: left;
+  background: #f2f6fc;
+  border: 1px solid #c9d8ee;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.bd-aux-btn:hover {
+  background: #e6eefa;
+}
 .bd-card-hint {
   margin-top: 6px;
   color: #9aa0a6;

@@ -313,6 +313,80 @@ def _panel_coord_labels(n) -> list[str]:
     return []
 
 
+_DIVERGENT = "#c0392b"  # divergent draws in the joint panel (the same red as the best-fit curve:
+# "look at this line", not "this is an error")
+
+
+def render_joint_panel(aux) -> str:
+    """Standalone SVG for a funnel joint: the child against ``log(scale)``, divergences on top.
+
+    This is the picture that makes a divergence report mean something — the draws pile into the
+    neck where the sampler could not move, and the shape of the problem is right there instead of
+    in a number. Drawn Python-side like every other panel; the JS only injects it.
+    """
+    data = getattr(aux, "data_ref", None) or {}
+    xs, ys = data.get("x") or [], data.get("y") or []
+    dxs, dys = data.get("div_x") or [], data.get("div_y") or []
+    if not (xs or dxs):
+        return ""
+
+    pad, title_h, pw, ph = 12.0, 20.0, 280.0, 200.0
+    plot = Box(pad + 26.0, pad + title_h, pw, ph)
+    cap_y = plot.y + ph + 26.0
+    w, h = plot.x + pw + pad, cap_y + pad + 2.0
+
+    all_x, all_y = xs + dxs, ys + dys
+    x0, x1 = min(all_x), max(all_x)
+    y0, y1 = min(all_y), max(all_y)
+    sx, sy = (x1 - x0) or 1.0, (y1 - y0) or 1.0
+
+    def _pt(x, y):
+        return plot.x + (x - x0) / sx * plot.w, plot.y + plot.h - (y - y0) / sy * plot.h
+
+    title = f"{escape(str(data.get('y_label', '')))} vs {escape(str(data.get('x_label', '')))}"
+    out = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w:.0f}" height="{h:.0f}" '
+        f'viewBox="0 0 {w:.0f} {h:.0f}" font-family="system-ui, sans-serif">',
+        f'<rect width="{w:.0f}" height="{h:.0f}" rx="8" fill="#ffffff" stroke="#c7c7cc"/>',
+        f'<text x="{pad:.0f}" y="{pad + 12:.0f}" font-size="12" font-weight="600" '
+        f'fill="#333">{title}</text>',
+        f'<rect x="{plot.x:.1f}" y="{plot.y:.1f}" width="{plot.w:.1f}" height="{plot.h:.1f}" '
+        'fill="#fafafa" stroke="#eeeeee"/>',
+    ]
+    for x, y in zip(xs, ys, strict=False):  # the bulk, drawn first and faint
+        px, py = _pt(x, y)
+        out.append(f'<circle cx="{px:.1f}" cy="{py:.1f}" r="1.1" fill="#5a7fb5" opacity="0.35"/>')
+    for x, y in zip(dxs, dys, strict=False):  # divergences on top, where the neck is
+        px, py = _pt(x, y)
+        out.append(
+            f'<circle cx="{px:.1f}" cy="{py:.1f}" r="1.9" fill="{_DIVERGENT}" opacity="0.9"/>'
+        )
+    for frac, val in ((0.0, x0), (1.0, x1)):
+        out.append(
+            f'<text x="{plot.x + frac * plot.w:.1f}" y="{plot.y + plot.h + 11:.1f}" '
+            f'text-anchor="{"start" if frac == 0 else "end"}" font-size="8" '
+            f'fill="#777">{val:.3g}</text>'
+        )
+    for frac, val in ((0.0, y1), (1.0, y0)):
+        out.append(
+            f'<text x="{plot.x - 4:.1f}" y="{plot.y + frac * plot.h + 3:.1f}" text-anchor="end" '
+            f'font-size="8" fill="#777">{val:.3g}</text>'
+        )
+    # POINTS, not draws: a vector child contributes one point per element per draw, so calling
+    # these "draws" would inflate the divergence count the reader already saw on the strip.
+    n_div, n_total = data.get("n_divergent", 0), data.get("n_total", 0)
+    out.append(
+        f'<text x="{pad:.0f}" y="{cap_y - 12:.1f}" font-size="9" fill="#9aa0a6">'
+        f"{n_div} of {n_total} plotted points come from divergent draws (red)</text>"
+    )
+    out.append(
+        f'<text x="{pad:.0f}" y="{cap_y:.1f}" font-size="9" fill="#9aa0a6">'
+        "divergences clustering in the neck suggest reparameterizing (non-centered)</text>"
+    )
+    out.append("</svg>")
+    return "".join(out)
+
+
 def render_node_panel(n) -> str:
     """Standalone SVG for the widget's pinned card of ANY glyph-bearing node: the node's
     existing ``glyph_data`` drawn large through the same registry as the in-node glyph, plus

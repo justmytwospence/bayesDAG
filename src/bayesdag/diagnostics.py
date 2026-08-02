@@ -152,6 +152,138 @@ def funnel_candidates(ir: ModelIR) -> list[tuple[str, str]]:
     return out
 
 
+_MAX_POINTS = 1500  # deterministic thinning cap for the non-divergent cloud
+
+
+def _flat(idata, name: str):
+    """A variable's draws as a flat 1-D array (elements pooled), or None."""
+    import numpy as np
+
+    try:
+        posterior = getattr(idata, "posterior", None)
+        if posterior is None or name not in posterior:
+            return None
+        return np.asarray(posterior[name].values).reshape(-1)
+    except Exception:
+        return None
+
+
+def _divergence_mask(idata, n: int):
+    import numpy as np
+
+    stats = getattr(idata, "sample_stats", None)
+    try:
+        if stats is None or "diverging" not in stats:
+            return None
+        mask = np.asarray(stats["diverging"].values).reshape(-1)
+        if mask.size == n:
+            return mask
+        # a vector child pools k elements per draw, so each draw's flag repeats k times
+        if n % mask.size == 0:
+            return np.repeat(mask, n // mask.size)
+    except Exception:
+        return None
+    return None
+
+
+def funnel_joint(idata: Any, scale_id: str, child_id: str, unconstrained_key: str | None) -> dict:
+    """Points for the funnel joint: the child against its scale on the LOG axis, divergences apart.
+
+    The neck is only visible on the unconstrained scale, so this prefers the sampler's own
+    ``unconstrained_posterior`` when the idata carries it and otherwise takes the log itself —
+    saying which, because a computed axis is a slightly different object from the one the sampler
+    actually explored.
+
+    Every divergent draw is kept; the rest are thinned deterministically (a stride, never an RNG,
+    so the same idata always yields the same picture). Returns ``{}`` when there is nothing to
+    draw, so callers can treat "no data" and "no funnel" the same way.
+    """
+    import numpy as np
+
+    child = _flat(idata, child_id)
+    if child is None or child.size == 0:
+        return {}
+
+    axis_space, scale = "unconstrained", None
+    if unconstrained_key:
+        raw = None
+        for group in ("unconstrained_posterior", "posterior"):
+            ds = getattr(idata, group, None)
+            if ds is not None and unconstrained_key in ds:
+                raw = np.asarray(ds[unconstrained_key].values).reshape(-1)
+                break
+        if raw is not None:
+            scale, computed = raw, False
+    if scale is None:
+        constrained = _flat(idata, scale_id)
+        if constrained is None or constrained.size == 0:
+            return {}
+        with np.errstate(divide="ignore", invalid="ignore"):
+            scale = np.log(constrained)
+        computed = True
+
+    # a vector child pools k elements per draw; repeat the scalar scale to match
+    if child.size != scale.size:
+        if child.size % scale.size:
+            return {}
+        scale = np.repeat(scale, child.size // scale.size)
+
+    ok = np.isfinite(child) & np.isfinite(scale)
+    child, scale = child[ok], scale[ok]
+    if child.size == 0:
+        return {}
+
+    mask = _divergence_mask(idata, ok.size)
+    mask = mask[ok] if mask is not None and mask.size == ok.size else np.zeros(child.size, bool)
+
+    div_x, div_y = scale[mask], child[mask]
+    keep_x, keep_y = scale[~mask], child[~mask]
+    if keep_x.size > _MAX_POINTS:  # deterministic stride, never an RNG
+        step = keep_x.size // _MAX_POINTS + 1
+        keep_x, keep_y = keep_x[::step], keep_y[::step]
+
+    return {
+        "x": [float(v) for v in keep_x],
+        "y": [float(v) for v in keep_y],
+        "div_x": [float(v) for v in div_x],
+        "div_y": [float(v) for v in div_y],
+        "x_label": f"log({scale_id})" + (" (computed)" if computed else ""),
+        "y_label": child_id,
+        "axis_space": axis_space if not computed else "computed log",
+        "n_divergent": int(mask.sum()),
+        "n_total": int(mask.size),
+    }
+
+
+def joint_views(ir: ModelIR, idata: Any) -> list:
+    """``AuxViewIR`` joints for every funnel candidate that a divergent run gives us data for.
+
+    Only built when there are divergences: a funnel-shaped posterior that sampled cleanly is not
+    something to send the reader looking at.
+    """
+    from .ir import AuxViewIR
+
+    if idata is None or not model_level(idata).get("divergences"):
+        return []
+    out = []
+    for scale_id, child_id in funnel_candidates(ir):
+        node = next((n for n in ir.nodes if n.id == scale_id), None)
+        data = funnel_joint(
+            idata, scale_id, child_id, getattr(node, "idata_unconstrained_key", None)
+        )
+        if data:
+            out.append(
+                AuxViewIR(
+                    kind="joint",
+                    vars=[child_id, scale_id],
+                    edge=[scale_id, child_id],
+                    axis_space="unconstrained",
+                    data_ref=data,
+                )
+            )
+    return out
+
+
 def annotate(ir: ModelIR, idata: Any) -> dict:
     """Attach ``NodeIR.diag`` for every node and return the model-level summary.
 
@@ -161,10 +293,12 @@ def annotate(ir: ModelIR, idata: Any) -> dict:
     if idata is None:
         for node in ir.nodes:
             node.diag = None
+        ir.aux_views = []
         return {}
 
     stats = per_node(idata, [n.id for n in ir.nodes])
     summary = model_level(idata)
+    ir.aux_views = joint_views(ir, idata)
 
     # Structure alone would flag every non-centered hierarchy that sampled perfectly well, so the
     # funnel hint only appears when the run actually produced divergences to explain.

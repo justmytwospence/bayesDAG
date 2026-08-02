@@ -284,10 +284,24 @@ class ModelGraphView:
             if self._widget_legend == self._legend
             else to_svg(self.ir, self.layout, legend=self._widget_legend)
         )
+        # posterior-geometry panels, keyed by the node whose card offers them (the scale that
+        # forms the funnel's neck). Built only for a run that actually diverged.
+        aux: dict = {}
+        for view_ir in self.ir.aux_views:
+            from .render_svg import render_joint_panel
+
+            panel = render_joint_panel(view_ir)
+            if panel and view_ir.edge and len(view_ir.vars) == 2:
+                child, scale = view_ir.vars
+                aux.setdefault(view_ir.edge[0], []).append(
+                    {"label": f"joint: {child} vs log({scale})", "panel": panel}
+                )
+
         spec = {
             "svg": widget_svg,
             "nodes": nodes,
             "plates": plates,
+            "aux": aux,
             "expandable": [p.id for p in self.ir.plates] if self._can_expand_plates else [],
         }
         if self._diagnostics.get("divergences"):

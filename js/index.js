@@ -148,8 +148,24 @@ export default {
         if (ctor) rows.push(`<pre class="bd-ctor">${esc(ctor)}</pre>`);
         // observed nodes: the Python-rendered histogram + best-fit-family overlay (data vs theory)
         if (n.panel) rows.push(`<div class="bd-overlay">${n.panel}</div>`);
+        // posterior-geometry panels offered by this node (the funnel joint)
+        const auxes = (spec.aux || {})[id] || [];
+        auxes.forEach((a, i) => {
+          rows.push(`<button class="bd-aux-btn" data-aux="${i}">${esc(a.label)}</button>`);
+        });
         rows.push('<div class="bd-card-hint">click empty space to close</div>');
         card.innerHTML = rows.join("");
+        card.querySelectorAll(".bd-aux-btn").forEach((btn) => {
+          btn.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            const a = auxes[Number(btn.dataset.aux)];
+            if (!a) return;
+            panel.innerHTML =
+              `<div class="bd-panel-head">${esc(a.label)}<span>click empty space to close</span></div>` +
+              a.panel;
+            panel.style.display = "block";
+          });
+        });
         card.style.display = "block";
       }
 

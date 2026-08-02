@@ -188,3 +188,109 @@ def test_a_view_carries_diagnostics_through_construction_and_update():
     assert all(n.diag is None for n in v.ir.nodes)
     assert "diagnostics" not in v.widget().spec
     assert 'class="bd-diag"' not in v.to_svg()
+
+
+# --------------------------------------------------------------------- the funnel joint (aux view)
+def _funnel_idata(n_div=6, draws=200):
+    """A centered eight-schools-shaped posterior with a genuine neck: theta's spread shrinks
+    with tau, and the divergences sit at the small-tau end where the sampler gets stuck."""
+    rng = np.random.default_rng(7)
+    log_tau = np.linspace(-3.0, 2.0, draws)
+    tau = np.exp(log_tau)
+    theta = rng.normal(0.0, 1.0, (draws, 8)) * tau[:, None]
+    diverging = np.zeros(draws, bool)
+    diverging[:n_div] = True  # the smallest taus: the neck
+    return xr.DataTree.from_dict(
+        {
+            "posterior": xr.Dataset(
+                {
+                    "tau": (("chain", "draw"), tau[None, :]),
+                    "theta": (("chain", "draw", "school"), theta[None, :, :]),
+                }
+            ),
+            "sample_stats": xr.Dataset({"diverging": (("chain", "draw"), diverging[None, :])}),
+        }
+    )
+
+
+def test_funnel_joint_separates_divergent_draws_and_labels_a_computed_axis():
+    data = diagnostics.funnel_joint(_funnel_idata(), "tau", "theta", None)
+    assert data["n_divergent"] == 6 * 8  # a vector child contributes one point per element
+    assert data["y_label"] == "theta"
+    # no unconstrained_posterior in this idata, so the log axis is ours — and says so
+    assert data["x_label"] == "log(tau) (computed)"
+    assert len(data["div_x"]) == data["n_divergent"]
+    # the divergences really are in the neck: their log(tau) is below the bulk's median
+    assert max(data["div_x"]) < float(np.median(data["x"]))
+
+
+def test_the_joint_prefers_the_samplers_own_unconstrained_draws():
+    """The neck is only visible on the unconstrained scale. When the sampler recorded it, use
+    that rather than recomputing — and drop the "(computed)" qualifier, because it isn't."""
+    base = _funnel_idata()
+    tree = base.to_dict()
+    tree["unconstrained_posterior"] = xr.Dataset(
+        {"tau_log__": (("chain", "draw"), np.log(base["posterior"]["tau"].values))}
+    )
+    data = diagnostics.funnel_joint(xr.DataTree.from_dict(tree), "tau", "theta", "tau_log__")
+    assert data["x_label"] == "log(tau)"
+    assert "computed" not in data["x_label"]
+
+
+def test_the_joint_is_deterministic_and_bounded():
+    """Thinning is a stride, never an RNG: the same idata must always give the same picture, and
+    every divergent point survives regardless of how many there are."""
+    big = _funnel_idata(n_div=40, draws=6000)
+    a = diagnostics.funnel_joint(big, "tau", "theta", None)
+    b = diagnostics.funnel_joint(big, "tau", "theta", None)
+    assert a == b
+    assert len(a["x"]) <= diagnostics._MAX_POINTS + 1
+    assert len(a["div_x"]) == 40 * 8  # never thinned
+
+
+def test_no_joint_without_divergences_or_without_a_funnel():
+    from bayesdag.convert import to_ir
+
+    centered = to_ir(_centered_eight_schools())
+    clean = _funnel_idata(n_div=0)
+    assert diagnostics.joint_views(centered, clean) == []  # nothing went wrong: nothing to show
+    assert diagnostics.joint_views(centered, None) == []
+
+    non_centered = to_ir(_centered_eight_schools())
+    non_centered.plates = []  # theta no longer plated -> not the funnel shape
+    assert diagnostics.joint_views(non_centered, _funnel_idata()) == []
+
+
+def test_the_joint_becomes_an_aux_view_and_a_rendered_panel():
+    """AuxViewIR was declared in the IR from the start and never constructed. This is its first
+    real use, so it also has to round-trip through the published schema."""
+    from bayesdag.convert import to_ir
+    from bayesdag.ir import ModelIR
+    from bayesdag.render_svg import render_joint_panel
+
+    ir = to_ir(_centered_eight_schools())
+    diagnostics.annotate(ir, _funnel_idata())
+
+    assert len(ir.aux_views) == 1
+    aux = ir.aux_views[0]
+    assert (aux.kind, aux.vars, aux.edge) == ("joint", ["theta", "tau"], ["tau", "theta"])
+
+    panel = render_joint_panel(aux)
+    assert panel.startswith("<svg") and "divergent draws" in panel
+    assert "plotted points" in panel  # points, not draws: a vector child multiplies them
+    assert "#c0392b" in panel  # the divergent draws are actually drawn
+
+    assert ModelIR.from_dict(ir.to_dict()).aux_views == ir.aux_views  # schema round trip
+
+
+def test_the_card_offers_the_joint_from_the_flagged_node():
+    pytest.importorskip("anywidget")
+    from bayesdag.convert import to_ir
+
+    v = bayesdag.view(to_ir(_centered_eight_schools()), ppc_draws=0)
+    diagnostics.annotate(v.ir, _funnel_idata())
+    spec = v._build_spec()
+
+    assert list(spec["aux"]) == ["tau"]  # offered from the scale — the neck of the funnel
+    assert spec["aux"]["tau"][0]["label"] == "joint: theta vs log(tau)"
+    assert "<svg" in spec["aux"]["tau"][0]["panel"]
