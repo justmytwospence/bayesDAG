@@ -267,6 +267,46 @@ def test_unknown_or_empty_render_is_blank():
     assert glyph.render("density", None, Box(0, 0, 1, 1)) == ""
 
 
+def test_posterior_glyphs_against_a_real_inference_data():
+    """Every other posterior test hand-builds a DataTree. This one samples for real, so it is the
+    only check that the join key the whole design rests on — node id == the CONSTRAINED idata
+    variable name — actually matches what PyMC writes out. `tau` is the interesting case: it is
+    stored unconstrained as `tau_log__`, and the glyph must still find `tau`."""
+    import numpy as np
+    import pymc as pm
+
+    import bayesdag
+    from bayesdag.convert import to_ir
+
+    rng = np.random.default_rng(0)
+    y = rng.normal(2.0, 1.5, 40)
+    with pm.Model() as m:
+        mu = pm.Normal("mu", 0, 5)
+        tau = pm.HalfNormal("tau", 5)
+        pm.Normal("y", mu, tau, observed=y)
+        idata = pm.sample(
+            draws=50,
+            tune=50,
+            chains=1,
+            cores=1,
+            random_seed=0,
+            progressbar=False,
+            compute_convergence_checks=False,
+        )
+
+    ir = to_ir(m, idata=idata)
+    for name in ("mu", "tau"):
+        node = ir.node(name)
+        assert node.glyph.source == "posterior_kde", f"{name} did not pick up its posterior"
+        assert node.glyph_data["ys"], f"{name} has an empty density"
+    assert ir.node("tau").idata_unconstrained_key == "tau_log__"
+    assert ir.node("y").glyph.source == "observed_hist"  # observed data is never a posterior
+
+    svg = bayesdag.view(m, idata=idata).to_svg()
+    assert "#d2691e" in svg  # the posterior colour actually reaches the figure
+    assert "posterior" in svg  # ...and the legend says so
+
+
 def test_to_ir_bounded_on_large_observed_data():
     """The MLE best-fit overlay must thin its input — full-data scipy .fit() took ~12s on 1M
     points. Generous wall bound; the real guard is that thinning stays wired in."""
