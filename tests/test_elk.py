@@ -108,7 +108,7 @@ def test_no_edge_passes_through_a_node(fixture, request):
     ir = request.getfixturevalue(fixture)
     res = elk_backend.layout(ir)
     for e in ir.edges:
-        pts = res.edge_paths.get(f"{e.source}|{e.target}")
+        pts = res.edge_paths.get((e.source, e.target))
         if not pts:
             continue
         samples = _cubic_samples(pts)[2:-2]  # ignore the very ends (they touch endpoints)

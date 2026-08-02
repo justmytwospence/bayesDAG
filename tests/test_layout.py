@@ -139,7 +139,7 @@ def test_param_edges_land_on_token_without_overlap(eight_schools_ir):
     # every node is bordered (incl. the deterministic equation box): arrows land a STANDOFF above the
     # box's TOP border, in the token's column — the column says WHICH parameter, the box stays
     # uncrossed. (edge, node, token)
-    for edge, node, tok in [("theta|y_obs", "y_obs", "loc"), ("mu|theta", "theta", "mu")]:
+    for edge, node, tok in [(("theta", "y_obs"), "y_obs", "loc"), (("mu", "theta"), "theta", "mu")]:
         a = res.node_token_anchors[node][tok]
         cx = a.x + a.w / 2.0
         end = res.edge_paths[edge][-1]
@@ -186,3 +186,50 @@ def test_math_unavailable_warns_once(monkeypatch, eight_schools_ir):
     with warnings.catch_warnings():  # second render: flag set, no second warning
         warnings.simplefilter("error")
         common.render_labels(eight_schools_ir)
+
+
+def test_nested_plates_nest():
+    """`PlateIR.parent` and the recursive branch in elk_backend._build_graph are unreachable from
+    from_pymc (it never sets a parent), but they ARE reachable through a hand-built IR or
+    ModelIR.from_dict — the published schema advertises the field. Untested reachable code is
+    how a cycle guard rots, so drive it directly: the inner plate's box must sit inside the
+    outer one's."""
+    from bayesdag.ir import EdgeIR, ModelIR, NodeIR, PlateIR
+
+    ir = ModelIR(
+        nodes=[
+            NodeIR(id="a", role="latent", dist="Normal", label_tex="a"),
+            NodeIR(id="b", role="latent", dist="Normal", label_tex="b"),
+        ],
+        edges=[EdgeIR(source="a", target="b")],
+        plates=[
+            PlateIR(id="outer", label="outer (3)", members=["a", "b"]),
+            PlateIR(id="inner", label="inner (2)", members=["b"], parent="outer"),
+        ],
+    )
+    res = layout(ir)
+    outer, inner = res.plate_boxes["outer"], res.plate_boxes["inner"]
+    assert outer.x - 1 <= inner.x and inner.x + inner.w <= outer.x + outer.w + 1
+    assert outer.y - 1 <= inner.y and inner.y + inner.h <= outer.y + outer.h + 1
+    assert res.node_boxes["b"].x >= inner.x - 1  # the member really is in the inner plate
+
+
+def test_a_pipe_in_a_variable_name_cannot_collide_two_edges():
+    """edge_paths was keyed "src|tgt". `pm.Normal("a|b", ...)` is a legal name, so two distinct
+    edges could hash to one key and silently share a route. Tuple keys make that unrepresentable."""
+    from bayesdag.ir import EdgeIR, ModelIR, NodeIR
+
+    ir = ModelIR(
+        nodes=[
+            NodeIR(id="a|b", role="latent", dist="Normal", label_tex="x"),
+            NodeIR(id="c", role="latent", dist="Normal", label_tex="y"),
+            NodeIR(id="a", role="latent", dist="Normal", label_tex="z"),
+            NodeIR(id="b|c", role="latent", dist="Normal", label_tex="w"),
+        ],
+        # both of these collapse to the string key "a|b|c"
+        edges=[EdgeIR(source="a|b", target="c"), EdgeIR(source="a", target="b|c")],
+    )
+    res = layout(ir)
+    assert ("a|b", "c") in res.edge_paths
+    assert ("a", "b|c") in res.edge_paths
+    assert res.edge_paths[("a|b", "c")] != res.edge_paths[("a", "b|c")]

@@ -71,7 +71,7 @@ def count_crossings(res) -> int:
 def through_node_edges(ir, res):
     bad = []
     for e in ir.edges:
-        pts = res.edge_paths.get(f"{e.source}|{e.target}")
+        pts = res.edge_paths.get((e.source, e.target))
         s = _samples(pts)[3:-3] if pts else []
         for nid, b in res.node_boxes.items():
             if nid in (e.source, e.target):
@@ -129,7 +129,7 @@ def test_token_edges_arrive_vertically(name):
     for e in ir.edges:
         if not e.target_token_id:
             continue
-        pts = res.edge_paths.get(f"{e.source}|{e.target}")
+        pts = res.edge_paths.get((e.source, e.target))
         if not pts or len(pts) < 2:
             continue
         (cx, cy), (px, py) = pts[-2], pts[-1]  # last control handle -> endpoint = tip tangent
@@ -148,7 +148,7 @@ def test_mrp_hyperparam_edges_avoid_foreign_plates():
     for e in ir.edges:
         if not (e.source.startswith("sigma_") and e.target.startswith("a_")):
             continue
-        pts = res.edge_paths.get(f"{e.source}|{e.target}")
+        pts = res.edge_paths.get((e.source, e.target))
         s = _samples(pts)[2:-2] if pts else []
         own = (member_plate.get(e.source), member_plate.get(e.target))
         for pid, b in res.plate_boxes.items():
@@ -187,11 +187,7 @@ def test_no_spurious_exit_kink_when_token_within_source_box():
     to it. The exit used to clamp a FULL corner-radius from the node edge and jog the last pixel or
     two to a near-edge token, filleting into a visible kink (the softmax `category_logits = a + b*x`
     report)."""
-    import pathlib
-    import sys
-
-    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "examples"))
-    from zoo import build_softmax_categorical
+    from zoo import build_softmax_categorical  # examples/ is on sys.path via conftest
 
     ir = to_ir(build_softmax_categorical())
     res = layout(ir)
@@ -203,7 +199,7 @@ def test_no_spurious_exit_kink_when_token_within_source_box():
         assert (
             sb.x <= tx <= sb.x + sb.w
         )  # precondition: the token is within the source box x-extent
-        xs = [p[0] for p in res.edge_paths[f"{src}|{child}"]]
+        xs = [p[0] for p in res.edge_paths[src, child]]
         assert max(xs) - min(xs) < 1.5  # whole edge is one vertical column — no jog/kink
 
 

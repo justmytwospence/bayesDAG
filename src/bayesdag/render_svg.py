@@ -489,7 +489,7 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, legend: bool = True) -> str:
         )
     # edges on top so token-anchored arrowheads into equations are visible
     for e in ir.edges:
-        pts = layout.edge_paths.get(f"{e.source}|{e.target}")
+        pts = layout.edge_paths.get((e.source, e.target))
         if pts:
             body.append(_edge(pts, e.source, e.target))
 

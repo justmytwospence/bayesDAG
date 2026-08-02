@@ -193,6 +193,6 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
                 nx, ny = tb.x + tb.w / 2.0, tb.y
             dy = max(16.0, 0.42 * abs(ny - ey))
             ctrl = [(ex, ey), (ex, ey + dy), (nx, ny - dy), (nx, ny)]
-        res.edge_paths[f"{e.source}|{e.target}"] = [[x, y] for x, y in ctrl]
+        res.edge_paths[e.source, e.target] = [[x, y] for x, y in ctrl]
 
     return res

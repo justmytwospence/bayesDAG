@@ -209,7 +209,7 @@ def test_deterministic_incoming_edge_lands_on_box_border():
     res = layout(ir)
     box = res.node_boxes["s"]
     tok = res.node_token_anchors["s"]["a"]  # the `a` token inside `s = a + bb`
-    end = res.edge_paths["a|s"][-1]
+    end = res.edge_paths["a", "s"][-1]
     assert abs(end[0] - (tok.x + tok.w / 2.0)) < 1.5  # vertically under the `a` token (which one)
     assert abs((box.y - end[1]) - geometry.STANDOFF) < 1.5  # lands above the box top border
     assert end[1] < tok.y  # stays out of the equation (above the token)
@@ -231,6 +231,6 @@ def test_glyph_deterministic_edge_exits_from_node_box():
     box = res.node_boxes["d"]
     _, lh = geometry.label_px_size(n.label_svg)
     gr = geometry.glyph_rect(box, lh, n.glyph.kind, n.glyph_data)
-    pts = res.edge_paths.get("d|y")
+    pts = res.edge_paths.get(("d", "y"))
     assert pts is not None and gr is not None
     assert pts[0][1] >= gr.y + gr.h - 2.0  # starts at/below the glyph, i.e. the box bottom

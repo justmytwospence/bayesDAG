@@ -5,9 +5,10 @@ which flattens clusters before crossing minimization, so an external scalar pare
 plate-internal node (``sigma -> y`` with ``y`` in the ``obs`` plate) gets shoved aside and
 its edge crosses. ELK's ``layered`` with ``hierarchyHandling=INCLUDE_CHILDREN`` lays out a
 node and all descendants in one pass, so cross-hierarchy edges participate in global
-crossing minimization (the reason Mermaid moved dagre->ELK). ELK fixes node *placement*;
-edges are then drawn by our own smooth cubic (``common.simple_edge_path``) and the
-token-level port anchors are computed by us from the MathJax bboxes (engine-independent).
+crossing minimization (the reason Mermaid moved dagre->ELK). ELK fixes node *placement* and
+supplies the orthogonal bend points; ``common.orthogonal_path`` turns those into the rounded
+cubic chain the emitter draws, and the token-level port anchors are computed by us from the
+MathJax bboxes (engine-independent).
 
 Node-free integration (proven by the M0.3 spike), in its own V8 isolate (MathJax uses a
 separate one — two isolates total, ~35MB / ~67MB RSS respectively):
@@ -453,7 +454,7 @@ def _collect_edges(ir: ModelIR, data: dict, res: LayoutResult) -> None:
         )
         _attach_source(pts, e, res, roles, anchor)
         _attach_target(pts, e, res, anchor)
-        res.edge_paths[f"{e.source}|{e.target}"] = common.orthogonal_path(pts, radius=5.0)
+        res.edge_paths[e.source, e.target] = common.orthogonal_path(pts, radius=5.0)
 
 
 def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
