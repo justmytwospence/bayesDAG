@@ -76,18 +76,16 @@ class ParamIR:
 # --------------------------------------------------------------------------- glyphs
 @dataclass
 class GlyphSpec:
-    """How to draw a node's distribution. ``kind`` is the registry key; the density/shape
+    """How to draw a node's distribution. ``kind`` is a key in the glyph registry — see
+    ``bayesdag.glyph.registered_kinds()`` for the kinds that actually render; the density/shape
     is always the primary mark. ``interval``/``point`` are OPTIONAL annotations a kind may
-    ignore (the registry core is glyph-agnostic, so non-univariate kinds are first-class)."""
+    ignore (the registry core is glyph-agnostic, so non-univariate kinds are first-class).
+    They are the declared M2 annotation contract and nothing sets them yet."""
 
-    kind: str = (
-        "density"  # density|cdf|ccdf|histogram|gradient|dotplot|band|heatmap|ternary|rose|...
-    )
+    kind: str = "density"
     source: GlyphSource = "prior_analytic"
     interval: list[float] | None = None  # credible-interval probabilities, e.g. [0.5, 0.94]
     point: str | None = None  # "median" | "mean" | "mode" | None
-    layout: str | None = None  # "ridgeline" for vector-valued params, else None
-    transform: dict[str, Any] | None = None  # e.g. {"animate": "hops", "frames": 20}
 
 
 @dataclass
@@ -121,7 +119,6 @@ class NodeIR:
     overlays: list[OverlayRef] = field(default_factory=list)
     representable: bool = True
     elision_reason: str | None = None
-    docstring: str | None = None
     # filled by render/layout stages:
     label_svg: str | None = None
     box: Box | None = None
@@ -191,9 +188,9 @@ class LayoutResult:
     canvas: Box | None = None
     node_boxes: dict[str, Box] = field(default_factory=dict)
     node_token_anchors: dict[str, dict[str, Box]] = field(default_factory=dict)
-    edge_paths: dict[str, list[list[float]]] = field(
-        default_factory=dict
-    )  # "src|tgt" -> [[x,y],...]
+    # (source, target) -> [[x,y],...]. A tuple key, not "src|tgt": `pm.Normal("a|b", ...)` is a
+    # legal variable name, and a string join would let two different edges collide silently.
+    edge_paths: dict[tuple[str, str], list[list[float]]] = field(default_factory=dict)
     plate_boxes: dict[str, Box] = field(default_factory=dict)
 
 

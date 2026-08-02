@@ -172,16 +172,6 @@
             }
           ]
         },
-        "docstring": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "label_svg": {
           "anyOf": [
             {
@@ -306,27 +296,6 @@
           "anyOf": [
             {
               "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "layout": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "transform": {
-          "anyOf": [
-            {
-              "type": "object",
-              "additionalProperties": {}
             },
             {
               "type": "null"
