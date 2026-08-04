@@ -68,13 +68,21 @@ A node id **is** the constrained `idata` variable name, so a selection drops str
 
 Every node carries a **density curve** as its primary mark — the shape is the point, and any interval or point summary is an annotation on top of it, never a substitute (those annotations are M2). The legend says where each shape came from:
 
+Why the shape and not a number: Hunter's [*Beyond path diagrams*](https://pmc.ncbi.nlm.nih.gov/articles/PMC6760248/) (2019) walks through three datasets with **identical r = 0.65 and identical fit indices** whose actual relationships are linear, curvilinear, and discontinuous. A diagram that labels its edges with coefficients shows the same picture for all three. That critique comes from inside the SEM literature, about its own dominant convention.
+
 - **prior density (parameters known)** — the family density with the node's real numeric parameters plugged in.
 - **prior shape (depends on parents)** — a hierarchical prior whose parameters are themselves random. Drawn as a fixed, parameter-free schematic (grey, dashed): sampling a shape through the parents would produce a different, misleading curve on every render.
 - **posterior (from idata)** — a KDE from a fitted `InferenceData`; per-class bars for a discrete variable.
 - **observed data** — a histogram (auto-binned) with an MLE best-fit family curve overlaid, or per-class bars for a discrete likelihood. Never a KDE.
 - **transfer function** — for a `pm.Deterministic`, the canonical shape of the function it computes, drawn only when that shape is provable from the op graph.
 
-Roles are distinguished by fill and border rather than by outline shape — every node is a rounded rectangle, which reads better with math labels inside than an ellipse does. Constructs that can't be drawn honestly get an "elided" badge naming the reason, rather than a misleading picture.
+Roles are distinguished by fill and border rather than by outline shape — every node is a rounded rectangle, which reads better with math labels inside than an ellipse does. If you come from SEM path diagrams, note the deliberate deviation: there, ellipse means latent and rectangle means observed. Here that distinction is carried by fill and border, and the legend spells out the mapping.
+
+Constructs that can't be drawn honestly get an "elided" badge naming the reason, rather than a misleading picture. That naming is the point — the mainstream SEM plotting packages quietly under-draw instead (semPlot drops the mean structure, lavaanPlot omits variances and residuals), so a reader has no way to tell a model without those parts from a diagram that left them out.
+
+### A `pm.Model` is not a causal DAG
+
+The arrows here are the conditional-dependence arrows of a factorization — they say `p(y | θ)` is a factor, and nothing about what would happen if you intervened on `θ`. bayesdag recovers its graph from a model object, which means it never sees the structural assumptions a causal claim would rest on. So it will not label edges with effects, offer adjustment sets, or otherwise borrow causal vocabulary: doing so would state something the model does not say. Tools like [pathmc](https://pathmc.pymc-labs.com/) can make those claims precisely because their user writes the assumptions down first.
 
 ## Roadmap
 

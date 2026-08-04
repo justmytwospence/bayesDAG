@@ -12,6 +12,7 @@ each line = key sources + the takeaway that shaped the design.
 - **Rendering / layout engine** — [Graphviz JSON output](https://graphviz.org/docs/outputs/json/); [elkjs](https://www.npmjs.com/package/elkjs) (+ issues [#142](https://github.com/kieler/elkjs/issues/142)/[#401](https://github.com/eclipse/elk/issues/401); EPL, Node-subprocess only); [mini-racer](https://pypi.org/project/mini-racer/); [MathJax tex2svg](https://docs.mathjax.org/en/v4.0/web/convert.html); [XYFlow](https://github.com/xyflow/xyflow) + [~1k-node ceiling #3003](https://github.com/xyflow/xyflow/discussions/3003); [Cytoscape png drops html labels #2219](https://github.com/cytoscape/cytoscape.js/issues/2219); [Sigma renderers](https://www.sigmajs.org/docs/advanced/renderers/); [d3-dag no-clusters #7](https://github.com/erikbrinkman/d3-dag/issues/7); [d3-zoom](https://github.com/d3/d3-zoom). *Takeaway:* `dot` layout oracle + raw-SVG + thin D3 + render-once MathJax = parity by construction; every framework reintroduces a second box model.
 - **IR / interoperability** — [ArviZ InferenceData schema](https://python.arviz.org/en/stable/schema/schema.html); `arviz_base.convert_to_datatree` (duck-typed dispatch); [networkx node-link](https://networkx.org/documentation/stable/reference/readwrite/generated/networkx.readwrite.json_graph.node_link_data.html); [JSON Canvas 1.0](https://jsoncanvas.org/spec/1.0/); [ELK JSON format](https://eclipse.dev/elk/documentation/tooldevelopers/graphdatastructure/jsonformat.html); [GraphML primer](http://graphml.graphdrawing.org/primer/graphml-primer.html); [PROV-JSON-LD (W3C 2024)](https://www.w3.org/submissions/2024/SUBM-prov-jsonld-20240825/); pgmpy readers; [Hugin .net](https://download.hugin.com/webdocs/manuals/8.9/htmlhelp/pages/Tutorials/CaseAndData/NetLanguage.html). *Takeaway:* own IR + ArviZ-style PPL-agnostic core + two-substrate (JSON topology / xarray overlays); ELK+networkx adapters; DOT/GraphML/PROV-JSON-LD exporters; discrete-CPT PGM formats don't fit.
 - **Uncertainty-viz / glyph design** — [Padilla, Kay & Hullman 2022, *Uncertainty Visualization*](http://space.ucmerced.edu/Downloads/publications/Uncertainty_Visualization_Padilla_Kay_Hullman_2022.pdf); [quantile dotplots, Fernandes et al. CHI 2018](https://idl.uw.edu/papers/uncertainty-bus); HOPs (Hullman et al.); [arviz-plots visuals](https://python.arviz.org/projects/plots/en/latest/) (light naming alignment only); bayesplot (naming cross-check); [Petek et al. 2025, arXiv:2508.00937](https://arxiv.org/html/2508.00937v1) (distribution-as-functional view incl. bivariate/simplex/function-valued). *Takeaway:* shape-first (density is the primary mark); an open glyph-kind registry with `interval`/`point` as optional annotations; non-univariate kinds + HOPs/ridgeline are first-class; **design the glyph vocabulary on its own terms, not pinned to any plotting grammar.**
+- **SEM plotting ecosystem (the comparison class)** — [lavaan](https://lavaan.ugent.be/) model syntax + parameter table; [semPlot](https://github.com/SachaEpskamp/semPlot) (`semPlotModel@Pars`) + [semptools](https://sfcheung.github.io/semptools/); [lavaanPlot](https://github.com/alishinski/lavaanPlot); [tidySEM plotting](https://cjvanlissa.github.io/tidySEM/articles/Plotting_graphs.html); [lavaangui](https://www.tandfonline.com/doi/full/10.1080/10705511.2024.2420678); [blavaan](https://blavaan.org/) (Merkle & Rosseel, JSS 2018); [Hunter 2019, *Beyond path diagrams*](https://pmc.ncbi.nlm.nih.gov/articles/PMC6760248/); [pathmc](https://pathmc.pymc-labs.com/) (PyMC Labs). *Takeaways:* **semPlot's `@Pars` keeps `est`/`std` and no `se`/CI — uncertainty is destroyed at the IR layer, so nothing downstream can ever draw it, and `semPaths(blavaan_fit)` silently renders posterior means as MLEs** (the cautionary case that motivated retaining the idata handle on the view); lavaan auto-names every parameter `lhs op rhs` and that one string joins summary/plots/exports/constraints — the canonical-id lesson; lavaanPlot silently omits variances/residuals and semPlot silently drops the mean structure, so *naming* an omission is a differentiator, not table stakes; blavaan prints the `Prior` column beside `Estimate`/`Post.SD`/`pi.lower`/`pi.upper`/`Rhat` (a textual prior→posterior overlay), turns fit indices and modification indices into posteriors, and argues explicitly against cutoffs; lavaangui splits interactive layout from `export_plot()` replay (the reproducibility/customization tradeoff, solved); tidySEM stores layout as an editable data frame; Hunter 2019 shows three datasets with identical r = 0.65 and identical fit indices whose relationships are linear, curvilinear and discontinuous — invisible in a path diagram, which is the shape-first argument made by SEM methodologists about their own field. pathmc compiles a lavaan-style DSL into a real `pm.Model` (`.pymc_model` is public), but its `graph()` is structure-only and identical before and after fitting, and its diagnostics are a one-line `az.summary` passthrough — verified that `bayesdag.view(m.pymc_model, idata=…)` renders it with no adapter code. Its colored ✓/✗/⚠ verdicts sit alongside carefully hedged docstrings: **hedging has to live on the rendered surface or it does not exist.**
 - **Packaging** — [uv build backend](https://docs.astral.sh/uv/concepts/build-backend/) + [package guide](https://docs.astral.sh/uv/guides/package/) + [deps/extras](https://docs.astral.sh/uv/concepts/projects/dependencies/); [anywidget bundling](https://anywidget.dev/en/bundling/) + [getting started](https://anywidget.dev/en/getting-started/); [hatch-jupyter-builder config](https://hatch-jupyter-builder.readthedocs.io/en/latest/source/get_started/config.html); [create-anywidget](https://github.com/manzt/anywidget/blob/main/packages/create-anywidget/create.js); [marimo anywidget](https://docs.marimo.io/api/inputs/anywidget/). *Takeaway:* `uv` + `hatchling` + `hatch-jupyter-builder` + `esbuild`; Node build-time-only; `mo.ui.anywidget` for marimo.
 - **Posterior geometry / diagnostics** — Betancourt ["Diagnosing Biased Inference with Divergences"](https://betanalpha.github.io/assets/case_studies/divergences_and_bias.html) ([PyMC port](https://www.pymc.io/projects/examples/en/latest/diagnostics_and_criticism/Diagnosing_biased_Inference_with_Divergences.html)); Betancourt & Girolami 2015; Neal's funnel; ArviZ [`plot_pair`](https://python.arviz.org/en/stable/api/generated/arviz.plot_pair.html)/`plot_parallel`/`plot_energy`/`bfmi`/`ess`; bayesplot `mcmc_pairs`/`mcmc_parcoord`; [Gorinova et al. 2020, arXiv:1906.03028](https://arxiv.org/abs/1906.03028) + [`pymc_extras…vip_reparametrize`](https://www.pymc.io/projects/extras/en/stable/generated/pymc_extras.model.transforms.autoreparam.vip_reparametrize.html); ArviZ `unconstrained_posterior` group; [Mosaic, TVCG 2024](https://idl.cs.washington.edu/files/2024-Mosaic-TVCG.pdf). *Takeaway:* funnels are joint + live in unconstrained space; structure-aware pair-selection + auto-`log(τ)` axis is the wedge; VIP gives reparameterization suggestions; Mosaic only if SPLOM brushing must scale.
 
@@ -86,3 +87,47 @@ The design constraint (user's) was **zero false positives, argued from first pri
 - **Edge anchoring:** a glyph-bearing deterministic exits its outgoing edge from the node box (below the glyph), like
   a distribution-glyph node; an equation-only deterministic keeps the LHS-token exit. Geometry reserves the strip by
   glyph **presence**, not role.
+
+## Decision log — research review (2026-08)
+
+A comparative review against the SEM plotting ecosystem (lavaan/semPlot/blavaan/lavaangui/tidySEM)
+and PyMC Labs' pathmc. Both bodies of prior art were read against this codebase, and the findings
+that changed code are recorded here with the ones that were deliberately refused.
+
+- **Retain the `InferenceData` handle on the view** (semPlot's lesson, applied before it bit us).
+  The IR ships only curves — a peak-normalized grid per node — because it is JSON-serializable
+  against a published schema, and `OverlayRef` is the pointer back to the draws. But the view
+  discarded the idata, so that pointer had nothing to dereference. semPlot made the same choice one
+  layer down and cannot undo it: `@Pars` has no `se`, so no renderer in that ecosystem can show
+  uncertainty and blavaan posteriors get drawn as MLEs. Keeping the handle (never serialized, never
+  in the IR) is what makes M2's interval/ROPE annotations possible at all. It also let
+  `view(prebuilt_ir, idata=…)` stop warning and start working, since `update()` is keyed purely on
+  node ids.
+- **Canonical per-node token ids** (lavaan's lesson, plus a real defect). lavaan's auto-derived
+  `lhs op rhs` name is the join key for its whole ecosystem; bayesdag had the node half (node id ==
+  constrained idata variable name) but every label reused the same `tok-loc`/`tok-scale`/`tok-__lhs__`
+  ids, so the composed SVG had duplicate element ids — nine of them in the committed hero image.
+  Namespaced to `bd-<slug>-tok-<token>` at embed time, never in the TeX (that would destroy the math
+  cache's cross-node hits). Edge identity stays the `(source, target)` tuple: any joined string
+  re-imports the `pm.Normal("a|b")` collision the tuple-key refactor removed.
+- **REFUSED**, each against the honesty contract:
+  - *Significance stars* (`*`/`**`/`***`) — a continuous quantity flattened to three levels at
+    arbitrary thresholds. The most entrenched convention in SEM diagrams; blavaan argues against it too.
+  - *p-filtered edges* (lavaanPlot's `sig=.05` deletes non-significant paths) — draws a model that is
+    not the model.
+  - *Standardized coefficients* — SEM standardizes by observed SDs; PyMC parameters have no canonical
+    standardization, so there is no honest `Std.all` to compute. Expect the request; decline it.
+  - *Point estimates on edges* — inverts the thesis (node carries the distribution, edge carries
+    structure) and is exactly the compression Hunter 2019 dismantles.
+  - *Causal vocabulary* — a `pm.Model` is not a causal DAG. Its arrows are conditional-dependence
+    arrows in a factorization and carry no interventional meaning. pathmc can make causal claims only
+    because its user hand-wrote structural assumptions in a DSL; bayesdag recovers the graph from a
+    model object and has no access to those. Decorating edges causally would state something the model
+    does not say.
+  - *CFI/RMSEA/TLI analogues* — need a saturated model, a baseline model and a model-implied covariance
+    matrix. A general PyMC model has none. The transferable idea is "fit summaries are distributions
+    with no cutoffs", not the indices.
+- **Deferred to roadmap:** layout persistence in lavaangui's shape — arrange the diagram in the widget,
+  replay it byte-identically from the static renderer. Most-wanted feature in that ecosystem (semptools
+  and tidySEM both exist largely because semPlot lacks it), and bayesdag's one-layout-pass/two-emitters
+  design is most of the way there already.

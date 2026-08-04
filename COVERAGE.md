@@ -94,4 +94,5 @@ Detection keys on the **RV class** (`type(op).__name__`); sub-RVs/params come fr
 - [x] graph-selected divergence joint — the first real `AuxViewIR`; prefers `unconstrained_posterior`, labels a computed `log τ` axis as computed
 - [x] linked views: `selected_node` as a read-back API (`view.ui()` / `view.on_select`)
 - [ ] MCSE badges · divergence attribution · energy/BFMI · parallel-coordinates
+- [ ] layout persistence — capture a hand-arranged layout from the widget and replay it byte-identically from the static renderer (the lavaangui `plot`/`export_plot` split; the one-layout-pass design is most of the way there)
 - [ ] reparameterization suggestions (structural → diagnostic → VIP)
