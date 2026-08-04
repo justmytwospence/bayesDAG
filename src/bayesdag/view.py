@@ -13,7 +13,7 @@ from . import diagnostics, geometry, render_static
 from .convert import subgraph, to_ir
 from .ir import ModelIR
 from .layout import layout
-from .render_svg import render_node_panel, render_observed_panel, to_svg
+from .render_svg import render_node_panel, render_observed_panel, strip_token_ids, to_svg
 
 
 def _in_marimo() -> bool:
@@ -289,8 +289,9 @@ class ModelGraphView:
                 "ancestors": ancestors,
                 "descendants": descendants,
                 # the SAME MathJax SVG embedded in the diagram -> the tooltip/card show real
-                # rendered math (parity), not raw LaTeX source.
-                "label_svg": n.label_svg,
+                # rendered math (parity), not raw LaTeX source. Token ids are stripped: these
+                # copies land in the same document as the diagram and would duplicate its ids.
+                "label_svg": strip_token_ids(n.label_svg) if n.label_svg else n.label_svg,
                 # hedged diagnostic rows for the pinned card ([] when there is no idata)
                 "diag": diagnostics.describe(n.diag),
             }

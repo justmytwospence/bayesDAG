@@ -1,5 +1,6 @@
 """Shared SVG emitter: well-formedness, embedded labels/glyphs, and saving."""
 
+import re
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -84,3 +85,31 @@ def test_mathjax_defs_are_deduped(eight_schools_ir):
     assert refs <= set(ids)  # no dangling glyph references
     # the dedupe is the point: fewer defs entries than total glyph uses
     assert len(ids) < svg.count("data-c=")
+
+
+@pytest.mark.skipif(not _math, reason="needs the built mathjax bundle for real labels")
+def test_composed_svg_has_no_duplicate_element_ids(eight_schools_ir):
+    """Every label carries the same per-token ids — `tok-loc`, `tok-scale`, `tok-__lhs__` — so a
+    document with two Normals had duplicate element ids and was invalid SVG. (The committed hero
+    image had `tok-loc` and `tok-scale` four times each.) Namespacing them per node fixes it;
+    this is the net that would have caught it."""
+    svg = to_svg(eight_schools_ir, layout(eight_schools_ir))
+    ids = [el.get("id") for el in ET.fromstring(svg).iter() if el.get("id")]
+
+    dupes = {i for i in ids if ids.count(i) > 1}
+    assert not dupes, f"duplicate element ids in the composed SVG: {sorted(dupes)}"
+    assert 'id="tok-' not in svg  # raw, un-namespaced token ids must not survive embedding
+    assert 'id="bd-y_obs-tok-loc"' in svg  # ...and the namespaced form is what replaced them
+
+
+def test_dom_slug_keeps_colliding_names_apart():
+    """Variable names are arbitrary Python strings, so the sanitizer has to be lossy — which
+    means it also has to be injective enough that two different names never share an id."""
+    from bayesdag.render_svg import _dom_slug
+
+    assert _dom_slug("y_obs") == "y_obs"  # already safe: left readable, no hash noise
+    assert _dom_slug("a-b") == "a-b"
+    assert _dom_slug("a b") != _dom_slug("a|b")  # both flatten to `a_b` without the hash
+    for raw in ("a b", "a|b", "θ", "x[0]"):
+        slug = _dom_slug(raw)
+        assert re.fullmatch(r"[A-Za-z0-9_-]+", slug), f"{raw!r} -> {slug!r} is not DOM-safe"

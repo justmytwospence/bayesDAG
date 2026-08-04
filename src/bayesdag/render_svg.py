@@ -99,12 +99,51 @@ def _hoist_label_defs(s: str, shared: dict[str, str]) -> str:
     return out
 
 
+_SLUG_UNSAFE = re.compile(r"[^A-Za-z0-9_-]")
+_TOKEN_ID_RE = re.compile(r'id="tok-([^"]*)"')
+_RAW_TOKEN_ID_ATTR = re.compile(r' ?id="tok-[^"]*"')
+
+
+def _dom_slug(s: str) -> str:
+    """A DOM-safe fragment of an arbitrary model name.
+
+    Variable names are arbitrary Python strings — spaces, ``|``, unicode — so they cannot go into
+    an id unescaped. Anything outside ``[A-Za-z0-9_-]`` becomes ``_``, and a short content hash is
+    appended ONLY when that substitution actually changed something. Clean names therefore stay
+    readable (``y_obs``), while ``"a b"`` and ``"a|b"`` — which both flatten to ``a_b`` — stay
+    distinguishable. Deterministic, so golden fixtures are stable."""
+    out = _SLUG_UNSAFE.sub("_", s)
+    return out if out == s else f"{out}-{hashlib.sha1(s.encode()).hexdigest()[:6]}"
+
+
+def strip_token_ids(label_svg: str) -> str:
+    """Drop ``id="tok-…"`` attributes from a label SVG.
+
+    The widget injects raw copies of a label into the tooltip and the pinned card, in the same
+    document as the diagram. The ids serve no purpose there — token anchoring is a layout-time
+    concern and nothing in the JS or CSS references them — so removing them is simpler than
+    inventing a third namespace, and it keeps the copies from colliding with anything."""
+    return _RAW_TOKEN_ID_ATTR.sub("", label_svg)
+
+
 def _embed_label(
-    label_svg: str, x: float, y: float, w: float, h: float, shared: dict[str, str] | None = None
+    label_svg: str,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    shared: dict[str, str] | None = None,
+    token_prefix: str | None = None,
 ) -> str:
     s = re.sub(r'width="[\d.]+ex"', f'width="{w:.1f}"', label_svg, count=1)
     s = re.sub(r'height="[\d.]+ex"', f'height="{h:.1f}"', s, count=1)
     s = s.replace("<svg ", f'<svg x="{x:.1f}" y="{y:.1f}" ', 1)
+    if token_prefix is not None:
+        # Namespace the per-token ids to their node. Every label carries `tok-loc`, `tok-scale`,
+        # `tok-__lhs__` …, so a document with two Normals had duplicate element ids — invalid SVG.
+        # This has to happen HERE, after rendering: putting the node name into the TeX would make
+        # each label's tex string unique and destroy the math cache's cross-node hits.
+        s = _TOKEN_ID_RE.sub(lambda m: f'id="{token_prefix}{_dom_slug(m.group(1))}"', s)
     if shared is not None:
         s = _hoist_label_defs(s, shared)
     return s
@@ -541,7 +580,17 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, legend: bool = True) -> str:
         if n.label_svg:
             lw, lh = geometry.label_px_size(n.label_svg)
             ox, oy = geometry.label_origin(b, lw)
-            parts = [_embed_label(n.label_svg, ox, oy, lw, lh, shared=font_defs)]
+            parts = [
+                _embed_label(
+                    n.label_svg,
+                    ox,
+                    oy,
+                    lw,
+                    lh,
+                    shared=font_defs,
+                    token_prefix=f"bd-{_dom_slug(n.id)}-tok-",
+                )
+            ]
         else:
             parts = [
                 f'<text x="{b.x + b.w / 2:.1f}" y="{b.y + b.h / 2 + 4:.1f}" text-anchor="middle" '

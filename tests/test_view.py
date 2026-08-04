@@ -280,3 +280,15 @@ def test_ui_returns_a_readable_marimo_element(eight_schools_model):
 
     v.widget().selected_node = "theta"
     assert v.ui().value["selected_node"] == "theta"  # same element, updated value
+
+
+def test_spec_label_svgs_carry_no_raw_token_ids(eight_schools_model):
+    """The tooltip and pinned card inject raw copies of a label into the SAME document as the
+    diagram. Left as-is they would duplicate the diagram's token ids, so the copies are stripped
+    — the ids do nothing there, since nothing in the JS or CSS references them."""
+    pytest.importorskip("anywidget")
+    spec = bayesdag.view(eight_schools_model, ppc_draws=0).widget().spec
+    for nid, node in spec["nodes"].items():
+        label = node.get("label_svg")
+        if label:
+            assert 'id="tok-' not in label, f"{nid} still ships raw token ids to the widget"
