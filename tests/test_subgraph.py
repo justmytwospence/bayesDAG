@@ -7,16 +7,28 @@ from bayesdag.convert import subgraph, to_ir
 from bayesdag.ir import ModelIR
 
 
-def test_idata_with_a_prebuilt_ir_warns_instead_of_silently_dropping(eight_schools_ir):
-    """Posterior glyphs are computed by the ADAPTER from the model's random variables, so there
-    is nothing to attach them to once the IR exists. Returning silently would hand back a
-    prior-only diagram to a caller who believes they asked for posteriors."""
+def test_to_ir_warns_when_idata_cannot_reach_the_adapter(eight_schools_ir):
+    """`to_ir` builds glyphs through the ADAPTER, from the model's random variables. Handed an
+    IR that already exists, it has nothing to attach a posterior to — and returning silently
+    would give a caller who asked for posteriors a prior-only diagram instead.
+
+    This is about `to_ir` specifically. `view()` CAN apply a posterior to a prebuilt IR, because
+    it re-derives that layer by name rather than through the adapter — see
+    test_update.py::test_a_prebuilt_ir_gains_posteriors_at_construction."""
     with pytest.warns(UserWarning, match="idata is ignored"):
         to_ir(eight_schools_ir, idata=object())
     with pytest.warns(UserWarning, match="idata is ignored"):
         to_ir(eight_schools_ir.to_dict(), idata=object())
-    with pytest.warns(UserWarning, match="idata is ignored"):
-        bayesdag.view(eight_schools_ir, idata=object())
+
+
+def test_view_does_not_warn_for_a_prebuilt_ir_with_idata(eight_schools_ir):
+    """The view routes the prebuilt case around the adapter, so the warning must not leak out
+    of it — a warning a caller cannot act on is noise."""
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        bayesdag.view(eight_schools_ir)
 
 
 def test_no_warning_on_the_ordinary_paths(eight_schools_ir, eight_schools_model):

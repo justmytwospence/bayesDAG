@@ -38,7 +38,7 @@ Toolchain present in this environment: `uv`, `node`/`npx`, Graphviz `dot`, `git`
 - `render_svg.py` — the ONE shared SVG emitter (nodes/edges/plates/glyphs/panels). Both renderers consume it.
 - `render_static.py` — standalone SVG + cairosvg PNG/PDF (TikZ is declared but raises `NotImplementedError` — M2).
 - `widget.py` — `anywidget.AnyWidget` subclass + synced traitlets.
-- `view.py` — `ModelGraphView`: env detection + `_repr_mimebundle_`/`_repr_svg_`/`_display_` fallback.
+- `view.py` — `ModelGraphView`: env detection + `_repr_mimebundle_`/`_repr_svg_`/`_display_` fallback; retains the attached `InferenceData` as the read-only `.idata` property (never serialized, never in the IR — it is what makes `OverlayRef` dereferenceable). A prebuilt `ModelIR`/dict + `idata` is routed through `update()`, which is keyed on node ids and needs no model.
 - `diagnostics.py` — sampling diagnostics joined by node id: `per_node` (R-hat/ESS, worst element for vectors), `model_level` (divergences), `funnel_candidates` (structural, IR-only), `funnel_joint`/`joint_views` (the posterior-geometry panel — builds the first real `AuxViewIR`), `annotate` (fills `NodeIR.diag` + `ir.aux_views`), `describe` (hedged card rows). Wording lives in `FLAG_LABELS`; arviz is imported lazily. Remaining M2: parcoord/energy aux kinds, interval/point annotations.
 - `js/index.js` — thin controller: hover-highlight, tooltips, click-to-pin cards, plate expansion. Imports **nothing** (no d3, no pan/zoom — the diagram renders at natural size) and **never** computes layout or stats. `render()` returns anywidget's cleanup function.
 

@@ -184,3 +184,54 @@ def test_update_works_without_a_widget(fitted_eight_schools):
     v.update(idata=idata)
     assert v._widget is None
     assert "#d2691e" in v.to_svg()
+
+
+def test_a_prebuilt_ir_gains_posteriors_at_construction(fitted_eight_schools):
+    """`view(ir, idata=...)` used to warn and hand back a prior-only diagram, because posterior
+    glyphs come from the adapter and the adapter has nothing to work with once the IR exists.
+
+    But the update() path is keyed entirely on the node id — which IS the constrained idata
+    variable name — so it needs no model at all. Routing the prebuilt case through it turns a
+    warning into the thing the caller actually asked for."""
+    import warnings
+
+    from bayesdag.convert import to_ir
+
+    model, idata = fitted_eight_schools
+    ir = to_ir(model)  # a plain, model-free IR
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        v = bayesdag.view(ir, idata=idata, ppc_draws=0)
+
+    assert _sources(v)["mu"] == "posterior_kde"
+    assert "#d2691e" in v.to_svg()
+    assert [o.idata_group for o in v.ir.node("mu").overlays] == ["posterior"]
+    assert v.idata is idata
+
+
+def test_idata_handle_is_retained_and_follows_update(fitted_eight_schools):
+    """The IR ships only curves, so `OverlayRef` is a pointer with nothing to dereference unless
+    the view keeps the draws reachable. (R's semPlot discards uncertainty at exactly this layer,
+    which is why nothing downstream of it can ever draw a posterior.)"""
+    model, idata = fitted_eight_schools
+
+    v = bayesdag.view(model, ppc_draws=0)
+    assert v.idata is None  # showing the prior
+
+    v.update(idata=idata)
+    assert v.idata is idata
+
+    v.update(None)
+    assert v.idata is None
+
+    assert bayesdag.view(model, idata=idata, ppc_draws=0).idata is idata
+
+
+def test_a_dict_ir_is_not_mistaken_for_a_model(eight_schools_ir):
+    """A dict is the IR's serialized form, not a model. Treating it as one sent it into the
+    plate prior-predictive path, where it failed silently."""
+    v = bayesdag.view(eight_schools_ir.to_dict())
+    assert v._model is None
+    assert v._can_expand_plates is False
+    assert v.expand_plates() == {}
