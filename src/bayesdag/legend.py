@@ -12,7 +12,7 @@ _ROLE_LABELS = {
     "observed": "observed variable",
     "deterministic": "deterministic (computed)",
     "data": "data",
-    "potential": "potential (factor)",
+    "potential": "potential — a log-density factor (not sampled, not observed)",
     "factor": "factor",
     "block": "block — a collapsed structure (several variables)",
 }
@@ -69,7 +69,7 @@ def build(ir: ModelIR) -> list[LegendItem]:
     if ir.plates:
         items.append(LegendItem("plate", "plate — indexed by its dimension"))
     if any(n.tag for n in ir.nodes):
-        items.append(LegendItem("tag", "tag — a structure read off the graph"))
+        items.append(LegendItem("tag", "small caption — a structure read off the graph"))
     if any(b.provenance == "annotated" for b in ir.blocks):
         items.append(LegendItem("annotated", "annotated — declared by the user, not verified"))
     if any(

@@ -164,7 +164,7 @@ def _embed_label(
     return s
 
 
-def _node_chrome(n: NodeIR, b: Box) -> str:
+def _node_chrome(n: NodeIR, b: Box, annotated: bool = False) -> str:
     fill, stroke, rx = _CHROME.get(n.role, _CHROME["latent"])
     dash = ' stroke-dasharray="4,3"' if n.role in ("potential", "factor") else ""
     sw = 1.1 if n.role == "deterministic" else 1.4  # the deterministic box reads as secondary
@@ -175,10 +175,11 @@ def _node_chrome(n: NodeIR, b: Box) -> str:
     )
     if n.role == "block":  # a double border: several variables live inside
         i = 3.0
+        inner_dash = ' stroke-dasharray="1.5,1.5"' if annotated else ""  # declared, not verified
         out += (
             f'<rect x="{b.x + i:.1f}" y="{b.y + i:.1f}" width="{b.w - 2 * i:.1f}" '
             f'height="{b.h - 2 * i:.1f}" rx="{rx - 2}" ry="{rx - 2}" fill="none" '
-            f'stroke="{stroke}" stroke-width="0.7"/>'
+            f'stroke="{stroke}" stroke-width="0.7"{inner_dash}/>'
         )
     return out
 
@@ -703,8 +704,7 @@ def _legend_swatch(kind: str, b: Box) -> str:
         )
     if kind == "tag":
         return (
-            f'<text x="{b.x:.1f}" y="{b.y + b.h - 2:.1f}" font-size="8" fill="#4b5563">'
-            "pooling</text>"
+            f'<text x="{b.x:.1f}" y="{b.y + b.h - 3:.1f}" font-size="7" fill="#4b5563">tag</text>'
         )
     if kind == "annotated":
         return (
@@ -770,8 +770,10 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, legend: bool = True) -> str:
     # renderers consume this verbatim.
     # the LayoutResult is authoritative; `n.box` is only a convenience mirror of it
     drawn = [(n, b) for n in ir.nodes if (b := (layout.node_boxes.get(n.id) or n.box)) is not None]
+    annotated = {b.id for b in ir.blocks if b.provenance == "annotated"}
     for n, b in drawn:  # chrome (boxes) behind everything else node-ish
-        body.append(f'<g class="bd-node" data-node="{_attr(n.id)}">' + _node_chrome(n, b) + "</g>")
+        chrome = _node_chrome(n, b, annotated=n.block in annotated)
+        body.append(f'<g class="bd-node" data-node="{_attr(n.id)}">' + chrome + "</g>")
     font_defs: dict[str, str] = {}  # content-hashed glyph id -> path data (shared across labels)
     for n, b in drawn:  # labels + glyphs above all chrome
         if n.label_svg:

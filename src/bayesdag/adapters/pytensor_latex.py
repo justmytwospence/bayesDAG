@@ -199,8 +199,12 @@ def _render(var, named, wrap, st, root=False) -> tuple[str, set[str], float]:
         if sname == "Sub" and len(parts) == 2:
             (lt, lp), (rt, rp) = parts
             return f"{_wrap_if(lt, lp, ADD)} - {_wrap_if(rt, rp, MUL)}", used, ADD
-        if sname == "Mul":
-            return "\\,".join(_wrap_if(t, p, MUL) for t, p in parts), used, MUL
+        if sname == "Mul":  # a leading negative factor reads fine unparenthesized: -0.5 x
+            out = [
+                t if (i == 0 and p == NEG) else _wrap_if(t, p, MUL)
+                for i, (t, p) in enumerate(parts)
+            ]
+            return "\\,".join(out), used, (NEG if parts and parts[0][1] == NEG else MUL)
         if sname == "Sqr":
             t, p = parts[0]
             return rf"{_wrap_if(t, p, ATOM)}^{{2}}", used, POW

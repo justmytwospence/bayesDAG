@@ -25,7 +25,6 @@ from bayesdag.convert import to_ir
 from bayesdag.layout import layout
 from bayesdag.render_svg import to_svg
 
-GOLDEN = "eight_schools_TB.svg"
 TOLERANCE = 0.1  # one emitted decimal: `.1f` coordinates, `.3g` glyph values
 
 # Numbers OUTSIDE attribute values that must match exactly. Content-hashed glyph ids
@@ -60,18 +59,63 @@ def _tokenize(svg: str) -> tuple[str, list[float]]:
     return "".join(parts), numbers
 
 
-def _render() -> str:
+def _full() -> str:
     ir = to_ir(build_eight_schools())
     return to_svg(ir, layout(ir), legend=True)
+
+
+def _overview(build, annotations=()):
+    from bayesdag import blocks
+
+    ir = blocks.apply(to_ir(build()), list(annotations))
+    ov = blocks.overview(ir)
+    return to_svg(ov, layout(ov), legend=True)
+
+
+def _eight_schools_overview() -> str:
+    from structures import build_eight_schools_noncentered
+
+    return _overview(build_eight_schools_noncentered)
+
+
+def _horseshoe_overview() -> str:
+    from structures import build_regularized_horseshoe
+
+    return _overview(lambda: build_regularized_horseshoe(2.0, codata=True))
+
+
+def _bridge_overview() -> str:
+    """The measurement stand-in with its likelihood declared as an annotated block."""
+    from structures import build_bridge_measurement_like
+
+    from bayesdag.blocks import BlockSpec
+
+    spec = BlockSpec(
+        kind="measurement",
+        title="bridge measurement model",
+        members=["bridge_marginal", "study_censored", "y_above"],
+        notes=["the likelihood: marginal over tubes plus censored study cells"],
+        workflow="joint",
+    )
+    return _overview(build_bridge_measurement_like, [spec])
+
+
+GOLDENS = {
+    "eight_schools_TB.svg": _full,  # the canonical (full) graph
+    "eight_schools_overview_TB.svg": _eight_schools_overview,
+    "horseshoe_overview_TB.svg": _horseshoe_overview,
+    "bridge_measurement_overview_TB.svg": _bridge_overview,
+}
 
 
 @pytest.mark.skipif(
     not mathsvg.get_renderer().available, reason="needs the built mathjax bundle for real labels"
 )
-def test_golden_svg(golden_path, golden_update):
-    """The committed reference render. Under `--golden-update` this rewrites the fixture."""
-    actual = _render()
-    path = golden_path(GOLDEN)
+@pytest.mark.parametrize("name", list(GOLDENS))
+def test_golden_svg(name, golden_path, golden_update):
+    """The committed reference renders. Under `--golden-update` this rewrites the fixtures."""
+    actual = GOLDENS[name]()
+    path = golden_path(name)
 
     if golden_update:
         path.parent.mkdir(parents=True, exist_ok=True)

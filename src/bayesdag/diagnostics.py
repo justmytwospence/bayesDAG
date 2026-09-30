@@ -395,4 +395,6 @@ def describe(diag: dict | None) -> list[str]:
     if diag.get("ess_tail") is not None:
         rows.append(f"ESS tail {diag['ess_tail']:.0f}{worst(None)}")
     rows += [FLAG_LABELS[f] for f in diag.get("flags", []) if f in FLAG_LABELS]
+    if diag.get("member"):  # a compound node reports its most-flagged member
+        rows = [f"{diag['member']}: {r}" for r in rows]
     return rows

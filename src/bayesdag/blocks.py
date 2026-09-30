@@ -314,12 +314,29 @@ def _topo(members: list[str], ir: ModelIR) -> list[str]:
 _TOK = re.compile(r"\\cssId\{tok-([^}]*)\}")
 
 
+MAX_LINE_TEX = 200  # a member equation longer than this is summarized in the box (full in the card)
+_REL = re.compile(r"\\sim|=")
+
+
+def _elided(members: list[str], by_id: dict[str, NodeIR]) -> set[str]:
+    def visible(tex: str) -> int:  # token markup does not take space on the page
+        return len(re.sub(r"\\cssId\{[^}]*\}", "", tex))
+
+    return {m for m in members if visible(by_id[m].label_tex or "") > MAX_LINE_TEX}
+
+
 def _block_label(b: BlockIR, members: list[str], by_id: dict[str, NodeIR]) -> str:
     lines = []
     if b.implied:
         lines.append(b.implied)
+    long_ = _elided(members, by_id)
     for m in members:
         tex = by_id[m].label_tex or m
+        if m in long_:  # keep the left side and the relation; the card has the whole equation
+            rel = _REL.search(tex)
+            lhs = re.sub(r"\\cssId\{[^}]*\}", "", tex[: rel.start()] if rel else tex)
+            lines.append(lhs + (rel.group(0) if rel else "") + r" \;[\cdots]")
+            continue
         # every member line gets its own token namespace (`theta::mu`), so repeated leaves in
         # different lines never collide and an aggregated edge can land on the right line
         lines.append(_TOK.sub(lambda mt, m=m: r"\cssId{tok-" + m + "::" + mt.group(1) + "}", tex))
@@ -397,15 +414,16 @@ def overview(ir: ModelIR, *, expand: Collection[str] = ()) -> ModelIR:
             glyph=copy.deepcopy(src.glyph) if anchor else None,
             glyph_data=copy.deepcopy(src.glyph_data) if anchor else None,
             glyph_note=None,
-            tag=b.title,
+            tag=b.title + (" · annotated" if b.provenance == "annotated" else ""),
             block=b.id,
             diag=_worst_diag(members, by_id),
         )
         new_nodes.append(node)
         implied = _implied_tokens(b)
+        long_ = _elided(members, by_id)
         for m in members:
             for e in out.edges:
-                if e.target == m and e.target_token_id:
+                if e.target == m and e.target_token_id and m not in long_:
                     if b.implied and e.source in implied:
                         token_map[(e.source, m)] = e.source
                     else:
