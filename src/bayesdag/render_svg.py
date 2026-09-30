@@ -202,13 +202,24 @@ def _plate(b: Box, label: str) -> str:
     )
 
 
-def _panel_curve(xs: list[float], ys: list[float], box: Box, color: str = "#3a6ea5") -> str:
+def _panel_curve(
+    xs: list[float], ys: list[float], box: Box, color: str = "#3a6ea5", step: bool = False
+) -> str:
     x0, x1 = xs[0], xs[-1]
     span = (x1 - x0) or 1.0
-    pts = [
-        (box.x + (x - x0) / span * box.w, box.y + box.h - max(0.0, min(1.0, y)) * box.h)
-        for x, y in zip(xs, ys, strict=False)
-    ]
+    if step:  # integer support: a frequency per value, drawn as flat steps centered on it
+        half = 0.5 * span / max(len(xs) - 1, 1)
+        x0, x1, span = x0 - half, x1 + half, span + 2 * half
+        pts = []
+        for x, y in zip(xs, ys, strict=False):
+            py = box.y + box.h - max(0.0, min(1.0, y)) * box.h
+            pts += [(box.x + (x - half - x0) / span * box.w, py)]
+            pts += [(box.x + (x + half - x0) / span * box.w, py)]
+    else:
+        pts = [
+            (box.x + (x - x0) / span * box.w, box.y + box.h - max(0.0, min(1.0, y)) * box.h)
+            for x, y in zip(xs, ys, strict=False)
+        ]
     d = "M" + " L".join(f"{px:.1f},{py:.1f}" for px, py in pts)
     return f'<path d="{d}" fill="none" stroke="{color}" stroke-width="1" opacity="0.3"/>'
 
@@ -244,7 +255,7 @@ def render_plate_panel(expansion: dict) -> str:
         )
         xs = mem["xs"]
         for c in mem["curves"]:
-            out.append(_panel_curve(xs, c, box))
+            out.append(_panel_curve(xs, c, box, step=bool(mem.get("discrete"))))
         if mem.get("observed"):
             x0, x1 = xs[0], xs[-1]
             span = (x1 - x0) or 1.0

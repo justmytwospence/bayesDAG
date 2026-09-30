@@ -127,7 +127,12 @@
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 11px;
   white-space: pre-wrap;
-  user-select: all;
+}
+.bd-note {
+  margin: 4px 0 2px;
+  color: #6b7280;
+  font-style: italic;
+  font-size: 11px;
 }
 /* hedged sampling diagnostics: an invitation to look, never a verdict — so amber, not red */
 .bd-diag-rows {

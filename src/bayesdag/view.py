@@ -242,9 +242,15 @@ class ModelGraphView:
                     self._model, self.ir, draws=self._ppc_draws
                 )
                 for pid, exp in expansions.items():
+                    if exp.get("status", "ready") != "ready":
+                        panels[pid] = {"status": exp["status"], "reason": exp.get("reason", "")}
+                        continue
                     panel = render_plate_panel(exp)
-                    if panel:
-                        panels[pid] = {"panel": panel}
+                    panels[pid] = (
+                        {"status": "ready", "panel": panel}
+                        if panel
+                        else {"status": "unavailable", "reason": "nothing to draw"}
+                    )
             except Exception:
                 panels = {}
                 logging.getLogger(__name__).debug(
@@ -296,6 +302,7 @@ class ModelGraphView:
                 "dims": list(n.dims),
                 "params": [{"name": p.name, "value": p.value_tex} for p in n.params],
                 "transform": n.transform,
+                "glyph_note": n.glyph_note,
                 "parents": parents.get(n.id, []),
                 "children": children.get(n.id, []),
                 "blanket": blanket,
@@ -349,6 +356,13 @@ class ModelGraphView:
             "aux": aux,
             "expandable": [p.id for p in self.ir.plates] if self._can_expand_plates else [],
         }
+        if self._model is not None:
+            from .adapters.ppc import potential_note
+
+            note = potential_note(self._model)
+            if note:
+                spec["ppc_note"] = note + "; prior-predictive panels are off"
+                spec["expandable"] = []
         if self._diagnostics.get("divergences"):
             d, total = self._diagnostics["divergences"], self._diagnostics["draws"]
             spec["diagnostics"] = (

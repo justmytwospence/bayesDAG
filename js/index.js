@@ -18,18 +18,17 @@ function paramsText(node) {
   return node.params.map((p) => `${p.name}=${p.value ?? "?"}`).join(", ");
 }
 
-function constructorText(id, node) {
+// The op-level parameter line: `Normal(loc = μ, scale = τ)`. Deliberately NOT a `pm.Normal(...)`
+// call: op-level slots are reparametrized and reordered relative to PyMC's public constructor
+// (HalfNormal's op takes `(loc, scale)`), so printing them as code would show something that is
+// not valid PyMC.
+function familyText(node) {
   if (!node.dist) return "";
-  // a param whose value carries LaTeX markup (or is long) can't be shown as plain Python — elide it
-  const args = (node.params || [])
-    .map((p) => {
-      const v = (p.value ?? "").trim();
-      if (!v) return "";
-      return /[\\{}^]/.test(v) || v.length > 18 ? "…" : v;
-    })
-    .filter(Boolean);
-  const dims = node.dims && node.dims.length ? `, dims=${JSON.stringify(node.dims)}` : "";
-  return `pm.${node.dist}("${id}", ${args.join(", ")}${dims})`;
+  const args = (node.params || []).map((p) => {
+    const v = (p.value ?? "").trim();
+    return `${p.name} = ${!v || /[\\{}^]/.test(v) || v.length > 18 ? "…" : v}`;
+  });
+  return `${node.dist}(${args.join(", ")})`;
 }
 
 export default {
@@ -61,10 +60,11 @@ export default {
       const holder = document.createElement("div");
       holder.innerHTML = spec.svg || '<div class="bd-placeholder">bayesdag &mdash; no spec</div>';
       // model-level sampling note (divergences), above the figure — Python writes the wording
-      if (spec.diagnostics) {
+      for (const note of [spec.diagnostics, spec.ppc_note]) {
+        if (!note) continue;
         const strip = document.createElement("div");
         strip.className = "bd-diag-strip";
-        strip.textContent = spec.diagnostics;
+        strip.textContent = note;
         holder.insertBefore(strip, holder.firstChild);
       }
       el.insertBefore(holder, tooltip);
@@ -90,7 +90,7 @@ export default {
           e.classList.toggle("bd-dim", e.dataset.src !== id && e.dataset.tgt !== id);
         });
       }
-      // pin (click): directional causal trace — upstream (ancestors) vs downstream
+      // pin (click): directional lineage trace — upstream (ancestors) vs downstream
       // (descendants), so the full lineage reads as a flow instead of one flat dim/undim split.
       function trace(id) {
         const n = nodes[id] || {};
@@ -144,8 +144,9 @@ export default {
             `<div class="bd-diag-rows">${n.diag.map((d) => `<div>${esc(d)}</div>`).join("")}</div>`
           );
         }
-        const ctor = constructorText(id, n);
-        if (ctor) rows.push(`<pre class="bd-ctor">${esc(ctor)}</pre>`);
+        const fam = familyText(n);
+        if (fam) rows.push(`<div class="bd-ctor">${esc(fam)}</div>`);
+        if (n.glyph_note) rows.push(`<div class="bd-note">${esc(n.glyph_note)}</div>`);
         // observed nodes: the Python-rendered histogram + best-fit-family overlay (data vs theory)
         if (n.panel) rows.push(`<div class="bd-overlay">${n.panel}</div>`);
         // posterior-geometry panels offered by this node (the funnel joint)
@@ -206,7 +207,9 @@ export default {
           `<div class="bd-panel-head">${esc(pid)}<span>click empty space to close</span></div>` +
           (p && p.panel
             ? p.panel
-            : '<div class="bd-placeholder">simulating the prior predictive&hellip;</div>');
+            : p && p.reason
+              ? `<div class="bd-placeholder">${esc(p.reason)}</div>`
+              : '<div class="bd-placeholder">simulating the prior predictive&hellip;</div>');
         panel.style.display = "block";
       }
 
