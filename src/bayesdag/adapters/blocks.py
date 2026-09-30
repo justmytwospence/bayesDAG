@@ -768,18 +768,32 @@ def _link(t, ctx: _Ctx):
     return "identity", t
 
 
+@dataclass
+class Term:
+    """One additive term of a linear predictor.
+
+    ``kind``: ``"leaf"`` (a parameter), ``"const"`` (data/constants only), ``"product"`` (data x
+    parameter, incl. a matrix product), ``"gather"`` (a parameter indexed by data). ``params`` are
+    the named parameters it is linear in, ``index`` the named data used to gather them, ``data``
+    the named data multiplying them, and ``design`` the (RV-free) multiplier tensor itself."""
+
+    kind: str
+    params: list = field(default_factory=list)
+    index: list = field(default_factory=list)
+    data: list = field(default_factory=list)
+    design: Any = None
+
+
 def _affine_terms(t, ctx: _Ctx, blocked: set[str], hops: int = 0) -> list | None:
-    """Additive terms of a linear predictor, each ``(kind, names)``: ``"leaf"`` (a parameter),
-    ``"const"`` (data/constants only), ``"product"`` (data x parameter, incl. a matrix product),
-    ``"gather"`` (a parameter indexed by data). Named deterministics are expanded (unless they
-    anchor another block) up to 6 hops. None = not affine."""
+    """Additive :class:`Term` s of a linear predictor. Named deterministics are expanded (unless
+    they anchor another block) up to 6 hops. None = not affine."""
     ctx.tick()
     t = _unwrap(t, ctx)
     if id(t) in ctx.named:
         nm = ctx.named[id(t)]
         role = ctx.role(nm)
         if role == "data":
-            return [("const", [nm])]
+            return [Term("const", data=[nm])]
         if role == "deterministic" and nm not in blocked and hops < 6:
             v = ctx.var(nm)
             inner = v.owner.inputs[0] if _opname(v) == "ViewOp" else v
@@ -788,12 +802,12 @@ def _affine_terms(t, ctx: _Ctx, blocked: set[str], hops: int = 0) -> list | None
                 return expanded
             # a nonlinear named quantity (a spike-and-slab coefficient, gamma * slab) is still
             # one VALUE the predictor is linear in: keep it as a leaf
-        return [("leaf", [nm])]
+        return [Term("leaf", params=[nm])]
     if not depends_on_rv(t):
-        return [("const", [])]
+        return [Term("const")]
     o = getattr(t, "owner", None)
     if o is None:
-        return [("const", [])]
+        return [Term("const")]
     sn = _scalar_op_name(o.op)
     ins = o.inputs
     if sn in ("Add", "Sub"):
@@ -815,15 +829,28 @@ def _affine_terms(t, ctx: _Ctx, blocked: set[str], hops: int = 0) -> list | None
             return None
         other = [i for i in ins if i is not rv[0]]
         data_like = any(_varying_data(i, ctx) for i in other)
-        names = sorted({n for _, ns in sub for n in ns})
-        return [("product" if data_like else "leaf", names)]
+        params = sorted({n for x in sub for n in x.params})
+        index = sorted({n for x in sub for n in x.index})
+        data = sorted(
+            {n for i in other for n in _named_leaves(i, ctx) if ctx.role(n) == "data"}
+            | {n for x in sub for n in x.data}
+        )
+        if not data_like:
+            kind = "gather" if index else "leaf"
+            return [Term(kind, params=params, index=index, data=data)]
+        design = other[0] if len(other) == 1 else None
+        return [Term("product", params=params, index=index, data=data, design=design)]
     if type(o.op).__name__ in ("AdvancedSubtensor", "AdvancedSubtensor1", "Subtensor"):
         if any(depends_on_rv(i) for i in ins[1:]):
             return None
         sub = _affine_terms(ins[0], ctx, blocked, hops)
         if sub is None:
             return None
-        return [("gather", sorted({n for _, ns in sub for n in ns}))]
+        idx = sorted(
+            {n for i in ins[1:] for n in _named_leaves(i, ctx) if ctx.role(n) == "data"}
+            | {n for x in sub for n in x.index}
+        )
+        return [Term("gather", params=sorted({n for x in sub for n in x.params}), index=idx)]
     if type(o.op).__name__ == "Join":
         out = []
         for i in ins[1:]:
@@ -1072,14 +1099,14 @@ def _regression(n, ctx: _Ctx, blocked: set[str], effects: set[str]) -> BlockIR |
     if title is None:
         return None
     terms = _affine_terms(eta, ctx, blocked)
-    if not terms or not any(k == "product" for k, _ in terms):
+    if not terms or not any(t.kind == "product" for t in terms):
         return None
     groups = sorted(
-        {nm for k, ns in terms if k in ("gather", "leaf") for nm in ns if nm in effects}
+        {nm for t in terms if t.kind in ("gather", "leaf") for nm in t.params if nm in effects}
     )
     if groups:
         title += " · with group effects"
-    coefs = sorted({nm for k, ns in terms if k in ("product",) for nm in ns})
+    coefs = sorted({nm for t in terms if t.kind == "product" for nm in t.params})
     notes = []
     if n.dist == "LogNormal":
         notes.append(
@@ -1100,7 +1127,15 @@ def _regression(n, ctx: _Ctx, blocked: set[str], effects: set[str]) -> BlockIR |
         rule="regression/1",
         notes=notes,
         references=list(REFS_REGRESSION),
-        data={"link": transfer},
+        data={
+            "link": transfer,
+            # which data indexes / multiplies which parameter: what the fitted panels need
+            "terms": [
+                {"kind": t.kind, "params": t.params, "index": t.index, "data": t.data}
+                for t in terms
+                if t.kind != "const"
+            ],
+        },
     )
 
 
