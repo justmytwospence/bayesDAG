@@ -406,3 +406,24 @@ def test_update_keeps_the_overview_still():
     assert blk.glyph.kind == "multi"  # the block shows its anchor's posterior
     assert {k: (b.x, b.y, b.w, b.h) for k, b in v.layout.node_boxes.items()} == boxes
     assert "posterior per element" in v.panel_svg("marginals", block_id="block:hierarchy:theta")
+
+
+@pytest.mark.parametrize("name", list(STRUCTURE_MODELS))
+def test_every_structure_model_renders_in_both_details(name):
+    """Every fixture converts, lays out and renders as the overview AND the full graph, with
+    resolvable references and unique element ids — and the overview's display edges account
+    for every canonical edge."""
+    import xml.etree.ElementTree as ET
+
+    v = bayesdag.view(STRUCTURE_MODELS[name](), ppc_draws=0, hide_index_data=False)
+    for detail in ("overview", "full"):
+        svg = v.to_svg(detail=detail)
+        root = ET.fromstring(svg)
+        ids = [el.get("id") for el in root.iter() if el.get("id")]
+        assert len(ids) == len(set(ids)), (name, detail)
+    schema.check(v.ir)
+    schema.check(v.display_ir)
+    carried = {tuple(p) for e in v.display_ir.edges for p in (e.via or [[e.source, e.target]])}
+    hidden = {m for b in blocks.contracting(v.ir) for m in b.members}
+    internal = {(e.source, e.target) for e in v.ir.edges if {e.source, e.target} <= hidden}
+    assert carried | internal >= {(e.source, e.target) for e in v.ir.edges}
