@@ -57,7 +57,21 @@ export default {
       for (const c of Array.from(el.childNodes)) {
         if (c !== tooltip && c !== card && c !== panel) el.removeChild(c);
       }
+      const toolbar = document.createElement("div");
+      toolbar.className = "bd-toolbar";
+      const fitBtn = document.createElement("button");
+      fitBtn.type = "button";
+      fitBtn.textContent = "fit ↔ 1:1";
+      fitBtn.title = "toggle between natural size (scroll) and fit-to-width";
+      fitBtn.setAttribute("aria-pressed", String(el.classList.contains("bd-fit")));
+      fitBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        el.classList.toggle("bd-fit");
+        fitBtn.setAttribute("aria-pressed", String(el.classList.contains("bd-fit")));
+      });
+      toolbar.appendChild(fitBtn);
       const holder = document.createElement("div");
+      holder.className = "bd-holder";
       holder.innerHTML = spec.svg || '<div class="bd-placeholder">bayesdag &mdash; no spec</div>';
       // model-level sampling note (divergences), above the figure — Python writes the wording
       for (const note of [spec.diagnostics, spec.ppc_note]) {
@@ -67,6 +81,7 @@ export default {
         strip.textContent = note;
         holder.insertBefore(strip, holder.firstChild);
       }
+      el.insertBefore(toolbar, tooltip);
       el.insertBefore(holder, tooltip);
       const svg = holder.querySelector("svg");
       if (!svg) return;
@@ -127,8 +142,9 @@ export default {
         const dims = n.dims && n.dims.length ? `<div class="bd-dim-line">dims: ${esc(n.dims.join(" × "))}</div>` : "";
         tooltip.innerHTML = `<b>${esc(id)}</b> · ${esc(n.role)}${math}${dims}`;
         const r = el.getBoundingClientRect();
-        tooltip.style.left = ev.clientX - r.left + 12 + "px";
-        tooltip.style.top = ev.clientY - r.top + 12 + "px";
+        // the container scrolls (natural size), and the tooltip lives in its scrolled content
+        tooltip.style.left = ev.clientX - r.left + el.scrollLeft + 12 + "px";
+        tooltip.style.top = ev.clientY - r.top + el.scrollTop + 12 + "px";
         tooltip.style.display = "block";
       }
       function showCard(id) {
@@ -192,15 +208,34 @@ export default {
         });
         nodeEl.addEventListener("click", (ev) => {
           ev.stopPropagation();
-          pinned = id;
-          model.set("selected_node", id);
-          model.save_changes();
-          trace(id);
-          tooltip.style.display = "none";
-          panel.style.display = "none";
-          showCard(id);
+          pin(id);
         });
+        // keyboard: the body group is the node's one tab stop (the chrome group is paint only)
+        if (nodeEl.classList.contains("bd-body")) {
+          nodeEl.setAttribute("tabindex", "0");
+          nodeEl.setAttribute("role", "button");
+          nodeEl.setAttribute("aria-label", `${id} (${(nodes[id] || {}).role || "node"})`);
+          const mates = nodeEls.filter((x) => x.dataset.node === id);
+          nodeEl.addEventListener("focus", () => mates.forEach((x) => x.classList.add("bd-kbd")));
+          nodeEl.addEventListener("blur", () => mates.forEach((x) => x.classList.remove("bd-kbd")));
+          nodeEl.addEventListener("keydown", (ev) => {
+            if (ev.key === "Enter" || ev.key === " ") {
+              ev.preventDefault();
+              pin(id);
+            }
+          });
+        }
       });
+
+      function pin(id) {
+        pinned = id;
+        model.set("selected_node", id);
+        model.save_changes();
+        trace(id);
+        tooltip.style.display = "none";
+        panel.style.display = "none";
+        showCard(id);
+      }
 
       function openPlate(pid) {
         const p = (spec.plates || {})[pid];
@@ -234,7 +269,7 @@ export default {
         });
       });
 
-      svg.addEventListener("click", () => {
+      function unpin() {
         pinned = null;
         model.set("selected_node", "");
         model.save_changes();
@@ -245,7 +280,11 @@ export default {
           model.set("expanded_plate", "");
           model.save_changes();
         }
-      });
+      }
+      svg.addEventListener("click", unpin);
+      el.onkeydown = (ev) => {
+        if (ev.key === "Escape") unpin();
+      };
 
       // A spec push (view.update(...)) redraws from scratch, and `pinned` lives in this closure.
       // Without this the user's selection silently drops on every update — which is exactly when

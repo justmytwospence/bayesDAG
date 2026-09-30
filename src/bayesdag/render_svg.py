@@ -751,7 +751,10 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, legend: bool = True) -> str:
                 f'<text class="bd-caption" x="{b.x + 7:.1f}" y="{b.y + b.h - 5:.1f}" '
                 f'font-size="8" fill="{color}" font-style="italic">{escape(text)}</text>'
             )
-        body.append(f'<g class="bd-node" data-node="{_attr(n.id)}">' + "".join(parts) + "</g>")
+        # the body group is the node's ONE interaction target (the chrome group is paint only)
+        body.append(
+            f'<g class="bd-node bd-body" data-node="{_attr(n.id)}">' + "".join(parts) + "</g>"
+        )
     if font_defs:  # one shared <defs> for all hoisted MathJax glyphs (sorted: deterministic bytes)
         body.insert(
             1,
@@ -774,6 +777,24 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, legend: bool = True) -> str:
 
     header = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{total_w:.1f}" height="{total_h:.1f}" '
-        f'viewBox="0 0 {total_w:.1f} {total_h:.1f}" font-family="system-ui, sans-serif">'
+        f'viewBox="0 0 {total_w:.1f} {total_h:.1f}" font-family="system-ui, sans-serif" '
+        'role="img">'
     )
-    return header + "".join(body) + legend_svg + "</svg>"
+    return header + _a11y(ir) + "".join(body) + legend_svg + "</svg>"
+
+
+def _a11y(ir: ModelIR) -> str:
+    """An accessible name and a text summary of the graph (screen readers, search, alt text)."""
+    name = getattr(ir.meta, "model_name", None) or "model"
+    roles: dict[str, int] = {}
+    for n in ir.nodes:
+        roles[n.role] = roles.get(n.role, 0) + 1
+    parts = [f"{k} {r}" for r, k in sorted(roles.items())]
+    desc = (
+        f"{len(ir.nodes)} variables ({', '.join(parts)}), {len(ir.edges)} dependencies, "
+        f"{len(ir.plates)} plates"
+    )
+    tags = sorted({n.tag for n in ir.nodes if n.tag})
+    if tags:
+        desc += "; recognized structures: " + ", ".join(tags)
+    return f"<title>bayesdag diagram of {escape(name)}</title><desc>{escape(desc)}</desc>"
