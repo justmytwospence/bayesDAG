@@ -28,9 +28,11 @@ def to_ir(obj: Any, idata: Any = None) -> ModelIR:
                 UserWarning,
                 stacklevel=2,
             )
-        if isinstance(obj, ModelIR):
-            return obj  # idempotent
-        return ModelIR.from_dict(obj)  # low-level escape hatch
+        from .schema import check
+
+        out = obj if isinstance(obj, ModelIR) else ModelIR.from_dict(obj)
+        check(out)  # a prebuilt IR's references must resolve before anything lays it out
+        return out  # idempotent for a ModelIR
 
     cls = type(obj)
     module = getattr(cls, "__module__", "") or ""
@@ -69,6 +71,10 @@ def subgraph(ir: ModelIR, var_names: Sequence[str]) -> ModelIR:
         if members:
             plates.append(dataclasses.replace(p, members=members))
     plate_ids = {p.id for p in plates}
+
+    def kept(refs) -> bool:
+        return all(r in keep for r in refs)
+
     return dataclasses.replace(
         ir,
         nodes=[n for n in ir.nodes if n.id in keep],
@@ -78,5 +84,14 @@ def subgraph(ir: ModelIR, var_names: Sequence[str]) -> ModelIR:
             if (p.parent is None or p.parent in plate_ids)
             else dataclasses.replace(p, parent=None)
             for p in plates
+        ],
+        # a panel or a block about a variable that is no longer shown would dangle: drop it
+        # rather than silently widening the selection to complete it
+        aux_views=[a for a in ir.aux_views if kept([*a.vars, *(a.edge or [])])],
+        blocks=[
+            b
+            for b in ir.blocks
+            if kept([*b.members, *([b.anchor] if b.anchor else [])])
+            and kept([x for xs in b.roles.values() for x in xs])
         ],
     )

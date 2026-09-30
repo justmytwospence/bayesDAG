@@ -72,8 +72,64 @@ def test_to_elk_serializable_and_nested(eight_schools_ir):
     json.dumps(elk)  # must be JSON-serializable
     plate_children = [c for c in elk["children"] if c.get("children")]
     assert plate_children, "expected a nested plate compound node"
-    assert {c["id"] for c in plate_children[0]["children"]} == {"eta", "theta", "y_obs"}
+    assert {c["id"] for c in plate_children[0]["children"]} == {
+        "node:eta",
+        "node:theta",
+        "node:y_obs",
+    }
     assert len(elk["edges"]) == 4
+
+
+def _elk_ids(elk):
+    ids, stack = [], list(elk["children"])
+    while stack:
+        c = stack.pop()
+        ids.append(c["id"])
+        ids += [p["id"] for p in c.get("ports", [])]
+        stack += c.get("children", [])
+    return ids
+
+
+def test_to_elk_references_only_existing_ports(eight_schools_ir):
+    """Every edge endpoint must resolve — including a deterministic's leaf-token ports, which the
+    old exporter referenced without ever declaring."""
+    elk = to_elk(eight_schools_ir)
+    ids = _elk_ids(elk)
+    assert len(ids) == len(set(ids))
+    for e in elk["edges"]:
+        for end in e["sources"] + e["targets"]:
+            assert end in ids, end
+    theta = next(c for c in _elk_ids(elk) if c.startswith("port:") and "theta" in c)
+    assert theta  # theta = mu + tau*eta exposes its leaf tokens as ports
+
+
+def test_to_elk_nests_plates_and_survives_hostile_names():
+    import dataclasses
+
+    from bayesdag.ir import EdgeIR, NodeIR, PlateIR
+
+    ir = ModelIR(
+        nodes=[NodeIR(id="plate_a", role="latent"), NodeIR(id="a.b", role="latent")],
+        edges=[EdgeIR("plate_a", "a.b")],
+        plates=[
+            PlateIR(id="plate_a", label="a", members=["plate_a"]),
+            PlateIR(id="inner", label="b", members=["a.b"], parent="plate_a"),
+        ],
+    )
+    elk = to_elk(ir)
+    ids = _elk_ids(elk)
+    assert len(ids) == len(set(ids))  # node "plate_a" and plate "plate_a" do not collide
+    outer = next(c for c in elk["children"] if c["id"] == "plate:plate_a")
+    assert any(c["id"] == "plate:inner" for c in outer["children"])
+    # a cyclic parent chain degrades to the root rather than recursing forever
+    cyc = dataclasses.replace(
+        ir,
+        plates=[
+            PlateIR(id="p", label="p", members=["plate_a"], parent="q"),
+            PlateIR(id="q", label="q", members=["a.b"], parent="p"),
+        ],
+    )
+    json.dumps(to_elk(cyc))
 
 
 def test_both_published_schemas_exist():

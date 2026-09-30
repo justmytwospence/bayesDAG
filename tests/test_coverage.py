@@ -172,6 +172,9 @@ def test_every_distribution_renders(name):
     assert n is not None, name
     # handled = a shape glyph OR an honest elision badge OR a caption
     assert (n.glyph is not None) or (n.elision_reason is not None) or n.glyph_note, name
+    from bayesdag.schema import check
+
+    check(ir)  # every reference resolves
     assert "<svg" in to_svg(ir, layout(ir)), name
 
 

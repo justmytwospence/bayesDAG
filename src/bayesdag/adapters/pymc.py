@@ -175,6 +175,19 @@ def _safe_render_value(val, named, **kw) -> tuple[str, set]:
         return r"\ldots", set()
 
 
+def _plate_id(names: tuple, lengths: tuple, used: set[str]) -> str:
+    """A readable, collision-free plate id. An unnamed axis contributes its length (``len3``), so
+    two dimless vectors of different lengths no longer share ``plate_None``; a rare collision
+    between different signatures (``("a_b",)`` vs ``("a", "b")``) gets a deterministic suffix."""
+    parts = [str(nm) if nm else f"len{ln}" for nm, ln in zip(names, lengths, strict=False)]
+    base = "plate_" + "_".join(parts)
+    pid, k = base, 2
+    while pid in used:
+        pid, k = f"{base}~{k}", k + 1
+    used.add(pid)
+    return pid
+
+
 def from_pymc(model: Any, idata: Any = None) -> ModelIR:
     from pymc.model_graph import ModelGraph
 
@@ -199,7 +212,8 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
     compute = g.make_compute_graph()
     var_names = list(compute)
 
-    rv_param_map: dict[str, dict[str, str]] = {}  # child -> {parent_name: token_id}
+    # child -> {parent_name: [token_id, ...]} — every slot a parent feeds, in slot order
+    rv_param_map: dict[str, dict[str, list[str]]] = {}
     det_tokens: dict[str, set[str]] = {}  # deterministic child -> leaf names wrapped in its expr
     nodes: list[NodeIR] = []
     for name in var_names:
@@ -211,10 +225,12 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
         label_tex, label_tree = labels.assemble_bare(name)
         if role in ("latent", "observed") and getattr(var, "owner", None) is not None:
             dist, params = _rv_dist_and_params(var, named)
-            pm: dict[str, str] = {}
+            pm: dict[str, list[str]] = {}
             for pr in params:
                 for parent in pr.parents:
-                    pm.setdefault(parent, pr.token_id)
+                    toks = pm.setdefault(parent, [])
+                    if pr.token_id not in toks:
+                        toks.append(pr.token_id)
             rv_param_map[name] = pm
             label_tex, label_tree = labels.assemble_stochastic(
                 name, dist, [(pr.token_id, pr.value_tex or "") for pr in params]
@@ -268,39 +284,59 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
         pmap = rv_param_map.get(child, {})
         used = det_tokens.get(child, set())
         for parent in sorted(parents):
-            token = pmap.get(parent) or (parent if parent in used else None)
-            edges.append(EdgeIR(source=parent, target=child, target_token_id=token))
+            tokens = list(pmap.get(parent) or ([parent] if parent in used else []))
+            # An arrow can land on ONE token. A parent feeding several slots (`Normal(m, m/10)`)
+            # anchors at the node boundary instead of pretending it feeds only the first slot;
+            # the full slot list still travels with the edge.
+            token = tokens[0] if len(tokens) == 1 else None
+            edges.append(
+                EdgeIR(source=parent, target=child, target_token_id=token, target_token_ids=tokens)
+            )
 
     plates: list[PlateIR] = []
     try:
         raw_plates = list(g.get_plates())  # pymc evals each var's shape here
     except Exception:
         raw_plates = None
+    groups: list[tuple[tuple, tuple, list[str]]] = []  # (dim names, lengths, members)
     if raw_plates is not None:
         for plate in raw_plates:
             di = plate.dim_info
             if not di.names:  # the empty-dims group is just ungrouped scalars, not a plate
                 continue
-            label = " x ".join(
-                f"{nm} ({ln})" if nm else f"{ln}"
-                for nm, ln in zip(di.names, di.lengths, strict=False)
-            )
-            pid = "plate_" + "_".join(str(nm) for nm in di.names)
-            plates.append(
-                PlateIR(id=pid, label=label, members=[ni.var.name for ni in plate.variables])
+            groups.append(
+                (
+                    tuple(di.names),
+                    tuple(int(x) for x in di.lengths),
+                    [ni.var.name for ni in plate.variables],
+                )
             )
     else:
         # A non-samplable RV (Flat/HalfFlat/ICAR, …) broke pymc's shape eval. Derive plates
         # eval-free from the named dims + coords we already hold, grouping by dim signature.
-        groups: dict[tuple, list[str]] = {}
+        by_dims: dict[tuple, list[str]] = {}
         for nm in var_names:
             dims = tuple(d for d in n2d.get(nm, ()) if d)
             if dims and all(d in coords for d in dims):
-                groups.setdefault(dims, []).append(nm)
-        for dims, members in groups.items():
-            label = " x ".join(f"{d} ({len(coords[d])})" for d in dims)
-            pid = "plate_" + "_".join(str(d) for d in dims)
-            plates.append(PlateIR(id=pid, label=label, members=members))
+                by_dims.setdefault(dims, []).append(nm)
+        for dims, members in by_dims.items():
+            groups.append((dims, tuple(len(coords[d]) for d in dims), members))
+    used_ids: set[str] = set()
+    for names, lengths, members in groups:
+        label = " x ".join(
+            f"{nm} ({ln})" if nm else f"{ln}" for nm, ln in zip(names, lengths, strict=False)
+        )
+        pid = _plate_id(names, lengths, used_ids)
+        plates.append(
+            PlateIR(
+                id=pid,
+                label=label,
+                members=members,
+                dims=list(names),
+                lengths=list(lengths),
+                source="named" if all(names) else "shape",
+            )
+        )
 
     meta = Meta.stamp(source_ppl="pymc", model_name=getattr(model, "name", None) or None)
     return ModelIR(nodes=nodes, edges=edges, plates=plates, meta=meta)
