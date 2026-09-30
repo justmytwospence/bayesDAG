@@ -6,6 +6,7 @@ two are identical by construction.
 
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Any
 
@@ -87,29 +88,36 @@ class ModelGraphView:
         self._ppc_draws = ppc_draws
         # The draws themselves stay out of the IR (which is JSON-serializable and ships only
         # curves); this is the handle that makes `OverlayRef` dereferenceable — see `idata`.
-        self._idata = idata
-        # A prebuilt IR gets its posteriors from update() further down, by NAME — passing idata
-        # to the adapter here would only earn the "idata is ignored" warning.
-        self.ir = to_ir(model_or_ir, idata=None if prebuilt else idata)
+        self._idata = None
+        # The IR is ALWAYS built prior-only and owned by this view: a posterior is attached through
+        # `update()` alone, so `update(None)` can always restore what was built (the prior) — and
+        # a caller's IR object (or a second view of it) is never mutated.
+        base = to_ir(model_or_ir)
+        self.ir = copy.deepcopy(base) if prebuilt else base
         if var_names is not None:
             self.ir = subgraph(self.ir, list(var_names))
-        self._diagnostics = diagnostics.annotate(self.ir, None if prebuilt else idata)
         self._rankdir = rankdir
-        self.layout = layout(self.ir, rankdir=rankdir)
         # The static figure carries the legend by default (it can't hover); the interactive
         # widget omits it by default since the same info is one hover away.
         self._legend = legend
         self._widget_legend = widget_legend
-        self._svg = to_svg(self.ir, self.layout, legend=legend)
         self._widget = None
-        # the as-built data layer, so update() can put it back (a prior<->posterior toggle)
-        self._base_glyphs = {n.id: (n.glyph, n.glyph_data) for n in self.ir.nodes}
+        # The as-built data layer, so update() can put it back (a prior<->posterior toggle). A
+        # prebuilt IR may already hold POSTERIOR glyphs with no prior behind them: those are not
+        # a base to return to, so detaching shows no curve and says why rather than keeping a
+        # posterior on screen while claiming the prior.
+        self._base_glyphs = {}
+        for n in self.ir.nodes:
+            src = n.glyph.source if n.glyph is not None else ""
+            if src.startswith("posterior"):
+                self._base_glyphs[n.id] = (None, None, "prior unavailable (posterior-only IR)")
+            else:
+                self._base_glyphs[n.id] = (n.glyph, n.glyph_data, n.glyph_note)
         self._plate_panels: dict | None = None  # built once; independent of idata
-        if prebuilt and idata is not None:
-            # Everything update() does is keyed on the node id — which IS the constrained idata
-            # variable name — so it needs no model. Reusing it here rather than threading idata
-            # through a second node-loop keeps one implementation of the posterior layer.
-            self.update(idata)
+        # a prebuilt IR shows what it was given until something is attached or detached
+        self._diagnostics = self._apply_data(idata) if idata is not None else {}
+        self.layout = layout(self.ir, rankdir=rankdir)
+        self._svg = to_svg(self.ir, self.layout, legend=legend)
 
     # ---- outputs ---------------------------------------------------------------
     def to_svg(self) -> str:
@@ -137,25 +145,7 @@ class ModelGraphView:
         exactly what lets the figure change without being rebuilt. Passing ``idata=`` to
         ``view()`` remains the pure-dataflow alternative.
         """
-        from .adapters.glyph_data import posterior_glyph
-        from .adapters.pymc import overlays_for
-
-        self._idata = idata
-        for n in self.ir.nodes:
-            base_spec, base_data = self._base_glyphs[n.id]
-            # deterministics depict a transfer FUNCTION, and observed nodes their data; neither is
-            # a posterior, so both keep what they were built with
-            post = (
-                posterior_glyph(n.id, n.dist, idata)
-                if idata is not None and n.role not in ("deterministic", "observed")
-                else None
-            )
-            n.glyph, n.glyph_data = post if post is not None else (base_spec, base_data)
-            n.overlays = overlays_for(n.id, n.role, n.dims, idata)
-
-        # diagnostics follow the attached idata, and are cleared when it is removed — a diagram
-        # showing its prior must not still be badged with a run it is no longer displaying
-        self._diagnostics = diagnostics.annotate(self.ir, idata)
+        self._diagnostics = self._apply_data(idata)
 
         if self._layout_still_fits():
             layout_result = self.layout  # nothing resized: the diagram must not jump
@@ -170,6 +160,32 @@ class ModelGraphView:
             self._widget.spec = self._build_spec()
         return self
 
+    def _apply_data(self, idata: Any) -> dict:
+        """Set the data layer (posterior glyphs, overlays, diagnostics) from ``idata`` — or clear
+        all of it together when ``idata`` is None. Returns the model-level diagnostics."""
+        from .adapters.glyph_data import posterior_glyph
+        from .adapters.pymc import overlays_for
+
+        self._idata = idata
+        for n in self.ir.nodes:
+            base_spec, base_data, base_note = self._base_glyphs[n.id]
+            # deterministics depict a transfer FUNCTION, and observed nodes their data; neither is
+            # a posterior, so both keep what they were built with
+            post = (
+                posterior_glyph(n.id, n.dist, idata)
+                if idata is not None and n.role not in ("deterministic", "observed")
+                else None
+            )
+            if post is not None:
+                n.glyph, n.glyph_data = post
+                n.glyph_note = None
+            else:
+                n.glyph, n.glyph_data, n.glyph_note = base_spec, base_data, base_note
+            n.overlays = overlays_for(n.id, n.role, n.dims, idata)
+        # diagnostics follow the attached idata, and are cleared when it is removed — a diagram
+        # showing its prior must not still be badged with a run it is no longer displaying
+        return diagnostics.annotate(self.ir, idata)
+
     @property
     def idata(self):
         """The ``InferenceData`` currently attached (from the constructor or :meth:`update`), or
@@ -179,11 +195,8 @@ class ModelGraphView:
         JSON-serializable against a published schema. ``OverlayRef`` is its pointer back to the
         draws, and this handle is what makes that pointer dereferenceable: without it an interval
         or ROPE annotation would have nothing to compute from. Held, never serialized, never in
-        the IR.
-
-        One wrinkle worth knowing: for a view *constructed* with ``idata``, ``update(None)``
-        restores the as-built glyphs — which are the posterior ones — while this becomes ``None``.
-        That is the existing as-built-toggle semantics, unchanged.
+        the IR. ``update(None)`` always returns to the prior layer, whether the idata came from
+        the constructor or from :meth:`update`.
         """
         return self._idata
 

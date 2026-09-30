@@ -235,3 +235,39 @@ def test_a_dict_ir_is_not_mistaken_for_a_model(eight_schools_ir):
     assert v._model is None
     assert v._can_expand_plates is False
     assert v.expand_plates() == {}
+
+
+def test_detaching_a_constructor_idata_shows_the_prior(fitted_eight_schools):
+    """A view built WITH idata used to snapshot its posterior glyphs as the 'as-built' layer, so
+    `update(None)` kept showing posteriors while `.idata` said None."""
+    model, idata = fitted_eight_schools
+    v = bayesdag.view(model, idata=idata, ppc_draws=0)
+    assert _sources(v)["mu"] == "posterior_kde"
+    v.update(None)
+    assert _sources(v)["mu"] == "prior_analytic"
+    assert v.idata is None and all(n.diag is None for n in v.ir.nodes)
+    assert v.ir.aux_views == []
+
+
+def test_views_never_mutate_a_shared_prebuilt_ir(fitted_eight_schools):
+    from bayesdag.convert import to_ir
+
+    model, idata = fitted_eight_schools
+    ir = to_ir(model)
+    before = ir.to_dict()
+    a = bayesdag.view(ir, idata=idata, ppc_draws=0)
+    b = bayesdag.view(ir, ppc_draws=0)
+    assert ir.to_dict() == before
+    assert _sources(a)["mu"] == "posterior_kde" and _sources(b)["mu"] == "prior_analytic"
+
+
+def test_a_posterior_only_ir_does_not_fabricate_a_prior(fitted_eight_schools):
+    """An IR that was SAVED with posterior glyphs has no prior behind them. Detaching must not
+    leave the posterior on screen (claiming a prior) nor invent one: no curve, and a note."""
+    model, idata = fitted_eight_schools
+    saved = bayesdag.view(model, idata=idata, ppc_draws=0).ir.to_dict()
+    v = bayesdag.view(saved, ppc_draws=0)
+    assert _sources(v)["mu"] == "posterior_kde"  # shows what it was given
+    v.update(None)
+    mu = v.ir.node("mu")
+    assert mu.glyph is None and mu.glyph_note == "prior unavailable (posterior-only IR)"
