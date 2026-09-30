@@ -2,7 +2,7 @@
 
 Generated from the ``bayesdag.ir`` dataclasses so the contract stays in sync with the code.
 ``validate(data)`` checks an IR dict; ``write_schema_file`` publishes it to
-``schema/graph-v1.0.json`` (the language-neutral contract other tools can consume).
+``schema/graph-v<version>.json`` (the language-neutral contract other tools can consume).
 """
 
 from __future__ import annotations
@@ -15,9 +15,13 @@ from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
 from . import ir
 
-SCHEMA_ID = "https://bayesdag.dev/schema/graph-v1.0.json"
+SCHEMA_ID = f"https://bayesdag.dev/schema/graph-v{ir.SCHEMA_VERSION}.json"
 SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
-_SCHEMA_FILE = Path(__file__).parent / "schema" / "graph-v1.0.json"
+_SCHEMA_DIR = Path(__file__).parent / "schema"
+_SCHEMA_FILE = _SCHEMA_DIR / f"graph-v{ir.SCHEMA_VERSION}.json"
+# Every published version stays in the wheel: an artifact written by an older bayesdag must stay
+# checkable against the contract it was written under.
+PUBLISHED = ("1.0", ir.SCHEMA_VERSION)
 
 
 def _type_schema(hint: Any, defs: dict[str, Any]) -> dict[str, Any]:

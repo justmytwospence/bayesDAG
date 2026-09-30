@@ -43,7 +43,7 @@ def test_schema_rejects_what_it_should():
 
 
 def test_published_schema_in_sync():
-    """The committed schema/graph-v1.0.json must match the generated schema."""
+    """The committed schema for the current version must match the generated schema."""
     published = json.loads((schema._SCHEMA_FILE).read_text())
     assert published == schema.build_schema()
 
@@ -74,3 +74,41 @@ def test_to_elk_serializable_and_nested(eight_schools_ir):
     assert plate_children, "expected a nested plate compound node"
     assert {c["id"] for c in plate_children[0]["children"]} == {"eta", "theta", "y_obs"}
     assert len(elk["edges"]) == 4
+
+
+def test_both_published_schemas_exist():
+    """A 1.0 artifact must stay checkable against the contract it was written under."""
+    for v in schema.PUBLISHED:
+        assert (schema._SCHEMA_DIR / f"graph-v{v}.json").is_file(), v
+
+
+def test_reads_a_1_0_artifact(eight_schools_ir):
+    """1.0 dicts load: the singular edge token fills the list, and a 1.0 conditional-latent
+    schematic (one generic bell for every family) is dropped with a note, not shown as exact."""
+    d = eight_schools_ir.to_dict()
+    d["meta"]["schema_version"] = "1.0"
+    for e in d["edges"]:
+        e.pop("target_token_ids", None)
+    d["nodes"].append(
+        {
+            "id": "legacy",
+            "role": "latent",
+            "glyph": {"kind": "schematic", "source": "prior_family_only"},
+            "glyph_data": {"xs": [0, 1], "ys": [0, 1]},
+        }
+    )
+    out = ModelIR.from_dict(d)
+    assert out.meta.schema_version == ir_mod.SCHEMA_VERSION
+    tok = [e for e in out.edges if e.target_token_id]
+    assert tok and all(e.target_token_ids == [e.target_token_id] for e in tok)
+    legacy = out.node("legacy")
+    assert legacy.glyph is None and "legacy" in legacy.glyph_note
+
+
+def test_rejects_an_unsupported_major_version(eight_schools_ir):
+    import pytest
+
+    d = eight_schools_ir.to_dict()
+    d["meta"]["schema_version"] = "2.0"
+    with pytest.raises(ValueError, match="not supported"):
+        ModelIR.from_dict(d)
