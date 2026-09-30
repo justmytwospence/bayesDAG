@@ -272,3 +272,14 @@ def test_a_posterior_only_ir_does_not_fabricate_a_prior(fitted_eight_schools):
     v.update(None)
     mu = v.ir.node("mu")
     assert mu.glyph is None and mu.glyph_note == "prior unavailable (posterior-only IR)"
+
+
+def test_marginals_panel_for_vectors_and_deterministics(fitted_eight_schools):
+    model, idata = fitted_eight_schools
+    v = bayesdag.view(model, idata=idata, ppc_draws=0)
+    svg = v.marginals_svg("theta")
+    assert "posterior per element" in svg and "coordinate order" in svg
+    assert ">S0<" in svg  # rows are labelled by their coordinate
+    assert bayesdag.view(model, ppc_draws=0).marginals_svg("theta") == ""  # no idata: nothing
+    with pytest.raises(ValueError):
+        v.marginals_svg("nope")

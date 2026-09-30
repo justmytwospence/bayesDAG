@@ -149,6 +149,8 @@ export default {
         if (n.glyph_note) rows.push(`<div class="bd-note">${esc(n.glyph_note)}</div>`);
         // observed nodes: the Python-rendered histogram + best-fit-family overlay (data vs theory)
         if (n.panel) rows.push(`<div class="bd-overlay">${n.panel}</div>`);
+        // labelled per-element posterior intervals (coordinate order), rendered by Python
+        if (n.marginals && n.marginals.svg) rows.push(`<div class="bd-overlay">${n.marginals.svg}</div>`);
         // posterior-geometry panels offered by this node (the funnel joint)
         const auxes = (spec.aux || {})[id] || [];
         auxes.forEach((a, i) => {

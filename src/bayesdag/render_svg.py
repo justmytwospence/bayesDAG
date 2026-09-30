@@ -456,6 +456,70 @@ def render_joint_panel(aux) -> str:
     return "".join(out)
 
 
+def render_marginals_panel(node_id: str, m: dict) -> str:
+    """Labelled per-element posterior intervals in ORIGINAL coordinate order (never ranked): a
+    median dot, a thick 50% and a thin 90% interval per row, on one axis shared by every page,
+    with a zero line when 0 is in range. ``m`` is ``glyph_data.marginal_rows`` output."""
+    rows = m.get("rows") or []
+    if not rows:
+        return ""
+    lo, hi = float(m["lo"]), float(m["hi"])
+    span = (hi - lo) or 1.0
+    pad, title_h, row_h, label_w, pw = 12.0, 20.0, 14.0, 70.0, 230.0
+    plot_x = pad + label_w
+    top = pad + title_h
+    h = top + row_h * len(rows) + 30.0
+    w = plot_x + pw + pad
+
+    def sx(v):
+        return plot_x + (v - lo) / span * pw
+
+    title = f"{escape(node_id)} — posterior per element"
+    out = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w:.0f}" height="{h:.0f}" '
+        f'viewBox="0 0 {w:.0f} {h:.0f}" font-family="system-ui, sans-serif">',
+        f'<rect width="{w:.0f}" height="{h:.0f}" rx="8" fill="#ffffff" stroke="#c7c7cc"/>',
+        f'<text x="{pad:.0f}" y="{pad + 12:.0f}" font-size="12" font-weight="600" '
+        f'fill="#333">{title}</text>',
+    ]
+    if lo < 0 < hi:
+        x0 = sx(0.0)
+        out.append(
+            f'<line x1="{x0:.1f}" y1="{top:.1f}" x2="{x0:.1f}" y2="{top + row_h * len(rows):.1f}" '
+            'stroke="#9aa0a6" stroke-width="0.6" stroke-dasharray="2,2"/>'
+        )
+    color = "#d2691e"
+    for i, r in enumerate(rows):
+        cy = top + (i + 0.5) * row_h
+        lab = r["label"] if len(r["label"]) <= 12 else r["label"][:11] + "…"
+        out.append(
+            f'<text x="{plot_x - 6:.1f}" y="{cy + 3:.1f}" text-anchor="end" font-size="9" '
+            f'fill="#555">{escape(lab)}</text>'
+            f'<line x1="{sx(r["q05"]):.1f}" y1="{cy:.1f}" x2="{sx(r["q95"]):.1f}" y2="{cy:.1f}" '
+            f'stroke="{color}" stroke-width="1"/>'
+            f'<line x1="{sx(r["q25"]):.1f}" y1="{cy:.1f}" x2="{sx(r["q75"]):.1f}" y2="{cy:.1f}" '
+            f'stroke="{color}" stroke-width="3"/>'
+            f'<circle cx="{sx(r["q50"]):.1f}" cy="{cy:.1f}" r="2.2" fill="#fff" '
+            f'stroke="{color}" stroke-width="1.2"/>'
+        )
+    axis_y = top + row_h * len(rows) + 10
+    for frac, val in ((0.0, lo), (1.0, hi)):
+        out.append(
+            f'<text x="{plot_x + frac * pw:.1f}" y="{axis_y:.1f}" '
+            f'text-anchor="{"start" if frac == 0 else "end"}" font-size="8" '
+            f'fill="#777">{val:.3g}</text>'
+        )
+    page, pages, n = m.get("page", 0), m.get("pages", 1), m.get("n", len(rows))
+    cap = f"median, 50% and 90% intervals · coordinate order · {n} elements"
+    if pages > 1:
+        cap += f" · page {page + 1} of {pages}"
+    out.append(
+        f'<text x="{pad:.0f}" y="{axis_y + 12:.1f}" font-size="9" fill="#9aa0a6">{cap}</text>'
+    )
+    out.append("</svg>")
+    return "".join(out)
+
+
 def render_node_panel(n) -> str:
     """Standalone SVG for the widget's pinned card of ANY glyph-bearing node: the node's
     existing ``glyph_data`` drawn large through the same registry as the in-node glyph, plus

@@ -214,6 +214,18 @@ class ModelGraphView:
                 return False
         return True
 
+    def marginals_svg(self, node_id: str, page: int = 0) -> str:
+        """Labelled per-element posterior intervals for ``node_id`` (coordinate order, 24 rows
+        per page, one axis shared across pages) — the static twin of the widget card's panel.
+        Empty when no idata is attached or it has no draws for that node."""
+        from .adapters.glyph_data import marginal_rows
+        from .render_svg import render_marginals_panel
+
+        if self.ir.node(node_id) is None:
+            raise ValueError(f"bayesdag: unknown node {node_id!r}")
+        m = marginal_rows(node_id, self._idata, page=page) if self._idata is not None else None
+        return render_marginals_panel(node_id, m) if m else ""
+
     @property
     def _can_expand_plates(self) -> bool:
         return bool(self._model is not None and self.ir.plates and self._ppc_draws)
@@ -320,6 +332,18 @@ class ModelGraphView:
             # precomputed glyph_data (JS just injects this SVG): observed nodes keep the
             # histogram + best-fit overlay; everything else renders its glyph large with the
             # hedged source caption + coord labels.
+            if self._idata is not None and n.role in ("latent", "deterministic"):
+                from .adapters.glyph_data import marginal_rows
+
+                m = marginal_rows(n.id, self._idata)
+                if m and (m["n"] > 1 or n.role == "deterministic"):
+                    from .render_svg import render_marginals_panel
+
+                    nodes[n.id]["marginals"] = {
+                        "svg": render_marginals_panel(n.id, m),
+                        "page": m["page"],
+                        "pages": m["pages"],
+                    }
             if n.glyph_data:
                 if n.role == "observed":
                     panel = render_observed_panel(n.id, n.dist, n.glyph_data)
