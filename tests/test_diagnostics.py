@@ -258,7 +258,9 @@ def test_no_joint_without_divergences_or_without_a_funnel():
     assert diagnostics.joint_views(centered, None) == []
 
     non_centered = to_ir(_centered_eight_schools())
-    non_centered.plates = []  # theta no longer plated -> not the funnel shape
+    non_centered.plates = []  # theta no longer indexed by a group -> not the funnel shape
+    for n in non_centered.nodes:
+        n.dims = []
     assert diagnostics.joint_views(non_centered, _funnel_idata()) == []
 
 
@@ -367,3 +369,30 @@ def test_vector_diagnostics_name_the_worst_coordinate():
     d = diagnostics.per_node(idata, ["x"])["x"]
     assert d["rhat_at"] == "g=c"
     assert any("worst element: g=c" in r for r in diagnostics.describe(d))
+
+
+def test_divergences_add_the_parameterization_hints():
+    """With divergences, a centered hierarchy's effect gets the hedged "non-centered may help"
+    row, and a non-centered hierarchy's scale the converse; without them, neither."""
+    import sys
+
+    sys.path.insert(0, "examples")
+    from structures import build_eight_schools_centered, build_eight_schools_noncentered
+
+    from bayesdag.convert import to_ir
+
+    div = _funnel_idata()
+    c = to_ir(build_eight_schools_centered())
+    diagnostics.annotate(c, div)
+    assert "reparam_hint" in c.node("theta").diag["flags"]
+    assert any(
+        "non-centered parameterization may help" in r
+        for r in diagnostics.describe(c.node("theta").diag)
+    )
+    nc = to_ir(build_eight_schools_noncentered())
+    diagnostics.annotate(nc, div)
+    assert "centered_hint" in nc.node("tau").diag["flags"]
+    assert diagnostics.funnel_candidates(nc) == []
+    clean = to_ir(build_eight_schools_centered())
+    diagnostics.annotate(clean, _funnel_idata(n_div=0))
+    assert "reparam_hint" not in (clean.node("theta").diag or {}).get("flags", [])

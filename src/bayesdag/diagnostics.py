@@ -35,10 +35,15 @@ FLAG_LABELS = {
     "rhat": "chains may not have mixed — inspect the trace",
     "ess": "few effective samples — estimates are noisy",
     "funnel": "funnel-prone geometry — inspect the joint",
+    "reparam_hint": (
+        "centered hierarchy with divergences — a non-centered parameterization may help when "
+        "the data are weakly informative about these groups (Betancourt & Girolami 2015)"
+    ),
+    "centered_hint": (
+        "non-centered hierarchy still diverging — with strongly informative group data the "
+        "centered form can sample better"
+    ),
 }
-
-# scale-family slots: a latent feeding one of these on a PLATED child is the classic funnel neck
-_SCALE_SLOTS = frozenset({"scale", "sigma", "tau", "sd"})
 
 
 def _extreme(obj, name: str, *, worst_is_max: bool) -> tuple[float | None, str | None]:
@@ -145,26 +150,30 @@ def model_level(idata: Any) -> dict:
 
 
 def funnel_candidates(ir: ModelIR) -> list[tuple[str, str]]:
-    """``[(scale_id, child_id)]`` — latents used as the SCALE of a plated latent child.
+    """``[(scale_id, child_id)]`` — latents that set the SCALE of a centered hierarchy's group
+    effects (``bayesdag.blocks.centered``: a plated latent drawn around coarser, shared parents).
 
-    Purely structural: read off ``ParamIR`` slots, no samples involved, so it is testable without
-    pymc and costs nothing. This is the shape that produces Neal's funnel — the centered
-    hierarchy whose group-level spread is itself being estimated.
+    Purely structural: no samples involved, so it is testable without pymc and costs nothing.
+    This is the shape that produces Neal's funnel — the centered hierarchy whose group-level
+    spread is itself being estimated. A non-centered hierarchy has no such pair.
     """
-    plated = {m for p in ir.plates for m in p.members}
+    from .blocks import centered
+
+    by_id = {n.id: n for n in ir.nodes}
     out: list[tuple[str, str]] = []
-    for node in ir.nodes:
-        if node.role != "latent" or node.id not in plated:
-            continue
-        for param in node.params:
-            if param.name not in _SCALE_SLOTS:
-                continue
-            for parent in param.parents:
-                parent_node = next((n for n in ir.nodes if n.id == parent), None)
-                if parent_node is not None and parent_node.role == "latent":
-                    pair = (parent, node.id)
-                    if pair not in out:
-                        out.append(pair)
+    for b in centered(ir):
+        for parent in b.roles.get("scale", []):
+            pn = by_id.get(parent)
+            if pn is not None and pn.role == "latent" and (parent, b.anchor) not in out:
+                out.append((parent, b.anchor))
+    return out
+
+
+def _noncentered_scales(ir: ModelIR) -> list[str]:
+    out: list[str] = []
+    for b in ir.blocks:
+        if b.variant == "noncentered":
+            out += [s for s in b.roles.get("scale", []) if s not in out]
     return out
 
 
@@ -347,8 +356,17 @@ def annotate(ir: ModelIR, idata: Any) -> dict:
     # Structure alone would flag every centered hierarchy, even one that sampled perfectly, so the
     # funnel hint only appears when the run actually produced divergences to explain.
     if summary.get("divergences"):
-        for scale_id, _child in funnel_candidates(ir):
-            stats.setdefault(scale_id, {"flags": []})["flags"].append("funnel")
+        for scale_id, child in funnel_candidates(ir):
+            flags = stats.setdefault(scale_id, {"flags": []})["flags"]
+            if "funnel" not in flags:
+                flags.append("funnel")
+            cflags = stats.setdefault(child, {"flags": []})["flags"]
+            if "reparam_hint" not in cflags:
+                cflags.append("reparam_hint")
+        for scale_id in _noncentered_scales(ir):
+            flags = stats.setdefault(scale_id, {"flags": []})["flags"]
+            if "centered_hint" not in flags:
+                flags.append("centered_hint")
 
     for node in ir.nodes:
         entry = stats.get(node.id)
