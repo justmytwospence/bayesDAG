@@ -14,7 +14,7 @@ Two of the hedges are structural rather than stylistic:
 * Vector nodes report their **worst element**. A single number standing for 8 schools would be
   the same lie the pooled-KDE glyph refuses to tell, so the caption says which it is.
 * The funnel flag is *structural* — read off the graph, not the samples — so on its own it would
-  fire on every non-centered hierarchy that sampled perfectly. It is only surfaced when the run
+  fire on every centered hierarchy, including the many that sample perfectly. It is only surfaced when the run
   actually produced divergences, i.e. when there is something to inspect.
 
 ``arviz`` is imported lazily: nothing outside this module needs it.
@@ -344,7 +344,7 @@ def annotate(ir: ModelIR, idata: Any) -> dict:
     summary = model_level(idata)
     ir.aux_views = joint_views(ir, idata)
 
-    # Structure alone would flag every non-centered hierarchy that sampled perfectly well, so the
+    # Structure alone would flag every centered hierarchy, even one that sampled perfectly, so the
     # funnel hint only appears when the run actually produced divergences to explain.
     if summary.get("divergences"):
         for scale_id, _child in funnel_candidates(ir):

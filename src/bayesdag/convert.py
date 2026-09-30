@@ -51,8 +51,8 @@ def to_ir(obj: Any, idata: Any = None) -> ModelIR:
 
 
 def subgraph(ir: ModelIR, var_names: Sequence[str]) -> ModelIR:
-    """A new ``ModelIR`` restricted to ``var_names`` plus their direct parents (the same
-    context rule as ``pm.model_to_graphviz(var_names=...)``). Pure omission — edges are
+    """A new ``ModelIR`` restricted to ``var_names`` plus their direct parents (one hop of
+    context; PyMC's own ``model_to_graphviz(var_names=...)`` keeps all ancestors). Pure omission — edges are
     induced on the kept set, plate member lists pruned, empty plates dropped; nothing is
     fabricated and the input IR is not mutated."""
     ids = {n.id for n in ir.nodes}

@@ -37,7 +37,7 @@ idata = pm.sample(model=model)
 bayesdag.view(model, idata=idata)    # nodes gain posterior overlays
 ```
 
-`view(...)` also takes `var_names=[...]`, which restricts the diagram to those variables plus their direct parents — the same semantics as `pm.model_to_graphviz(var_names=…)`, and `ppc_draws=` (`0` to skip the plate prior-predictive panels entirely).
+`view(...)` also takes `var_names=[...]`, which restricts the diagram to those variables plus their direct parents (one hop of context; `pm.model_to_graphviz(var_names=…)` keeps all ancestors instead), and `ppc_draws=` (`0` to skip the plate prior-predictive panels entirely).
 
 ### Working with a fitted model
 

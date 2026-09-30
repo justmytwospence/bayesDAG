@@ -461,7 +461,8 @@ def view(
     ``widget_legend`` (default ``False``) controls it for the **interactive** widget, which
     omits the legend by default since hovering a node already surfaces the same information.
     ``var_names`` (default ``None`` = everything) restricts the diagram to those variables
-    plus their direct parents — the same semantics as ``pm.model_to_graphviz(var_names=…)``.
+    plus their direct parents — one hop of context (``pm.model_to_graphviz(var_names=…)`` keeps
+    all ancestors instead).
     ``ppc_draws`` (default 200) is the draw count for the **interactive** plate
     prior-predictive panels, which forward-simulate the model; ``0`` skips them entirely.
     Static rendering never pays this cost.
