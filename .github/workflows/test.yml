@@ -49,6 +49,9 @@ jobs:
       - name: Install JS deps (esbuild bundles widget + mathjax + elk)
         run: npm ci  # honors package-lock.json; `npm install` can silently drift within ranges
 
+      - name: JS controller tests (node:test + jsdom)
+        run: npm test
+
       - name: Sync Python env (builds the JS bundles via hatch-jupyter-builder)
         run: uv sync
 

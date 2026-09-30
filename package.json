@@ -5,7 +5,7 @@
   "type": "module",
   "comments": {
     "PACKAGE_VERSION": "Must match the mathjax-full version below. The define kills MathJax's eval(\"require\") Node-detection branch so the bundle runs in bare V8; a stale value re-enables it and math rendering breaks at runtime. tests/test_rollback_and_export.py keeps this file's version in sync with pyproject.toml.",
-    "dependencies": "elkjs and mathjax-full are BUNDLED into the wheel — see THIRD_PARTY_LICENSES. Nothing else ships: js/index.js imports nothing at runtime."
+    "dependencies": "elkjs and mathjax-full are BUNDLED into the wheel \u2014 see THIRD_PARTY_LICENSES. Nothing else ships: js/index.js imports nothing at runtime."
   },
   "engines": {
     "node": ">=18"
@@ -16,10 +16,12 @@
     "build:mathjax": "esbuild js/mathjax_entry.js --bundle --format=iife --platform=browser --define:PACKAGE_VERSION='\"3.2.1\"' --outfile=src/bayesdag/static/mathjax.bundle.js",
     "build:elk": "node -e \"['elk-api.js','elk-worker.min.js'].forEach(f=>require('fs').copyFileSync('node_modules/elkjs/lib/'+f,'src/bayesdag/static/'+f))\"",
     "build:css": "node -e \"require('fs').copyFileSync('js/widget.css','src/bayesdag/static/widget.css')\"",
-    "dev": "esbuild js/index.js --sourcemap=inline --format=esm --bundle --outfile=src/bayesdag/static/widget.js --watch"
+    "dev": "esbuild js/index.js --sourcemap=inline --format=esm --bundle --outfile=src/bayesdag/static/widget.js --watch",
+    "test": "node --test js/test/"
   },
   "devDependencies": {
-    "esbuild": "^0.23.0"
+    "esbuild": "^0.23.0",
+    "jsdom": "^24.1.3"
   },
   "dependencies": {
     "elkjs": "^0.9.3",
