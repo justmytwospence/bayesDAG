@@ -123,13 +123,18 @@ def render_value(
     wrap_leaves: bool,
     budget: list[int] | None = None,
     _root: bool = False,
+    seen: set[str] | None = None,
 ) -> tuple[str, set[str]]:
     """Return ``(latex, used_leaf_names)``. ``named`` maps ``id(var) -> name``.
 
     ``used`` always holds EVERY named leaf the expression depends on (the edge set), while only
     the FIRST occurrence of each leaf is token-wrapped: a repeated ``\\cssId{tok-mu}`` would give
-    the composed SVG duplicate element ids."""
-    state = {"budget": budget if budget is not None else [40], "seen": set()}
+    the composed SVG duplicate element ids. Pass one ``seen`` set to several calls that end up
+    in the same label so the rule holds across all of them."""
+    state = {
+        "budget": budget if budget is not None else [40],
+        "seen": seen if seen is not None else set(),
+    }
     tex, used, _ = _render(var, named, wrap_leaves, state, _root)
     return tex, used
 

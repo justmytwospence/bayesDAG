@@ -147,7 +147,10 @@ def check(model_ir: ir.ModelIR) -> None:
                 break
             seen.add(q)
             q = parent_of.get(q)
+    contracted = {n.block for n in model_ir.nodes if n.role == "block" and n.block}
     for b in model_ir.blocks:
+        if b.id in contracted:
+            continue  # a display projection: its members live inside the compound node
         refs = list(b.members) + ([b.anchor] if b.anchor else [])
         refs += [x for xs in b.roles.values() for x in xs]
         missing = sorted({r for r in refs if r not in known})

@@ -15,7 +15,10 @@ from typing import Any
 from .ir import ModelIR
 
 
-def to_ir(obj: Any, idata: Any = None) -> ModelIR:
+def to_ir(obj: Any, idata: Any = None, *, blocks: bool = True) -> ModelIR:
+    """Convert a model (or a ModelIR / its dict) to a ``ModelIR``. ``blocks`` (default True)
+    recognizes model structures (hierarchies, shrinkage priors, regressions) — see
+    ``bayesdag.blocks``."""
     if isinstance(obj, ModelIR | dict):
         # Posterior glyphs are computed by the ADAPTER, from the model's random variables —
         # there is nothing left to attach them to once the IR is built. Returning silently
@@ -41,7 +44,7 @@ def to_ir(obj: Any, idata: Any = None) -> ModelIR:
     if name == "Model" and module.startswith("pymc"):
         from .adapters.pymc import from_pymc
 
-        return from_pymc(obj, idata=idata)
+        return from_pymc(obj, idata=idata, blocks=blocks)
 
     # future: numpyro (`MCMC`/handlers), stan (cmdstanpy) -> from_numpyro / from_stan
     raise TypeError(

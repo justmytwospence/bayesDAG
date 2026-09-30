@@ -244,7 +244,7 @@ def _plate_id(names: tuple, lengths: tuple, used: set[str]) -> str:
     return pid
 
 
-def from_pymc(model: Any, idata: Any = None) -> ModelIR:
+def from_pymc(model: Any, idata: Any = None, *, blocks: bool = True) -> ModelIR:
     from pymc.model_graph import ModelGraph
 
     g = ModelGraph(model)
@@ -407,4 +407,23 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
     _nest_plates(plates)
 
     meta = Meta.stamp(source_ppl="pymc", model_name=getattr(model, "name", None) or None)
-    return ModelIR(nodes=nodes, edges=edges, plates=plates, meta=meta)
+    ir = ModelIR(nodes=nodes, edges=edges, plates=plates, meta=meta)
+    if blocks:
+        _detect_blocks(model, ir, named)
+    return ir
+
+
+def _detect_blocks(model: Any, ir: ModelIR, named: dict[int, str]) -> None:
+    """Recognized structures (see ``adapters/blocks.py``) plus the IR-level centered
+    hierarchies, resolved into one tag per anchor. Guarded: a detector failure costs the tags,
+    never the diagram."""
+    try:
+        from .. import blocks as ir_blocks
+        from .blocks import detect
+
+        found = detect(model, ir, named) + ir_blocks.centered(ir)
+        ir_blocks.resolve(ir, found)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).debug("block detection failed", exc_info=True)

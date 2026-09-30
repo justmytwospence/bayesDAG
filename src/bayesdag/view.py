@@ -170,6 +170,13 @@ class ModelGraphView:
         from .adapters.pymc import overlays_for
 
         self._idata = idata
+        # a deterministic that anchors a recognized effect (a non-centered hierarchy, shrunken
+        # coefficients) is a quantity with a posterior of its own, not just a transfer function
+        effects = {
+            b.anchor
+            for b in self.ir.blocks
+            if b.anchor and (b.variant == "noncentered" or b.kind == "shrinkage")
+        }
         for n in self.ir.nodes:
             base_spec, base_data, base_note = self._base_glyphs[n.id]
             # deterministics depict a transfer FUNCTION (their posterior goes to the card); an
@@ -178,7 +185,9 @@ class ModelGraphView:
             post = None
             if idata is not None and n.role == "observed":
                 post = predictive_glyph(n.id, n.dist, idata)
-            elif idata is not None and n.role not in ("deterministic", "data", "potential"):
+            elif idata is not None and (
+                n.role == "latent" or (n.role == "deterministic" and n.id in effects)
+            ):
                 post = posterior_glyph(n.id, n.dist, idata)
             if post is not None:
                 n.glyph, n.glyph_data = post

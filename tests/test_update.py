@@ -61,7 +61,8 @@ def test_the_diagram_does_not_move_when_the_posterior_arrives(fitted_eight_schoo
         "mu": "posterior_kde",
         "tau": "posterior_kde",
         "eta": "posterior_kde",  # one curve per school (never one pooled curve)
-        "theta": None,  # a deterministic depicts its transfer function, never a posterior
+        # theta anchors a recognized hierarchy: an effect with a posterior of its own
+        "theta": "posterior_kde",
         "y_obs": "observed_hist",  # observed nodes keep their data
     }
     assert "#d2691e" in v.to_svg()  # the posterior colour reaches the figure

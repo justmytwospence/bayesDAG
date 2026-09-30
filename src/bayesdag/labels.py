@@ -204,6 +204,19 @@ DIST_PARAM_TEMPLATES: dict[str, list[list[str | None]]] = {
     "RandomWalk": [["init", "innov", None]],  # [init_dist, innovation_dist, steps]
     "AR": [["rho", "sigma", "init", None]],  # [rho, sigma, init_dist, steps]
     "Censored": [["dist", "lower", "upper"]],
+    "TruncatedNormal": [["mu", "sigma", "lower", "upper"]],  # the op's (mu, sigma, lower, upper)
+    # SymbolicRandomVariable families whose op signature yields only arg0/arg1…; order verified
+    # against the logp-locked translations in adapters/glyph_data.py
+    "HalfStudentT": [["nu", "sigma"]],
+    "SkewStudentT": [["a", "b", "mu", "sigma"]],
+    "Kumaraswamy": [["a", "b"]],
+    "Wald": [["mu", "lam", "alpha"]],
+    "LogitNormal": [["mu", "sigma"]],
+    "Rice": [["b", "sigma"]],
+    "ExGaussian": [["mu", "sigma", "nu"]],
+    "AsymmetricLaplace": [["b", "kappa", "mu"]],
+    "DiscreteWeibull": [["q", "beta"]],
+    "Moyal": [["mu", "sigma"]],
     "Mixture": [
         ["w", "comp"],  # NormalMixture (single packed component)
         ["w", "comp1", "comp2"],  # ZeroInflated*/two-component (e.g. [w, zero-spike, count])

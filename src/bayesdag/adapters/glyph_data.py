@@ -102,20 +102,34 @@ def _conditional_shape(var, dist: str | None, vals: list | None = None):
     shape_vals = [v for f, v in zip(fill, vals, strict=True) if f is _S]
     if not uniform(shape_vals):
         return None, None, GlyphNote("elements differ in shape")
+    data = _conditional_shape_from_values(dist, vals)
+    if data is None:
+        return None, None, GlyphNote(_shape_note([]))
+    return GlyphSpec(kind="schematic", source="conditional_standardized"), data, None
+
+
+def _conditional_shape_from_values(dist: str, vals: list) -> dict | None:
+    """The standardized curve of ``dist`` given per-slot values (None = set by a parent). Shape
+    slots must be known; location/scale slots take their canonical 0/1. None when unknowable."""
+    fill = _STD_FILL.get(dist or "")
+    if fill is None or len(fill) != len(vals):
+        return None
+    if any(f is _S and v is None for f, v in zip(fill, vals, strict=True)):
+        return None
     params = [
         (np.asarray(v).reshape(-1)[0] if f is _S else f) for f, v in zip(fill, vals, strict=True)
     ]
     frozen = _scipy_frozen(dist, params)
     data = _density_from_frozen(frozen) if frozen is not None else _custom_density(dist, params)
     if data is None:
-        return None, None, GlyphNote(_shape_note([]))
+        return None
     xs = np.asarray(data["xs"], float)
     span = float(xs[-1] - xs[0]) or 1.0
     # the axis carries no values (location/scale are the parents'), so it is rescaled to [0, 1]
     # and the zero marker stays off
     data["xs"] = [float((x - xs[0]) / span) for x in xs]
     data.update({"family": dist, "exact": True})
-    return GlyphSpec(kind="schematic", source="conditional_standardized"), data, None
+    return data
 
 
 def _slot_names(var, dist, n) -> list[str]:

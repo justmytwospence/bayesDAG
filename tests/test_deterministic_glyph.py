@@ -133,7 +133,10 @@ def test_provably_depictable_draws(label, builder, kind):
 
 @pytest.mark.parametrize("label,builder", _SKIP, ids=[c[0] for c in _SKIP])
 def test_unprovable_skips_to_equation_only(label, builder):
-    assert _glyph(builder) is None, label  # zero false positives: never a misleading curve
+    g = _glyph(builder)
+    # zero false positives: never a misleading transfer curve. (`tau*eta` with a standard-normal
+    # eta IS provably a Normal given tau — a recognized non-centered structure draws THAT.)
+    assert g is None or g.source == "implied_family", label
 
 
 def test_softmax_is_a_caption():

@@ -41,6 +41,8 @@ _CHROME = {
     "data": ("#eeeeee", "#666666", 11.0),
     "potential": ("#f5ecdc", "#8a6d3b", 2.5),
     "factor": ("#f5ecdc", "#8a6d3b", 2.5),
+    # a compound node standing for a recognized/annotated structure (display projections only)
+    "block": ("#fbfcfe", "#4b5563", 10.0),
 }
 _GLYPH_COLORS = {
     "prior_analytic": ("#2a8a55", "#2a8a55"),
@@ -167,10 +169,18 @@ def _node_chrome(n: NodeIR, b: Box) -> str:
     dash = ' stroke-dasharray="4,3"' if n.role in ("potential", "factor") else ""
     sw = 1.1 if n.role == "deterministic" else 1.4  # the deterministic box reads as secondary
     # class "bd-chrome" lets the widget highlight ONLY the box outline (never the equation/glyph).
-    return (
+    out = (
         f'<rect class="bd-chrome" x="{b.x:.1f}" y="{b.y:.1f}" width="{b.w:.1f}" height="{b.h:.1f}" '
         f'rx="{rx}" ry="{rx}" fill="{fill}" stroke="{stroke}" stroke-width="{sw}"{dash}/>'
     )
+    if n.role == "block":  # a double border: several variables live inside
+        i = 3.0
+        out += (
+            f'<rect x="{b.x + i:.1f}" y="{b.y + i:.1f}" width="{b.w - 2 * i:.1f}" '
+            f'height="{b.h - 2 * i:.1f}" rx="{rx - 2}" ry="{rx - 2}" fill="none" '
+            f'stroke="{stroke}" stroke-width="0.7"/>'
+        )
+    return out
 
 
 def _edge(pts: list[list[float]], src: str, tgt: str) -> str:
@@ -640,6 +650,16 @@ def _legend_swatch(kind: str, b: Box) -> str:
         return (
             f'<text x="{b.x + b.w / 2:.1f}" y="{b.y + b.h - 1:.1f}" text-anchor="middle" '
             f'font-size="13" fill="#333">{escape(s)}</text>'
+        )
+    if kind == "tag":
+        return (
+            f'<text x="{b.x:.1f}" y="{b.y + b.h - 2:.1f}" font-size="8" fill="#4b5563">'
+            "pooling</text>"
+        )
+    if kind == "annotated":
+        return (
+            f'<rect x="{b.x:.1f}" y="{b.y:.1f}" width="{b.w:.1f}" height="{b.h:.1f}" rx="3" '
+            'fill="#fbfcfe" stroke="#4b5563" stroke-dasharray="1.5,1.5"/>'
         )
     if kind == "elision":
         return f'<text x="{b.x:.1f}" y="{b.y + b.h - 1:.1f}" font-size="11" fill="#333">[⋯]</text>'

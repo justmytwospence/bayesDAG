@@ -14,6 +14,7 @@ _ROLE_LABELS = {
     "data": "data",
     "potential": "potential (factor)",
     "factor": "factor",
+    "block": "block — a collapsed structure (several variables)",
 }
 _SOURCE_LABELS = {
     "prior_analytic": "prior density (parameters known)",
@@ -39,7 +40,7 @@ class LegendItem:
 def build(ir: ModelIR) -> list[LegendItem]:
     items: list[LegendItem] = []
 
-    for role in ("latent", "observed", "deterministic", "data", "potential", "factor"):
+    for role in ("latent", "observed", "deterministic", "data", "potential", "factor", "block"):
         if any(n.role == role for n in ir.nodes):
             items.append(LegendItem(f"role:{role}", _ROLE_LABELS[role]))
 
@@ -66,7 +67,11 @@ def build(ir: ModelIR) -> list[LegendItem]:
     if any(n.role == "deterministic" for n in ir.nodes):
         items.append(LegendItem("symbol:=", "“=”  computed from"))
     if ir.plates:
-        items.append(LegendItem("plate", "plate — repeats over its dimension"))
+        items.append(LegendItem("plate", "plate — indexed by its dimension"))
+    if any(n.tag for n in ir.nodes):
+        items.append(LegendItem("tag", "tag — a structure read off the graph"))
+    if any(b.provenance == "annotated" for b in ir.blocks):
+        items.append(LegendItem("annotated", "annotated — declared by the user, not verified"))
     if any(
         ("\\cdots" in (n.label_tex or "")) or ("\\ldots" in (n.label_tex or "")) or n.elision_reason
         for n in ir.nodes

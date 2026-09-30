@@ -237,7 +237,8 @@ def test_glyph_sources(eight_schools_ir):
     # continuous observed likelihood -> the data histogram, no fitted curve (a family fitted to
     # the marginal of regression data says nothing about the likelihood)
     assert g["y_obs"].source == "observed_hist" and g["y_obs"].kind == "histogram"
-    assert g["theta"] is None  # deterministic -> no shape glyph in M0
+    # a recognized non-centered hierarchy: theta | mu, tau ~ Normal, drawn as that exact shape
+    assert g["theta"].source == "implied_family"
 
 
 def test_halfnormal_support_is_nonnegative(eight_schools_ir):
