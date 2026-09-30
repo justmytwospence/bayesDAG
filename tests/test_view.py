@@ -33,7 +33,8 @@ def test_widget_ships_identical_graph_svg(eight_schools_model):
     w = v.widget()
     assert "bd-legend" not in w.spec["svg"]  # no legend in the widget
     assert "bd-legend" in v.to_svg()  # ...but yes in the static SVG
-    assert w.spec["svg"] == to_svg(v.ir, v.layout, legend=False)  # identical graph bytes
+    # identical graph bytes, for the projection on screen (the overview by default)
+    assert w.spec["svg"] == to_svg(v.display_ir, v.layout, legend=False)
 
 
 def test_widget_legend_opt_in(eight_schools_model):
@@ -78,7 +79,7 @@ def test_display_degrades_to_static_when_the_widget_fails(monkeypatch, eight_sch
 
 def test_widget_spec_has_nodes_adjacency_and_tags(eight_schools_model):
     pytest.importorskip("anywidget")
-    spec = bayesdag.view(eight_schools_model).widget().spec
+    spec = bayesdag.view(eight_schools_model, detail="full").widget().spec
     assert "svg" in spec and "nodes" in spec
     assert set(spec["nodes"]) == {"mu", "tau", "eta", "theta", "y_obs"}
     assert "theta" in spec["nodes"]["tau"]["blanket"]  # Markov blanket adjacency
@@ -117,7 +118,16 @@ def test_spec_carries_every_key_the_js_reads(eight_schools_model):
     pytest.importorskip("anywidget")
     spec = bayesdag.view(eight_schools_model, widget_legend=False).widget().spec
 
-    assert set(spec) >= {"svg", "nodes", "plates", "aux", "expandable"}
+    assert set(spec) >= {
+        "svg",
+        "nodes",
+        "plates",
+        "aux",
+        "expandable",
+        "blocks",
+        "detail",
+        "has_overview",
+    }
 
     # per-node detail: tooltip, pinned card, constructor line, and the highlight/trace sets
     required = {
@@ -128,6 +138,8 @@ def test_spec_carries_every_key_the_js_reads(eight_schools_model):
         "params",
         "transform",
         "glyph_note",
+        "tag",
+        "block",
         "parents",
         "children",
         "blanket",
@@ -143,6 +155,22 @@ def test_spec_carries_every_key_the_js_reads(eight_schools_model):
             assert set(p) >= {"name", "value"}  # paramsText()/familyText()
         assert "pm." not in str(node)  # no fabricated constructor code anywhere
 
+    # structures: the block card reads these
+    for bid, b in spec["blocks"].items():
+        missing = {
+            "title",
+            "provenance",
+            "workflow",
+            "roles",
+            "notes",
+            "references",
+            "members",
+            "contracted",
+            "display_id",
+            "expanded",
+            "anchor",
+        } - set(b)
+        assert not missing, f"block {bid} is missing {sorted(missing)}"
     # plate panels are looked up as plates[pid].panel, or plates[pid].reason when unavailable
     for pid, plate in spec["plates"].items():
         assert "panel" in plate or "reason" in plate, f"plate {pid} has neither panel nor reason"

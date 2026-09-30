@@ -329,3 +329,80 @@ def test_overview_renders_with_unique_ids():
     ids = [el.get("id") for el in root.iter() if el.get("id")]
     assert len(ids) == len(set(ids))
     assert "regularized horseshoe · half-t(2) locals" in svg
+
+
+# ------------------------------------------------------------------------------ the view
+
+
+def test_view_defaults_to_the_overview_and_switches_in_place():
+    v = bayesdag.view(STRUCTURE_MODELS["eight_schools_noncentered"](), ppc_draws=0)
+    assert v.detail == "overview"
+    assert "block:hierarchy:theta" in {n.id for n in v.display_ir.nodes}
+    assert {n.id for n in v.ir.nodes} >= {"eta", "theta"}  # canonical IR untouched
+    full = v.to_svg(detail="full")
+    assert 'data-node="eta"' in full and 'data-node="eta"' not in v.to_svg()
+    v.set_detail("full")
+    assert v.to_svg() == full
+    v.set_detail("overview").expand("block:hierarchy:theta")
+    assert 'data-node="eta"' in v.to_svg()
+    v.collapse("block:hierarchy:theta")
+    assert 'data-node="eta"' not in v.to_svg()
+    with pytest.raises(ValueError):
+        v.expand("block:nope")
+    with pytest.raises(ValueError):
+        bayesdag.view(STRUCTURE_MODELS["eight_schools_noncentered"](), detail="compact")
+
+
+def test_view_without_blocks_and_with_annotations():
+    m = STRUCTURE_MODELS["eight_schools_noncentered"]()
+    off = bayesdag.view(m, blocks=None, ppc_draws=0)
+    assert not off.blocks and off.display_ir is off.ir
+    spec = bayesdag.BlockSpec("custom", "the school effects", members=["eta", "theta"])
+    ann = bayesdag.view(m, blocks=None, annotations=[spec], ppc_draws=0)
+    (b,) = ann.blocks
+    assert b.provenance == "annotated"
+    svg = ann.to_svg()
+    assert "the school effects" in svg and "annotated" in svg  # the legend says so
+
+
+def test_widget_block_selection_and_expansion_round_trip():
+    pytest.importorskip("anywidget")
+    v = bayesdag.view(STRUCTURE_MODELS["eight_schools_noncentered"](), ppc_draws=0)
+    w = v.widget()
+    spec = w.spec
+    assert spec["detail"] == "overview" and spec["has_overview"]
+    blk = spec["blocks"]["block:hierarchy:theta"]
+    assert blk["contracted"] and blk["display_id"] == "block:hierarchy:theta"
+    assert spec["nodes"]["eta"]["hidden"]  # members still get cards
+    assert spec["nodes"]["block:hierarchy:theta"]["role"] == "block"
+    w.expanded_blocks = ["block:hierarchy:theta"]  # the JS clicked "expand"
+    assert 'data-node="eta"' in w.spec["svg"]
+    assert w.spec["nodes"]["eta"]["in_block"] == "block:hierarchy:theta"
+    w.detail = "full"
+    assert v.detail == "full"
+    w.panel_request = {"kind": "block", "block_id": "block:hierarchy:theta"}
+    assert w.panel_response["status"] == "ready" and "partial pooling" in w.panel_response["svg"]
+    w.panel_request = {"kind": "nope", "node_id": "theta"}
+    assert w.panel_response["status"] == "error"
+    assert w.selected_node == ""  # a block id never lands in selected_node
+
+
+def test_update_keeps_the_overview_still():
+    import xarray as xr
+
+    m = STRUCTURE_MODELS["eight_schools_noncentered"]()
+    v = bayesdag.view(m, ppc_draws=0)
+    boxes = {k: (b.x, b.y, b.w, b.h) for k, b in v.layout.node_boxes.items()}
+    rng = np.random.default_rng(0)
+    post = {
+        "mu": (("chain", "draw"), rng.normal(size=(2, 50))),
+        "tau": (("chain", "draw"), np.abs(rng.normal(size=(2, 50)))),
+        "eta": (("chain", "draw", "school"), rng.normal(size=(2, 50, 8))),
+        "theta": (("chain", "draw", "school"), rng.normal(size=(2, 50, 8))),
+    }
+    idata = xr.DataTree.from_dict({"posterior": xr.Dataset(post)})
+    v.update(idata)
+    blk = v.display_ir.node("block:hierarchy:theta")
+    assert blk.glyph.kind == "multi"  # the block shows its anchor's posterior
+    assert {k: (b.x, b.y, b.w, b.h) for k, b in v.layout.node_boxes.items()} == boxes
+    assert "posterior per element" in v.panel_svg("marginals", block_id="block:hierarchy:theta")

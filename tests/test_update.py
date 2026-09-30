@@ -143,7 +143,7 @@ def test_the_widget_is_pushed_and_stays_in_parity(fitted_eight_schools):
     v.update(idata=idata)
 
     assert w.spec["svg"] != before  # the push actually happened
-    assert w.spec["svg"] == to_svg(v.ir, v.layout, legend=False)  # ...and parity survived it
+    assert w.spec["svg"] == to_svg(v.display_ir, v.layout, legend=False)  # parity survived it
     assert w.spec["nodes"]["mu"]["panel"]  # the card panel was rebuilt too
 
 

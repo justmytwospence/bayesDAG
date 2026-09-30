@@ -530,6 +530,56 @@ def render_marginals_panel(node_id: str, m: dict) -> str:
     return "".join(out)
 
 
+def render_block_panel(b) -> str:
+    """A structure's summary as standalone SVG (the static twin of the widget's block card):
+    title, provenance, roles and the hedged notes. Text only — a block is structure, not data."""
+    lines: list[tuple[str, str]] = [
+        (
+            "sub",
+            ("annotated by the user" if b.provenance == "annotated" else "read off the graph")
+            + (f" · {b.workflow.replace('_', ' ')}" if b.workflow else "")
+            + (f" · rule {b.rule}" if b.rule else ""),
+        )
+    ]
+    for role, names in b.roles.items():
+        lines.append(("row", f"{role.replace('_', ' ')}: {', '.join(names)}"))
+    if b.members:
+        lines.append(("row", f"inside: {', '.join(b.members)}"))
+    for note in b.notes:
+        lines.append(("note", note))
+    if b.references:
+        lines.append(("note", "see " + "; ".join(b.references)))
+    pad, lh, w = 12.0, 14.0, 360.0
+    per = int((w - 2 * pad) / 5.4)
+    wrapped: list[tuple[str, str]] = []
+    for kind, text in lines:
+        while len(text) > per:
+            cut = text.rfind(" ", 0, per)
+            cut = cut if cut > 0 else per
+            wrapped.append((kind, text[:cut]))
+            text = "  " + text[cut:].lstrip()
+        wrapped.append((kind, text))
+    h = pad * 2 + 18 + lh * len(wrapped)
+    out = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w:.0f}" height="{h:.0f}" '
+        f'viewBox="0 0 {w:.0f} {h:.0f}" font-family="system-ui, sans-serif">',
+        f'<rect width="{w:.0f}" height="{h:.0f}" rx="8" fill="#ffffff" stroke="#c7c7cc"/>',
+        f'<text x="{pad:.0f}" y="{pad + 12:.0f}" font-size="12" font-weight="600" '
+        f'fill="#333">{escape(b.title)}</text>',
+    ]
+    color = {"sub": "#6b7280", "row": "#333", "note": "#555"}
+    y = pad + 18 + lh - 3
+    for kind, text in wrapped:
+        style = ' font-style="italic"' if kind == "note" else ""
+        out.append(
+            f'<text x="{pad:.0f}" y="{y:.1f}" font-size="10" fill="{color[kind]}"{style}>'
+            f"{escape(text)}</text>"
+        )
+        y += lh
+    out.append("</svg>")
+    return "".join(out)
+
+
 def render_node_panel(n) -> str:
     """Standalone SVG for the widget's pinned card of ANY glyph-bearing node: the node's
     existing ``glyph_data`` drawn large through the same registry as the in-node glyph, plus

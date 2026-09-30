@@ -239,3 +239,48 @@
   color: #9aa0a6;
   font-size: 10px;
 }
+
+/* structures (blocks) in the card */
+.bd-tag-line,
+.bd-block-sub {
+  color: #4b5563;
+  font-size: 11px;
+  margin: 2px 0 4px;
+}
+.bd-role {
+  font-size: 11px;
+  margin: 1px 0;
+}
+.bd-role span {
+  color: #6b7280;
+  display: inline-block;
+  min-width: 68px;
+}
+.bd-members summary {
+  cursor: pointer;
+  font-size: 11px;
+  color: #374151;
+  margin-top: 4px;
+}
+.bd-member {
+  margin: 4px 0 4px 8px;
+  font-size: 11px;
+}
+.bd-expand-btn,
+.bd-collapse-btn,
+.bd-page-btn {
+  font: 11px system-ui, sans-serif;
+  margin: 6px 6px 0 0;
+  padding: 1px 8px;
+  border: 1px solid #d0d4da;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+.bd-pager {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #6b7280;
+}

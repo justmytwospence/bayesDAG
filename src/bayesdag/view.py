@@ -10,6 +10,7 @@ import copy
 import logging
 from typing import Any
 
+from . import blocks as _blocks
 from . import diagnostics, geometry, render_static
 from .convert import drop_index_data, subgraph, to_ir
 from .ir import ModelIR
@@ -78,7 +79,15 @@ class ModelGraphView:
         var_names: Any = None,
         ppc_draws: int | None = 200,
         hide_index_data: bool = True,
+        detail: str = "overview",
+        blocks: str | None = "auto",
+        annotations: Any = (),
+        expand: Any = (),
     ) -> None:
+        if detail not in ("overview", "full"):
+            raise ValueError(f"bayesdag.view: detail must be 'overview' or 'full', not {detail!r}")
+        if blocks not in ("auto", None):
+            raise ValueError(f"bayesdag.view: blocks must be 'auto' or None, not {blocks!r}")
         _warm_layout_engine()  # build the ELK V8 isolate on its worker WHILE to_ir runs
         # A prebuilt IR (or its dict form) carries no pymc model: the adapter already ran, so
         # there is nothing for the glyph providers or the plate prior-predictive to work from.
@@ -93,8 +102,14 @@ class ModelGraphView:
         # The IR is ALWAYS built prior-only and owned by this view: a posterior is attached through
         # `update()` alone, so `update(None)` can always restore what was built (the prior) — and
         # a caller's IR object (or a second view of it) is never mutated.
-        base = to_ir(model_or_ir)
+        base = to_ir(model_or_ir, blocks=blocks == "auto")
         self.ir = copy.deepcopy(base) if prebuilt else base
+        if blocks is None:
+            self.ir = _blocks.strip(self.ir)
+        elif prebuilt and not self.ir.blocks:
+            self.ir = _blocks.detect_ir(self.ir)  # structure an IR carries by itself
+        # the user's declarations win over anything recognized
+        self.ir = _blocks.apply(self.ir, list(annotations or ()))
         if hide_index_data:  # lookup-table Data whose name every consumer's equation shows
             self.ir = drop_index_data(self.ir)
         if var_names is not None:
@@ -119,16 +134,94 @@ class ModelGraphView:
         self._plate_panels: dict | None = None  # built once; independent of idata
         # a prebuilt IR shows what it was given until something is attached or detached
         self._diagnostics = self._apply_data(idata) if idata is not None else {}
-        self.layout = layout(self.ir, rankdir=rankdir)
-        self._svg = to_svg(self.ir, self.layout, legend=legend)
+        self._detail = detail
+        self._expand: set[str] = set(expand or ())
+        self._layouts: dict = {}  # (detail, expanded, rankdir) -> LayoutResult
+        self._render()
+
+    # ---- projection + layout ---------------------------------------------------
+    def _project(self, detail: str) -> ModelIR:
+        return _blocks.overview(self.ir, expand=self._expand) if detail == "overview" else self.ir
+
+    def _layout_for(self, shown: ModelIR, detail: str):
+        key = (detail, frozenset(self._expand), self._rankdir)
+        cache = self.__dict__.setdefault("_label_cache", {})
+        _restore_label_svgs(shown, cache)  # a projection is re-derived; its labels are not
+        res = self._layouts.get(key)
+        if res is None or not _fits(shown, res):
+            res = self._layouts[key] = layout(shown, rankdir=self._rankdir)
+        else:
+            _reapply_geometry(shown, res)
+        _remember_label_svgs(shown, cache)
+        return res
+
+    def _render(self) -> None:
+        """Project (overview or full), lay out (cached per projection) and emit the SVG."""
+        shown = self._project(self._detail)
+        self.layout = self._layout_for(shown, self._detail)
+        self.display_ir = shown
+        self._svg = to_svg(shown, self.layout, legend=self._legend)
+
+    def _push(self) -> None:
+        if self._widget is not None:
+            self._widget.spec = self._build_spec()
+            if self._widget.detail != self._detail:
+                self._widget.detail = self._detail
+            if sorted(self._widget.expanded_blocks) != sorted(self._expand):
+                self._widget.expanded_blocks = sorted(self._expand)
+
+    @property
+    def detail(self) -> str:
+        """``"overview"`` (recognized/annotated structures contracted) or ``"full"``."""
+        return self._detail
+
+    @property
+    def blocks(self) -> list:
+        """The structures on this diagram (:class:`~bayesdag.ir.BlockIR`), most specific first."""
+        return list(self.ir.blocks)
+
+    def set_detail(self, detail: str):
+        """Switch between the overview and the full variable graph, in place."""
+        if detail not in ("overview", "full"):
+            raise ValueError(f"detail must be 'overview' or 'full', not {detail!r}")
+        if detail != self._detail:
+            self._detail = detail
+            self._render()
+            self._push()
+        return self
+
+    def expand(self, block_ids):
+        """Show these blocks' member variables instead of their compound box."""
+        ids = {block_ids} if isinstance(block_ids, str) else set(block_ids)
+        unknown = ids - {b.id for b in self.ir.blocks}
+        if unknown:
+            raise ValueError(f"bayesdag: unknown block(s) {sorted(unknown)}")
+        self._expand |= ids
+        self._render()
+        self._push()
+        return self
+
+    def collapse(self, block_ids):
+        """Undo :meth:`expand` for these blocks."""
+        ids = {block_ids} if isinstance(block_ids, str) else set(block_ids)
+        self._expand -= ids
+        self._render()
+        self._push()
+        return self
 
     # ---- outputs ---------------------------------------------------------------
-    def to_svg(self) -> str:
-        return self._svg
+    def to_svg(self, *, detail: str | None = None) -> str:
+        """The figure's SVG; ``detail`` renders the other projection without switching."""
+        if detail is None or detail == self._detail:
+            return self._svg
+        if detail not in ("overview", "full"):
+            raise ValueError(f"detail must be 'overview' or 'full', not {detail!r}")
+        shown = self._project(detail)
+        return to_svg(shown, self._layout_for(shown, detail), legend=self._legend)
 
-    def save(self, path):
+    def save(self, path, *, detail: str | None = None):
         """Save to .svg / .png / .pdf (format from the extension)."""
-        return render_static.save(self._svg, path)
+        return render_static.save(self.to_svg(detail=detail), path)
 
     # ---- live update -----------------------------------------------------------
     def update(self, idata: Any = None):
@@ -149,18 +242,10 @@ class ModelGraphView:
         ``view()`` remains the pure-dataflow alternative.
         """
         self._diagnostics = self._apply_data(idata)
-
-        if self._layout_still_fits():
-            layout_result = self.layout  # nothing resized: the diagram must not jump
-        else:
-            logging.getLogger(__name__).debug(
-                "update(): a glyph changed size class, so the diagram is being laid out again"
-            )
-            layout_result = self.layout = layout(self.ir, rankdir=self._rankdir)
-
-        self._svg = to_svg(self.ir, layout_result, legend=self._legend)
-        if self._widget is not None:
-            self._widget.spec = self._build_spec()
+        # the cached layouts stay valid exactly when no node changed size (the common case: a
+        # density strip becomes a density strip); `_layout_for` re-measures and relays otherwise
+        self._render()
+        self._push()
         return self
 
     def _apply_data(self, idata: Any) -> dict:
@@ -214,29 +299,14 @@ class ModelGraphView:
         return self._idata
 
     def _layout_still_fits(self) -> bool:
-        """Whether every node still wants exactly the box the current layout gave it."""
-        for n in self.ir.nodes:
-            box = self.layout.node_boxes.get(n.id)
-            if box is None:
-                return False
-            lw, lh = geometry.label_px_size(n.label_svg)
-            kind = n.glyph.kind if n.glyph else None
-            w, h = geometry.node_size(lw, lh, kind, n.glyph_data, **geometry.flags(n))
-            if abs(w - box.w) > 0.5 or abs(h - box.h) > 0.5:
-                return False
-        return True
+        """Whether every shown node still wants exactly the box the current layout gave it."""
+        return _fits(self.display_ir, self.layout)
 
     def marginals_svg(self, node_id: str, page: int = 0) -> str:
         """Labelled per-element posterior intervals for ``node_id`` (coordinate order, 24 rows
         per page, one axis shared across pages) — the static twin of the widget card's panel.
         Empty when no idata is attached or it has no draws for that node."""
-        from .adapters.glyph_data import marginal_rows
-        from .render_svg import render_marginals_panel
-
-        if self.ir.node(node_id) is None:
-            raise ValueError(f"bayesdag: unknown node {node_id!r}")
-        m = marginal_rows(node_id, self._idata, page=page) if self._idata is not None else None
-        return render_marginals_panel(node_id, m) if m else ""
+        return self.panel_svg("marginals", node_id=node_id, page=page)
 
     @property
     def _can_expand_plates(self) -> bool:
@@ -294,11 +364,81 @@ class ModelGraphView:
             self.expand_plates()
             self._widget.spec = self._build_spec()
 
+    def _node_entry(self, n, g, moral, nx, parents, children) -> dict:
+        blanket = sorted(moral.neighbors(n.id)) if (moral is not None and n.id in moral) else []
+        # Transitive lineage for the directional trace shown on pin (click): every node that
+        # flows INTO this one (ancestors) vs. every node it flows into (descendants). Computed
+        # here so the JS layer stays graph-algorithm-free.
+        in_graph = nx is not None and n.id in g
+        entry = {
+            "role": n.role,
+            "dist": n.dist,
+            "observed": n.observed,
+            "dims": list(n.dims),
+            "params": [{"name": p.name, "value": p.value_tex} for p in n.params],
+            "transform": n.transform,
+            "glyph_note": n.glyph_note,
+            "tag": n.tag,
+            "block": n.block,
+            "parents": parents.get(n.id, []),
+            "children": children.get(n.id, []),
+            "blanket": blanket,
+            "ancestors": sorted(nx.ancestors(g, n.id)) if in_graph else [],
+            "descendants": sorted(nx.descendants(g, n.id)) if in_graph else [],
+            # the SAME MathJax SVG embedded in the diagram -> the tooltip/card show real
+            # rendered math (parity), not raw LaTeX source. Token ids are stripped: these
+            # copies land in the same document as the diagram and would duplicate its ids.
+            "label_svg": strip_token_ids(n.label_svg) if n.label_svg else _label_svg(n),
+            # hedged diagnostic rows for the pinned card ([] when there is no idata)
+            "diag": diagnostics.describe(n.diag),
+        }
+        # the variable whose posterior a card shows: itself, or a compound node's anchor
+        var = self.ir.block(n.block).anchor if n.role == "block" and n.block else n.id
+        canon = self.ir.node(var) if var else None
+        if (
+            self._idata is not None
+            and canon is not None
+            and canon.role
+            in (
+                "latent",
+                "deterministic",
+            )
+        ):
+            m = self._marginals(var, 0)
+            if m and (m["n"] > 1 or canon.role == "deterministic" or n.role == "block"):
+                entry["marginals"] = m
+                entry["marginals_of"] = var
+        # every glyph-bearing node gets a large pinned-card panel built straight from the
+        # precomputed glyph_data (JS just injects this SVG)
+        if n.glyph_data:
+            if n.role == "observed":
+                panel = render_observed_panel(n.id, n.dist, n.glyph_data)
+            else:
+                panel = render_node_panel(n)
+            if panel:
+                entry["panel"] = panel
+        return entry
+
+    def _marginals(self, node_id: str, page: int) -> dict | None:
+        from .adapters.glyph_data import marginal_rows
+        from .render_svg import render_marginals_panel
+
+        m = marginal_rows(node_id, self._idata, page=page) if self._idata is not None else None
+        if not m:
+            return None
+        return {
+            "svg": render_marginals_panel(node_id, m),
+            "page": m["page"],
+            "pages": m["pages"],
+            "n": m["n"],
+        }
+
     def _build_spec(self) -> dict:
-        """SVG + per-node detail + adjacency (Markov blanket) for the interactive layer."""
+        """SVG + per-node detail + adjacency (Markov blanket) + structures for the widget."""
         from .adapters.graph import to_networkx
 
-        g = to_networkx(self.ir)
+        shown = self.display_ir
+        g = to_networkx(shown)
         try:
             import networkx as nx
 
@@ -306,63 +446,46 @@ class ModelGraphView:
         except Exception:
             nx = None
             moral = None
-        parents: dict[str, list] = {n.id: [] for n in self.ir.nodes}
-        children: dict[str, list] = {n.id: [] for n in self.ir.nodes}
-        for e in self.ir.edges:
+        parents: dict[str, list] = {n.id: [] for n in shown.nodes}
+        children: dict[str, list] = {n.id: [] for n in shown.nodes}
+        for e in shown.edges:
             children.setdefault(e.source, []).append(e.target)
             parents.setdefault(e.target, []).append(e.source)
-        nodes = {}
+        nodes = {n.id: self._node_entry(n, g, moral, nx, parents, children) for n in shown.nodes}
+        # the members hidden inside compound nodes still get cards (the block card lists them)
+        cg = to_networkx(self.ir)
+        cparents: dict[str, list] = {}
+        cchildren: dict[str, list] = {}
+        for e in self.ir.edges:
+            cchildren.setdefault(e.source, []).append(e.target)
+            cparents.setdefault(e.target, []).append(e.source)
         for n in self.ir.nodes:
-            blanket = sorted(moral.neighbors(n.id)) if (moral is not None and n.id in moral) else []
-            # Transitive lineage for the directional causal trace shown on pin (click): every
-            # node that flows INTO this one (ancestors) vs. every node it flows into
-            # (descendants). Computed here so the JS layer stays graph-algorithm-free.
-            in_graph = nx is not None and n.id in g
-            ancestors = sorted(nx.ancestors(g, n.id)) if in_graph else []
-            descendants = sorted(nx.descendants(g, n.id)) if in_graph else []
-            nodes[n.id] = {
-                "role": n.role,
-                "dist": n.dist,
-                "observed": n.observed,
-                "dims": list(n.dims),
-                "params": [{"name": p.name, "value": p.value_tex} for p in n.params],
-                "transform": n.transform,
-                "glyph_note": n.glyph_note,
-                "parents": parents.get(n.id, []),
-                "children": children.get(n.id, []),
-                "blanket": blanket,
-                "ancestors": ancestors,
-                "descendants": descendants,
-                # the SAME MathJax SVG embedded in the diagram -> the tooltip/card show real
-                # rendered math (parity), not raw LaTeX source. Token ids are stripped: these
-                # copies land in the same document as the diagram and would duplicate its ids.
-                "label_svg": strip_token_ids(n.label_svg) if n.label_svg else n.label_svg,
-                # hedged diagnostic rows for the pinned card ([] when there is no idata)
-                "diag": diagnostics.describe(n.diag),
+            if n.id not in nodes:
+                entry = self._node_entry(n, cg, None, nx, cparents, cchildren)
+                entry["hidden"] = True
+                nodes[n.id] = entry
+        contracted = {n.block: n.id for n in shown.nodes if n.role == "block" and n.block}
+        blocks_spec = {}
+        for b in self.ir.blocks:
+            blocks_spec[b.id] = {
+                "title": b.title,
+                "kind": b.kind,
+                "variant": b.variant,
+                "provenance": b.provenance,
+                "workflow": b.workflow,
+                "anchor": b.anchor,
+                "members": list(b.members),
+                "roles": {k: list(v) for k, v in b.roles.items()},
+                "notes": list(b.notes),
+                "references": list(b.references),
+                "collapsible": b.collapsible and bool(b.members),
+                "contracted": b.id in contracted,
+                "display_id": contracted.get(b.id),
+                "expanded": b.id in self._expand,
             }
-            # every glyph-bearing node gets a large pinned-card panel built straight from the
-            # precomputed glyph_data (JS just injects this SVG): observed nodes keep the
-            # histogram + best-fit overlay; everything else renders its glyph large with the
-            # hedged source caption + coord labels.
-            if self._idata is not None and n.role in ("latent", "deterministic"):
-                from .adapters.glyph_data import marginal_rows
-
-                m = marginal_rows(n.id, self._idata)
-                if m and (m["n"] > 1 or n.role == "deterministic"):
-                    from .render_svg import render_marginals_panel
-
-                    nodes[n.id]["marginals"] = {
-                        "svg": render_marginals_panel(n.id, m),
-                        "page": m["page"],
-                        "pages": m["pages"],
-                    }
-            if n.glyph_data:
-                if n.role == "observed":
-                    panel = render_observed_panel(n.id, n.dist, n.glyph_data)
-                else:
-                    panel = render_node_panel(n)
-                if panel:
-                    nodes[n.id]["panel"] = panel
+            for m in b.members:
+                if m in nodes and b.id in self._expand:
+                    nodes[m]["in_block"] = b.id
         # Panels only if they have already been computed — clicking a plate is what triggers the
         # simulation. `expandable` tells the JS which plates to offer the affordance for.
         plates = self._plate_panels or {}
@@ -371,7 +494,7 @@ class ModelGraphView:
         widget_svg = (
             self._svg
             if self._widget_legend == self._legend
-            else to_svg(self.ir, self.layout, legend=self._widget_legend)
+            else to_svg(shown, self.layout, legend=self._widget_legend)
         )
         # posterior-geometry panels, keyed by the node whose card offers them (the scale that
         # forms the funnel's neck). Built only for a run that actually diverged.
@@ -391,7 +514,12 @@ class ModelGraphView:
             "nodes": nodes,
             "plates": plates,
             "aux": aux,
-            "expandable": [p.id for p in self.ir.plates] if self._can_expand_plates else [],
+            "blocks": blocks_spec,
+            "detail": self._detail,
+            # whether an overview differs from the full graph at all (the toggle is pointless
+            # otherwise)
+            "has_overview": bool(_blocks.contracting(self.ir)) or bool(self._expand),
+            "expandable": [p.id for p in shown.plates] if self._can_expand_plates else [],
         }
         if self._model is not None:
             from .adapters.ppc import potential_note
@@ -413,9 +541,82 @@ class ModelGraphView:
         if self._widget is None:
             from .widget import ModelGraphWidget
 
-            self._widget = ModelGraphWidget(spec=self._build_spec())
+            self._widget = ModelGraphWidget(
+                spec=self._build_spec(),
+                detail=self._detail,
+                expanded_blocks=sorted(self._expand),
+            )
             self._widget.observe(self._on_plate_expand, names="expanded_plate")
+            self._widget.observe(self._on_detail, names="detail")
+            self._widget.observe(self._on_expanded, names="expanded_blocks")
+            self._widget.observe(self._on_panel_request, names="panel_request")
         return self._widget
+
+    def _on_detail(self, change) -> None:
+        if change["new"] in ("overview", "full") and change["new"] != self._detail:
+            self.set_detail(change["new"])
+
+    def _on_expanded(self, change) -> None:
+        want = {b for b in (change["new"] or []) if self.ir.block(b) is not None}
+        if want != self._expand:
+            self._expand = want
+            self._render()
+            self._push()
+
+    def _on_panel_request(self, change) -> None:
+        """The JS asks for a panel page (it computes nothing itself); answer on panel_response."""
+        req = change["new"] or {}
+        if not req or self._widget is None:
+            return
+        try:
+            svg = self.panel_svg(
+                req.get("kind", "marginals"),
+                node_id=req.get("node_id"),
+                block_id=req.get("block_id"),
+                page=int(req.get("page", 0)),
+            )
+            resp = {"request": req, "status": "ready" if svg else "unavailable", "svg": svg}
+        except Exception as exc:  # a bad request is answered, never raised into the kernel
+            resp = {"request": req, "status": "error", "reason": str(exc), "svg": ""}
+        self._widget.panel_response = resp
+
+    def panel_svg(
+        self,
+        kind: str,
+        *,
+        node_id: str | None = None,
+        block_id: str | None = None,
+        page: int = 0,
+    ) -> str:
+        """The same Python-rendered panels the widget card offers, as standalone SVG.
+
+        ``kind`` is ``"marginals"`` (per-element intervals, paged; needs idata), ``"node"``
+        (the node's glyph drawn large) or ``"block"`` (a structure's summary). Exactly one of
+        ``node_id``/``block_id``; an empty string means no data to draw."""
+        if (node_id is None) == (block_id is None):
+            raise ValueError("bayesdag.panel_svg: pass exactly one of node_id / block_id")
+        if block_id is not None:
+            b = self.ir.block(block_id)
+            if b is None:
+                raise ValueError(f"bayesdag: unknown block {block_id!r}")
+            if kind == "block":
+                from .render_svg import render_block_panel
+
+                return render_block_panel(b)
+            if b.anchor is None:
+                return ""
+            node_id = b.anchor
+        n = self.ir.node(node_id)
+        if n is None:
+            raise ValueError(f"bayesdag: unknown node {node_id!r}")
+        if kind == "marginals":
+            m = self._marginals(node_id, page)
+            return m["svg"] if m else ""
+        if kind == "node":
+            if n.role == "observed" and n.glyph_data:
+                return render_observed_panel(n.id, n.dist, n.glyph_data)
+            return render_node_panel(n)
+        raise ValueError(f"bayesdag.panel_svg: unknown panel kind {kind!r}")
 
     # ---- linked views ----------------------------------------------------------
     def ui(self):
@@ -481,6 +682,59 @@ class ModelGraphView:
         return mo.Html(self._svg)
 
 
+def _label_svg(n) -> str | None:
+    """A label rendered for a card (a member hidden inside a compound node was never laid out)."""
+    if not n.label_tex:
+        return None
+    try:
+        from . import mathsvg
+
+        r = mathsvg.get_renderer()
+        if not r.available:
+            return None
+        svg, _ = r.render_with_bboxes(n.label_tex, display=True)
+        return strip_token_ids(svg)
+    except Exception:
+        return None
+
+
+def _fits(shown: ModelIR, res) -> bool:
+    """Whether every node of ``shown`` still wants exactly the box ``res`` gave it."""
+    if set(res.node_boxes) != {n.id for n in shown.nodes}:
+        return False
+    for n in shown.nodes:
+        box = res.node_boxes[n.id]
+        svg = n.label_svg
+        if svg is None:
+            return False  # an unmeasured label (a fresh projection): lay out to measure it
+        lw, lh = geometry.label_px_size(svg)
+        kind = n.glyph.kind if n.glyph else None
+        w, h = geometry.node_size(lw, lh, kind, n.glyph_data, **geometry.flags(n))
+        if abs(w - box.w) > 0.5 or abs(h - box.h) > 0.5:
+            return False
+    return True
+
+
+def _reapply_geometry(shown: ModelIR, res) -> None:
+    """A reused layout's boxes/anchors, mirrored onto a freshly derived projection's nodes."""
+    for n in shown.nodes:
+        n.box = res.node_boxes.get(n.id)
+        n.port_anchors = res.node_token_anchors.get(n.id, {})
+
+
+def _remember_label_svgs(shown: ModelIR, cache: dict) -> None:
+    for n in shown.nodes:
+        if n.label_svg:
+            cache[(n.id, n.label_tex)] = n.label_svg
+
+
+def _restore_label_svgs(shown: ModelIR, cache: dict) -> None:
+    """A projection is re-derived on every render; its labels were measured the first time."""
+    for n in shown.nodes:
+        if n.label_svg is None:
+            n.label_svg = cache.get((n.id, n.label_tex))
+
+
 def view(
     model_or_ir: Any,
     idata: Any = None,
@@ -491,6 +745,10 @@ def view(
     var_names: Any = None,
     ppc_draws: int | None = 200,
     hide_index_data: bool = True,
+    detail: str = "overview",
+    blocks: str | None = "auto",
+    annotations: Any = (),
+    expand: Any = (),
 ) -> ModelGraphView:
     """Visualize a PyMC model (or a ``ModelIR``). Returns a :class:`ModelGraphView` that
     renders interactively in a notebook and statically elsewhere.
@@ -501,6 +759,12 @@ def view(
     ``var_names`` (default ``None`` = everything) restricts the diagram to those variables
     plus their direct parents — one hop of context (``pm.model_to_graphviz(var_names=…)`` keeps
     all ancestors instead).
+    ``detail`` (default ``"overview"``) contracts each recognized or annotated structure —
+    a non-centered hierarchy, a shrinkage prior, a declared measurement model — into one box
+    carrying its equations; ``"full"`` shows every variable. ``blocks`` (``"auto"``) recognizes
+    structures from the graph; ``None`` turns that off (``annotations`` still apply).
+    ``annotations`` is a sequence of :class:`bayesdag.BlockSpec` the user declares; ``expand``
+    lists block ids to show expanded from the start.
     ``hide_index_data`` (default ``True``) leaves out integer ``pm.Data`` used only as a gather
     index (``county_idx``) when every consumer's equation already shows its name
     (``a[county_idx]``); ``False`` keeps those nodes.
@@ -517,4 +781,8 @@ def view(
         var_names=var_names,
         ppc_draws=ppc_draws,
         hide_index_data=hide_index_data,
+        detail=detail,
+        blocks=blocks,
+        annotations=annotations,
+        expand=expand,
     )

@@ -67,8 +67,10 @@ def test_subgraph_drops_empty_plates_and_rejects_unknown(eight_schools_ir):
 def test_view_var_names_filters_and_renders(eight_schools_model):
     v = bayesdag.view(eight_schools_model, var_names=["theta"])
     assert {n.id for n in v.ir.nodes} == {"mu", "tau", "eta", "theta"}
-    svg = v.to_svg()
+    svg = v.to_svg(detail="full")
     assert "<svg" in svg and 'data-node="theta"' in svg and "y_obs" not in svg
+    # the selection keeps theta's whole hierarchy, so the overview still contracts it
+    assert 'data-node="block:hierarchy:theta"' in v.to_svg()
 
 
 def test_subgraph_round_trips_through_dict(eight_schools_ir):
