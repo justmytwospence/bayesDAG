@@ -149,8 +149,8 @@ def _is_affine(v: Any, named_ids: set, root_id: int, depth: int = 0) -> bool:
     if _is_leaf(v, named_ids, root_id):
         return True
     op = _opof(v)
-    if op is None:
-        return True
+    if op is None or not _depends_on_rv(v):
+        return True  # a parent-free subexpression is a constant: degree 0
     n = type(op).__name__
     sn = _scalar_op_name(op)
     ins = v.owner.inputs
@@ -161,10 +161,34 @@ def _is_affine(v: Any, named_ids: set, root_id: int, depth: int = 0) -> bool:
     if sn == "Mul":
         pd = [i for i in ins if _depends_on_rv(i)]
         return len(pd) <= 1 and all(_is_affine(i, named_ids, root_id, depth + 1) for i in pd)
-    if n in ("Dot", "Dot22", "Dot22Scalar", "Gemv", "CGemv", "BatchedDot"):
-        return len([i for i in ins if _depends_on_rv(i)]) <= 1
+    if _is_dot(op):
+        # A matrix product is linear in each operand, so it is affine only when exactly one operand
+        # varies AND that operand is itself affine (``X @ exp(b)`` is not a line). Fused BLAS ops
+        # (Gemm/Gemv/Dot22Scalar carry extra alpha/beta/accumulator inputs) are not handled.
+        pd = [i for i in ins if _depends_on_rv(i)]
+        if len(pd) != 1:
+            return len(pd) == 0
+        return _is_affine(pd[0], named_ids, root_id, depth + 1)
     if n in ("Subtensor", "AdvancedSubtensor", "AdvancedSubtensor1"):
+        # a gather by a RANDOM index is not a fixed linear map of the source
+        if any(_depends_on_rv(i) for i in ins[1:]):
+            return False
         return _is_affine(ins[0], named_ids, root_id, depth + 1)
+    if n == "Join":  # concatenate: ins[0] is the (constant) axis
+        if _depends_on_rv(ins[0]):
+            return False
+        return all(_is_affine(i, named_ids, root_id, depth + 1) for i in ins[1:])
+    return False
+
+
+def _is_dot(op: Any) -> bool:
+    """A plain matrix product: ``Dot``/``Dot22``/``BatchedDot``, or the ``Blockwise(Dot)`` that
+    ``@``/``pt.matmul`` builds in pytensor 3."""
+    n = type(op).__name__
+    if n in ("Dot", "Dot22", "BatchedDot"):
+        return True
+    if n == "Blockwise":
+        return type(getattr(op, "core_op", None)).__name__ in ("Dot", "Dot22")
     return False
 
 

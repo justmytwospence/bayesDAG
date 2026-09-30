@@ -53,6 +53,25 @@ _DRAW = [
         "curve",
     ),
     (
+        "matmul X @ b",
+        lambda: pm.Deterministic("d", np.ones((4, 3)) @ pm.Normal("b", 0, 1, shape=3)),
+        "curve",
+    ),
+    (
+        "pt.dot(X, b) + a",
+        lambda: pm.Deterministic(
+            "d", pm.Normal("a", 0, 1) + pt.dot(np.ones((4, 3)), pm.Normal("b", 0, 1, shape=3))
+        ),
+        "curve",
+    ),
+    (
+        "concatenate([0, q]) + data",
+        lambda: pm.Deterministic(
+            "d", pt.concatenate([pt.zeros(1), pm.Normal("q", 0, 1, shape=2)]) * np.arange(3.0)
+        ),
+        "curve",
+    ),
+    (
         "softmax",
         lambda: pm.Deterministic("d", pm.math.softmax(pm.Normal("e", 0, 1, shape=3))),
         "bars",
@@ -85,6 +104,20 @@ _SKIP = [
     (
         "pure gather a[idx]",
         lambda: pm.Deterministic("d", pm.Normal("a", 0, 1, shape=3)[np.array([0, 1, 2, 0])]),
+    ),
+    (
+        "nonlinear dot operand X @ exp(b)",
+        lambda: pm.Deterministic(
+            "d", np.ones((4, 3)) @ pm.math.exp(pm.Normal("b", 0, 1, shape=3)) + 1.0
+        ),
+    ),
+    (
+        "random index a[k] * data",
+        lambda: pm.Deterministic(
+            "d",
+            pm.Normal("a", 0, 1, shape=3)[pm.Categorical("k", np.ones(3) / 3, shape=4)]
+            * np.arange(4.0),
+        ),
     ),
     (
         "non-const exponent x**k",
