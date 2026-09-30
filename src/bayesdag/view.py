@@ -419,6 +419,39 @@ class ModelGraphView:
                 entry["panel"] = panel
         return entry
 
+    def fitted_panels(self, block_id: str) -> list[str]:
+        """The fitted-structure panels offered for a block (they need a model and a posterior)."""
+        from .adapters.fitted import applicable
+
+        b = self.ir.block(block_id)
+        if b is None:
+            raise ValueError(f"bayesdag: unknown block {block_id!r}")
+        if self._model is None or self._idata is None:
+            return []
+        return applicable(b, self.ir)
+
+    def _fitted(self, kind: str, b) -> tuple[str, str, str]:
+        """(status, svg, reason) of a fitted panel, cached per attached idata."""
+        from .adapters import fitted
+        from .render_panels import RENDERERS, render_unavailable
+
+        cache = self.__dict__.setdefault("_fitted_cache", {})
+        key = (kind, b.id, id(self._idata))
+        if key in cache:
+            return cache[key]
+        label = fitted.PANELS[kind][0]
+        try:
+            data = fitted.compute(kind, self._model, self.ir, self._idata, b)
+            out = ("ready", RENDERERS[kind](data), "")
+        except fitted.Unavailable as exc:
+            out = ("unavailable", render_unavailable(label, str(exc)), str(exc))
+        except Exception as exc:  # a panel failure is reported, never raised into the notebook
+            logging.getLogger(__name__).debug("fitted panel %s failed", kind, exc_info=True)
+            reason = f"could not compute this panel ({type(exc).__name__})"
+            out = ("error", render_unavailable(label, reason), reason)
+        cache[key] = out
+        return out
+
     def _marginals(self, node_id: str, page: int) -> dict | None:
         from .adapters.glyph_data import marginal_rows
         from .render_svg import render_marginals_panel
@@ -466,6 +499,8 @@ class ModelGraphView:
                 nodes[n.id] = entry
         contracted = {n.block: n.id for n in shown.nodes if n.role == "block" and n.block}
         blocks_spec = {}
+        from .adapters.fitted import PANELS
+
         for b in self.ir.blocks:
             blocks_spec[b.id] = {
                 "title": b.title,
@@ -482,7 +517,12 @@ class ModelGraphView:
                 "contracted": b.id in contracted,
                 "display_id": contracted.get(b.id),
                 "expanded": b.id in self._expand,
+                # the classic fitted pictures for this structure, computed when asked for
+                "panels": [{"kind": k, "label": PANELS[k][0]} for k in self.fitted_panels(b.id)],
             }
+            # a tag-only structure's card lives on its anchor node
+            if b.anchor in nodes and not b.members:
+                nodes[b.anchor].setdefault("blocks_here", []).append(b.id)
             for m in b.members:
                 if m in nodes and b.id in self._expand:
                     nodes[m]["in_block"] = b.id
@@ -569,8 +609,16 @@ class ModelGraphView:
         if not req or self._widget is None:
             return
         try:
+            from .adapters.fitted import PANELS
+
+            kind = req.get("kind", "marginals")
+            if kind in PANELS and req.get("block_id") and self.ir.block(req["block_id"]):
+                status, svg, reason = self._fitted(kind, self.ir.block(req["block_id"]))
+                resp = {"request": req, "status": status, "svg": svg, "reason": reason}
+                self._widget.panel_response = resp
+                return
             svg = self.panel_svg(
-                req.get("kind", "marginals"),
+                kind,
                 node_id=req.get("node_id"),
                 block_id=req.get("block_id"),
                 page=int(req.get("page", 0)),
@@ -591,10 +639,20 @@ class ModelGraphView:
         """The same Python-rendered panels the widget card offers, as standalone SVG.
 
         ``kind`` is ``"marginals"`` (per-element intervals, paged; needs idata), ``"node"``
-        (the node's glyph drawn large) or ``"block"`` (a structure's summary). Exactly one of
-        ``node_id``/``block_id``; an empty string means no data to draw."""
+        (the node's glyph drawn large), ``"block"`` (a structure's summary), or one of the
+        fitted-structure panels (:meth:`fitted_panels` lists them for a block: ``shrinkage``,
+        ``population``, ``pooling``, ``group_lines``, ``intercept_slope``, ``effect``, ``kappa``,
+        ``local_scale``, ``measured``). Exactly one of ``node_id``/``block_id``; an empty string
+        means no data to draw; a fitted panel that cannot be drawn honestly says why."""
         if (node_id is None) == (block_id is None):
             raise ValueError("bayesdag.panel_svg: pass exactly one of node_id / block_id")
+        from .adapters.fitted import PANELS
+
+        if kind in PANELS:
+            b = self.ir.block(block_id) if block_id else None
+            if b is None:
+                raise ValueError(f"bayesdag: the {kind!r} panel needs a known block_id")
+            return self._fitted(kind, b)[1]
         if block_id is not None:
             b = self.ir.block(block_id)
             if b is None:
