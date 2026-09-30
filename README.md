@@ -2,7 +2,9 @@
 
 **Shape-first, posterior-aware, interactive visualizations of PyMC models.**
 
-`bayesdag` renders a PyMC model as a rich generative-model diagram where **every node shows the full shape of its distribution** — so you can read the data-generating story off the curves (Kruschke-style) — with real **LaTeX math inside nodes**, **edges that point at the specific parameter** they feed, and prior/posterior overlays. It has a **static SVG renderer** (publication-quality) and an **interactive [anywidget](https://anywidget.dev)** renderer (Jupyter + [marimo](https://marimo.io)); both consume the same layout pass and the same rendered math, so the diagram itself is identical, and it falls back to static automatically when interactivity isn't available.
+`bayesdag` renders a PyMC model as a rich generative-model diagram where **every node whose shape is knowable shows it** — so you can read the data-generating story off the curves (Kruschke-style) — with real **LaTeX math inside nodes**, **edges that point at the specific parameter** they feed, and prior/posterior overlays. It has a **static SVG renderer** (publication-quality) and an **interactive [anywidget](https://anywidget.dev)** renderer (Jupyter + [marimo](https://marimo.io)); both consume the same layout pass and the same rendered math, so the diagram itself is identical, and it falls back to static automatically when interactivity isn't available.
+
+It also reads **well-known compound structures** off the graph — hierarchies, shrinkage priors, regressions — and by default draws an **overview** in which each structure is one labelled box carrying its implied distribution, with the full variable graph a toggle away (see [Recognized structures](#recognized-structures)).
 
 > **Status: pre-alpha.** M0 (the vertical slice) has landed, PyMC distribution coverage is complete, and the first slice of M2 is in: live posterior attachment, hedged convergence diagnostics on the nodes, and the funnel joint. The remaining M2 panels (parallel coordinates, energy) and the interop exporters are not built. See [`COVERAGE.md`](COVERAGE.md) for the live work-plan and [`docs/RESEARCH.md`](docs/RESEARCH.md) for background.
 
@@ -37,7 +39,7 @@ idata = pm.sample(model=model)
 bayesdag.view(model, idata=idata)    # nodes gain posterior overlays
 ```
 
-`view(...)` also takes `var_names=[...]`, which restricts the diagram to those variables plus their direct parents (one hop of context; `pm.model_to_graphviz(var_names=…)` keeps all ancestors instead), and `ppc_draws=` (`0` to skip the plate prior-predictive panels entirely).
+`view(...)` also takes `detail="full"` (every variable, instead of the default overview), `blocks=None` (no structure recognition), `annotations=[bayesdag.BlockSpec(...)]` (structures you declare), `hide_index_data=False` (keep integer lookup tables such as `county_idx`, which are otherwise folded into the equations that use them as `a[county_idx]`), and `var_names=[...]`, which restricts the diagram to those variables plus their direct parents (one hop of context; `pm.model_to_graphviz(var_names=…)` keeps all ancestors instead), and `ppc_draws=` (`0` to skip the plate prior-predictive panels entirely).
 
 ### Working with a fitted model
 
@@ -48,7 +50,9 @@ v.update(idata=idata)                # priors become posteriors IN PLACE — not
 v.update(None)                       # ...and back: it's a toggle
 ```
 
-`update` reuses the existing layout whenever no node changes size, which is the usual case, so the figure you are looking at gains its posterior without jumping. If a posterior *does* change a node's size class — an `MvNormal`'s pairplot square collapsing to a pooled KDE strip — the diagram is laid out again rather than drawn at a stale size.
+`update` reuses the existing layout whenever no node changes size, which is the usual case, so the figure you are looking at gains its posterior without jumping. If a posterior *does* change a node's size class — an `MvNormal`'s pairplot square becoming a per-element strip — the diagram is laid out again rather than drawn at a stale size.
+
+A vector's posterior is never pooled into one curve (that curve would be no element's posterior): up to 8 elements get one curve each, more a **forest** of per-element 50%/90% intervals sorted by median. The pinned card, and `v.marginals_svg(name, page=0)`, lists the same intervals labelled by coordinate in the variable's own order, 24 rows a page. When the `InferenceData` has `posterior_predictive` (or `prior_predictive`) draws for an observed node, its glyph becomes a **predictive check**: the data against the model's own replicates.
 
 When the `InferenceData` carries `sample_stats`, flagged nodes also pick up a hedged diagnostic mark (R-hat, ESS, divergence count), and a funnel-prone scale offers a **joint panel** showing the child against `log(scale)` with divergent draws in red. Every flag is phrased as "inspect this" — a divergence means the sampler struggled with the geometry, not that the model is wrong.
 
@@ -71,14 +75,49 @@ Every node carries a **density curve** as its primary mark — the shape is the 
 Why the shape and not a number: Hunter's [*Beyond path diagrams*](https://pmc.ncbi.nlm.nih.gov/articles/PMC6760248/) (2019) walks through three datasets with **identical r = 0.65 and identical fit indices** whose actual relationships are linear, curvilinear, and discontinuous. A diagram that labels its edges with coefficients shows the same picture for all three. That critique comes from inside the SEM literature, about its own dominant convention.
 
 - **prior density (parameters known)** — the family density with the node's real numeric parameters plugged in.
-- **prior shape (depends on parents)** — a hierarchical prior whose parameters are themselves random. Drawn as a fixed, parameter-free schematic (grey, dashed): sampling a shape through the parents would produce a different, misleading curve on every render.
-- **posterior (from idata)** — a KDE from a fitted `InferenceData`; per-class bars for a discrete variable.
-- **observed data** — a histogram (auto-binned) with an MLE best-fit family curve overlaid, or per-class bars for a discrete likelihood. Never a KDE.
+- **exact shape — location/scale set by parents** — a conditional prior whose parents only move or stretch it (a `Normal(mu, tau)`, a `HalfStudentT(nu=2, sigma=s)`): the family's standardized curve, which IS the shape. When a parent sets a *shape* parameter (a Gamma's `alpha`, a LogNormal's `sigma`), there is no fixed curve, so none is drawn — a caption names the parameter instead. Sampling a shape through the parents would draw a different, misleading curve on every render.
+- **posterior (from idata)** — a KDE from a fitted `InferenceData`, one curve per element for a short vector, a forest of intervals for a long one; per-value bars for a discrete variable.
+- **observed data** — a histogram (auto-binned) or per-value bars for a discrete likelihood. Never a KDE, and never a curve fitted to the data's marginal (the marginal of `N(mu_i, sigma)` data is a mixture, so a fitted Normal says nothing about the likelihood); attach predictive draws for the model's own comparison.
 - **transfer function** — for a `pm.Deterministic`, the canonical shape of the function it computes, drawn only when that shape is provable from the op graph.
+- **implied distribution** — for a recognized structure, the distribution the construction provably implies (`theta = mu + tau*eta` with a standard-normal `eta` is exactly `theta ~ Normal(mu, tau)`).
+
+A node that has nothing honest to draw says why in a grey caption; a construct with no honest picture at all (a `CustomDist`, a `GARCH11`) gets an amber "elided" badge. `pm.Potential` terms are drawn as **log-density factors**, `log ψ = <expression>`: they are neither sampled nor observed, and because generic forward simulation ignores them, a model containing one gets no prior-predictive panels (the widget says so).
 
 Roles are distinguished by fill and border rather than by outline shape — every node is a rounded rectangle, which reads better with math labels inside than an ellipse does. If you come from SEM path diagrams, note the deliberate deviation: there, ellipse means latent and rectangle means observed. Here that distinction is carried by fill and border, and the legend spells out the mapping.
 
 Constructs that can't be drawn honestly get an "elided" badge naming the reason, rather than a misleading picture. That naming is the point — the mainstream SEM plotting packages quietly under-draw instead (semPlot drops the mean structure, lavaanPlot omits variances and residuals), so a reader has no way to tell a model without those parts from a diagram that left them out.
+
+## Recognized structures
+
+| structure | recognized when (structurally, never by name) | drawn as |
+|---|---|---|
+| **partial pooling · non-centered** | a `Deterministic` `D = L + S·z` (or `exp(·)`, `invlogit(·)`, `A @ z`) with `z` a standard Normal/Student-t that nothing else uses, and a learned scale | one box: `D ~ Family(L, S)`, `z`'s and `D`'s equations, and the implied curve when its shape is fixed |
+| **partial pooling · centered** | a plated latent whose location or scale parent is shared across its elements (coarser dims) | a tag on the node |
+| **horseshoe / regularized horseshoe** | a coefficient's scale factors into one global and one local positive scale, optionally times the slab `c²λ²/(c²+τ²λ²)`; half-t locals are named as such (`· half-t(2) locals`), other locals give "global–local shrinkage" | one box: `β ~ N(center, τλ̃)` and the slab relation; the exact marginal for a plain horseshoe |
+| **… regression** (linear, logistic, probit, Poisson, log-normal, …) | an observed likelihood whose location, through one recognized link, is affine with a data × parameter term | a tag; `· with group effects` when a hierarchy enters the predictor |
+| **measured latent** | a latent read by a noisy observation and used elsewhere | a tag |
+
+The diagnostics use the same structures: with divergences, a centered hierarchy's card suggests (hedged) that a non-centered parameterization may help, and a non-centered one's the converse.
+
+What no rule can prove — a measurement model written as `Potential`s, a two-stage workflow feeding a first fit's posterior summaries as constants — you can **declare**:
+
+```python
+spec = bayesdag.BlockSpec(
+    kind="measurement",
+    title="bridge measurement model",
+    members=["bridge_marginal", "study_censored", "y_above"],   # the variables it owns
+    roles={"noise": ["assay_sd"]},                             # shared nodes it refers to
+    notes=["likelihood: marginal over tubes, censored study cells"],
+    workflow="joint",                                          # or "fixed_summary"
+)
+bayesdag.view(model, annotations=[spec])
+```
+
+Declared structures are drawn with a dashed inner border and marked "annotated"; they are the user's statement, never presented as verified. To make stage-one summaries part of a declared block, wrap them in `pm.Data` so they are named variables.
+
+In the widget, a structure box pins like a node (its card lists roles, notes and every member's equation, with an **expand** button); the toolbar switches between the overview and all variables. `v.set_detail(...)`, `v.expand(block_id)`, `v.collapse(...)`, `v.to_svg(detail=...)` and `v.panel_svg("block", block_id=...)` do the same from Python. The selected structure is the `selected_block` trait; `selected_node` only ever holds a variable name.
+
+Plates mean "indexed by": a `(protein, batch)` array sits inside the `protein` plate because its first index is the protein — a statement about indexing, not a claim that batches are exchangeable within proteins.
 
 ### A `pm.Model` is not a causal DAG
 
@@ -87,8 +126,8 @@ The arrows here are the conditional-dependence arrows of a factorization — the
 ## Roadmap
 
 - **M0** ✅ — vertical slice: 8-schools in both renderers, LaTeX nodes, port-edges, prior/posterior/observed glyphs, fallback.
-- **M1** — PyMC coverage: every published distribution renders (verified against `pm.distributions.__all__`). Remaining: `pm.Potential` factor glyphs, transforms-as-badges, nested submodels, `pm.do`/`pm.observe`, missing-data imputation.
-- **M2** — in progress: live posterior attachment, hedged R-hat/ESS/divergence badges, and the funnel joint have landed. Remaining: parallel coordinates, energy/BFMI, MCSE, interval/point annotations, prior linter, reparameterization suggestions.
+- **M1** — PyMC coverage: every published distribution renders (verified against `pm.distributions.__all__`), Potentials as log-density factors. Remaining: transforms-as-badges, nested submodels, `pm.do`/`pm.observe`, missing-data imputation.
+- **M2** — in progress: live posterior attachment, hedged R-hat/ESS/divergence badges, the funnel joint, predictive checks, per-element interval panels, recognized structures with structural reparameterization hints. Remaining: parallel coordinates, energy/BFMI, MCSE, prior linter.
 - **M3** — interop exporters (GraphML/PROV), reparameterization suggestions, scale, cross-PPL (`from_numpyro`), upstreaming to PyMC.
 
 ## License
