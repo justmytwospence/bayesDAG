@@ -59,6 +59,9 @@ def test_word_names_stay_whole_and_upright():
     assert symbol_for("between_subject_sd") == r"\mathrm{between\_subject\_sd}"
     assert symbol_for("count_prob") == r"\mathrm{count\_prob}"
     assert symbol_for("county_idx") == r"\mathrm{county\_idx}"
+    # a single-letter base keeps its subscript, but a worded one stays one word
+    assert symbol_for("n_effective_proteins") == r"n_{\mathrm{effective\_proteins}}"
+    assert symbol_for("beta_1_2") == r"\beta_{1,2}"
 
 
 def test_tex_specials_in_names_are_escaped():

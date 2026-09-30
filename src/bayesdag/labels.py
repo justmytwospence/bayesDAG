@@ -176,7 +176,7 @@ def _atom(token: str) -> str:
 
 
 def symbol_for(name: str) -> str:
-    """LaTeX symbol for a variable name.
+    r"""LaTeX symbol for a variable name.
 
     Math-style subscripts only where the name reads as math — a Greek or single-letter base:
     ``mu`` -> ``\mu``, ``mu_a`` -> ``\mu_{a}``, ``y_obs`` -> ``y_{\mathrm{obs}}``,
@@ -189,7 +189,11 @@ def symbol_for(name: str) -> str:
         return r"\mathrm{" + _tex_text(name) + "}"
     out = _atom(base)
     if sub:
-        out += "_{" + ",".join(_atom(s) for s in sub.split("_") if s) + "}"
+        parts = [s for s in sub.split("_") if s]
+        if all(p.isdigit() or len(p) == 1 or _is_greek(p) for p in parts):
+            out += "_{" + ",".join(_atom(p) for p in parts) + "}"  # indices: beta_{1,2}
+        else:  # a worded subscript stays one word: n_{effective_proteins}
+            out += r"_{\mathrm{" + _tex_text("_".join(parts)) + "}}"
     return out
 
 
