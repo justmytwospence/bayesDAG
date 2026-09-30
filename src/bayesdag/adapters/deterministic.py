@@ -2,7 +2,7 @@
 
 A ``pm.Deterministic("y", f(parents))`` gets a small CANONICAL, parameter-free glyph depicting the
 transfer function ``f`` itself — an S-curve for ``invlogit``, an exponential for ``exp``, a line for an
-affine linear predictor, a simplex for ``softmax``. Detection keys on the PRINCIPAL op of the
+affine linear predictor. Detection keys on the PRINCIPAL op of the
 expression graph, and a glyph is emitted ONLY when its shape is a *provable consequence* of that
 structure (ZERO false positives): we fall back to equation-only whenever the transform isn't reliably
 depictable.
@@ -297,19 +297,20 @@ def _const_exponent(node: Any) -> float | None:
     return None
 
 
-def _softmax_bars(var: Any) -> dict:
-    """A schematic k-category probability vector (softmax outputs ONE point on the k-simplex, so k bars
-    — distinct from a Dirichlet *prior over* the simplex, which gets marginal curves). k is the output
-    dimension (structurally known); the bars are equal (the canonical no-information simplex point), so
-    no specific probabilities are claimed. Honest: 'the output is a probability vector over k categories'."""
-    k = 3
+def _softmax_note(var: Any):
+    """Softmax outputs ONE point on the k-simplex whose coordinates depend on the inputs, so there
+    are no honest bar heights to draw. The structural fact goes in a caption instead."""
+    from .glyph_data import GlyphNote
+
+    k = None
     try:
         sh = var.type.shape
-        if sh and sh[-1] is not None and int(sh[-1]) >= 2:
-            k = min(int(sh[-1]), 8)
+        if sh and sh[-1] is not None:
+            k = int(sh[-1])
     except Exception:
         pass
-    return {"cats": list(range(k)), "heights": [1.0] * k}
+    what = f"{k} categories" if k else "the categories"
+    return None, None, GlyphNote(f"a probability vector over {what}")
 
 
 # --------------------------------------------------------------------------- entry point
@@ -349,7 +350,7 @@ def _classify(var: Any, named: dict):
             return None, None, None  # non-constant exponent (or trivial) -> skip
         return GlyphSpec(kind="curve", source=_SRC), _power(k, sign), None
     if n == "Softmax":
-        return GlyphSpec(kind="bars", source=_SRC), _softmax_bars(var), None
+        return _softmax_note(var)
 
     # A pure gather/identity (a[idx] with no arithmetic) is technically affine but a reindex, not a
     # meaningful line — skip it.

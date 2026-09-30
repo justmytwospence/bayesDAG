@@ -120,11 +120,28 @@ def _base_frozen(rv):
     return gd._scipy_frozen(name, params) if (name and params is not None) else None
 
 
+class _Differ(Exception):
+    """The batch members of a parameter differ, so no single glyph describes the node."""
+
+
+def _one_member(a: np.ndarray, event_ndim: int) -> np.ndarray:
+    """The single member of a batched parameter whose last ``event_ndim`` axes are the event.
+    Raises ``_Differ`` when batch members are not all identical — one picture would then state
+    something false about every member but the first."""
+    a = np.asarray(a, dtype=float)
+    if a.ndim <= event_ndim:
+        return a
+    flat = a.reshape((-1, *a.shape[a.ndim - event_ndim :]))
+    if not np.all(flat == flat[0]):
+        raise _Differ
+    return flat[0]
+
+
 def _first_matrix(params) -> np.ndarray | None:
     for p in params or []:
         a = np.asarray(p, dtype=float)
         if a.ndim >= 2 and a.shape[-1] > 1 and a.shape[-2] > 1:
-            return a[..., :, :] if a.ndim == 2 else a.reshape(a.shape[-2], a.shape[-1])
+            return _one_member(a, 2)
     return None
 
 
@@ -143,9 +160,17 @@ def _badge(reason: str):
 # ---- per-construct handlers (each returns (spec, data) or None) ------------------------------
 
 
-def _multivariate(params):
-    cov = _first_matrix(params)
-    if cov is None:
+# The covariance/scale slot of each multivariate family, in ``dist_params`` order. Reading "the
+# first matrix-shaped param" instead would take a batched MEAN (shape (n, d)) for a covariance.
+_COV_SLOT = {"MvNormalRV": 1, "MvStudentTRV": 2}
+
+
+def _multivariate(params, cls: str = "MvNormalRV"):
+    slot = _COV_SLOT.get(cls)
+    if slot is None or params is None or len(params) <= slot:
+        return None
+    cov = _one_member(np.asarray(params[slot], float), 2)
+    if cov.ndim != 2 or cov.shape[0] < 2:
         return None
     d = cov.shape[0]
     if d <= 4:
@@ -165,7 +190,7 @@ def _matrix_only(params):
 def _dirichlet(params):
     if not params:
         return None
-    a = np.asarray(params[0], float).ravel()
+    a = _one_member(np.asarray(params[0], float), 1).ravel()
     if a.size < 2 or not np.all(np.isfinite(a)):
         return None
     import scipy.stats as st
@@ -183,8 +208,8 @@ def _dirichlet(params):
 def _interpolated(params):
     if len(params or []) < 2:
         return None
-    xs = np.asarray(params[0], float).ravel()
-    ys = np.asarray(params[1], float).ravel()
+    xs = _one_member(np.asarray(params[0], float), 1).ravel()
+    ys = _one_member(np.asarray(params[1], float), 1).ravel()
     if xs.size < 2 or xs.size != ys.size or ys.max() <= 0:
         return None
     m = float(ys.max()) or 1.0
@@ -201,32 +226,44 @@ _SPIKE_GAIN = 3.0
 
 
 def _censored(var):
+    """Base density on the INTERIOR of the censoring interval only (no density exists outside
+    it — that mass sits on the bounds), plus a spike at each finite bound carrying its true mass."""
     ins = var.owner.inputs
     fr = _base_frozen(ins[0])
     if fr is None:
         return None
     lo, hi = _ev(ins[1]), _ev(ins[2])
-    dens = gd._density_from_frozen(fr)
-    if dens is None:
+    lo = float(np.asarray(lo).reshape(-1)[0]) if lo is not None else -np.inf
+    hi = float(np.asarray(hi).reshape(-1)[0]) if hi is not None else np.inf
+    if not hi > lo:
+        return None  # coincident bounds: all mass on a point, no density to draw
+    try:
+        a = max(lo, float(fr.ppf(0.005)))
+        b = min(hi, float(fr.ppf(0.995)))
+    except Exception:
         return None
-    x0, x1 = dens["xs"][0], dens["xs"][-1]
-    span = (x1 - x0) or 1.0
+    if not (np.isfinite(a) and np.isfinite(b)) or b <= a:
+        return None
+    xs = np.linspace(a, b, _GRID)
+    ys = np.asarray(fr.pdf(xs), float)
+    if not np.all(np.isfinite(ys)) or ys.max() <= 0:
+        return None
+    m = float(ys.max())
+    span = b - a
     spikes = []
-    if lo is not None and np.isfinite(lo):
-        spikes.append(
-            {"x": max(0.0, min(1.0, (float(lo) - x0) / span)), "p": float(fr.cdf(float(lo)))}
-        )
-    if hi is not None and np.isfinite(hi):
-        spikes.append(
-            {"x": max(0.0, min(1.0, (float(hi) - x0) / span)), "p": float(fr.sf(float(hi)))}
-        )
+    # A bound outside the drawn range carries < 0.5% mass (that is why it is outside): omitted.
+    if np.isfinite(lo) and a <= lo <= b:
+        spikes.append({"x": float((lo - a) / span), "p": float(fr.cdf(lo))})
+    if np.isfinite(hi) and a <= hi <= b:
+        spikes.append({"x": float((hi - a) / span), "p": float(fr.sf(hi))})
     # The spike heights are drawn EXAGGERATED (see `_SPIKE_GAIN`): the censored mass is often a
     # few percent, which is invisible next to a peak-normalized density, yet its presence is the
     # whole point of the glyph. The true probability travels as `p` so the reader can be told.
     for sp in spikes:
         sp["h"] = float(min(1.0, sp["p"] * _SPIKE_GAIN))
     return GlyphSpec(kind="censored", source="prior_analytic"), {
-        **dens,
+        "xs": [float(x) for x in xs],
+        "ys": [float(y / m) for y in ys],
         "spikes": spikes,
         "spike_gain": _SPIKE_GAIN,
     }
@@ -235,6 +272,8 @@ def _censored(var):
 def _truncated_normal(params):
     if len(params or []) < 4:
         return None
+    if not gd._uniform_params(params):
+        raise _Differ
     import scipy.stats as st
 
     loc, scale, lo, hi = (float(np.asarray(params[i]).reshape(-1)[0]) for i in range(4))
@@ -253,51 +292,78 @@ def _truncated_normal(params):
     }
 
 
+def _rw_steps(var) -> int | None:
+    sh = getattr(getattr(var, "type", None), "shape", None)
+    if sh and sh[-1] is not None:
+        return int(sh[-1])
+    try:
+        return int(np.asarray(var.shape.eval())[-1])  # shape graph is RNG-independent
+    except Exception:
+        return None
+
+
+def _normal_moments(rv) -> tuple[float, float] | None:
+    """(mean, variance) of a numeric, elementwise-uniform Normal or a DiracDelta point mass."""
+    name = _dist_name(rv)
+    p = gd._numeric_params(rv)
+    if p is None or not gd._uniform_params(p):
+        return None
+    q = [float(np.asarray(x).reshape(-1)[0]) for x in p]
+    if name == "Normal" and len(q) >= 2:
+        return q[0], q[1] ** 2
+    if name == "DiracDelta" and q:
+        return q[0], 0.0
+    return None
+
+
+_Z90 = 1.6448536269514722  # central 90% band of a Normal
+
+
 def _random_walk(var):
+    """The exact marginal band of a Gaussian random walk: ``X_t = X_0 + sum of t innovations``, so
+    ``E[X_t] = m0 + t*m`` and ``Var[X_t] = v0 + t*v`` — drawn as the central 90% band over the
+    walk's real length. Only drawn when that band is actually knowable."""
     ins = var.owner.inputs
-    innov = next(
-        (i for i in ins[1:] if getattr(i, "owner", None) is not None and _dist_name(i)), None
-    )
-    if innov is None:
+    init, innov = ins[0], ins[1]
+    fam = _dist_name(innov)
+    if fam != "Normal":  # other innovation families: the band is not a Normal sum
+        return None, None, gd.GlyphNote(f"random walk with {fam} innovations: band not drawn")
+    unknown = (None, None, gd.GlyphNote("random walk: the band's shape depends on parents"))
+    n = _rw_steps(var)
+    if not n or n < 2:
         return None
-    # The fan is `drift*t ± 2*sd*sqrt(t)`, so we must know which slots ARE (mu, sigma). Only a
-    # Normal innovation is read positionally: other families reorder/reparametrize the pair (a
-    # StudentT is [nu, mu, sigma], so slot 0 is the df — reading it as drift tilts the fan by
-    # nu*t). Anything else badges rather than draws a wrong slope.
-    if _dist_name(innov) != "Normal":
-        return None
-    p = gd._numeric_params(innov)
-    if p:
-        q = [float(np.asarray(x).reshape(-1)[0]) for x in p]
-        drift = q[0] if len(q) > 1 else 0.0
-        sd = q[-1]
+    t = np.arange(n, dtype=float)  # t = 0 is the initial value
+    step = _normal_moments(innov)
+    start = _normal_moments(init)
+    source = "prior_analytic"
+    if step is not None and start is not None:
+        (m, v), (m0, v0) = step, start
     else:
-        # the innovation SCALE is a prior: the fan's absolute width is unknown. But a DRIFTLESS walk's
-        # normalized fan (the characteristic sqrt-t spread) is scale-invariant — the sd cancels — so
-        # draw it canonically. With drift, the drift/scale balance matters, so honest-badge instead.
-        lead = _lead_numeric(innov, 1)  # the innovation mean (drift); trailing scale may be a prior
-        if lead is None:
-            return None
-        drift = float(np.asarray(lead[0]).reshape(-1)[0])
-        if drift != 0.0:
-            return None
-        sd = 1.0
-    T = 20
-    t = np.arange(T + 1)
-    mean = drift * t
-    band = 2.0 * sd * np.sqrt(t)
-    lo, hi = mean - band, mean + band
+        # The innovation scale is a prior. The walk's shape survives only when everything else
+        # scales with it: zero drift and a point-mass start make the band exactly sd*sqrt(t) up
+        # to the unknown sd — a standardized fan. A spread-out start (v0 > 0) does not scale with
+        # the innovation sd, so its shape is genuinely unknown.
+        lead = _lead_numeric(innov, 1)
+        if lead is None or float(np.asarray(lead[0]).reshape(-1)[0]) != 0.0:
+            return unknown
+        if start is None or start[1] != 0.0:
+            return unknown
+        m, v, m0, v0 = 0.0, 1.0, start[0], 0.0
+        source = "conditional_standardized"
+    mean = m0 + t * m
+    sd = np.sqrt(v0 + t * v)
+    lo, hi = mean - _Z90 * sd, mean + _Z90 * sd
+    if n > 64:  # keep the payload bounded; the band is smooth
+        idx = np.unique(np.linspace(0, n - 1, 64).round().astype(int))
+        mean, lo, hi = mean[idx], lo[idx], hi[idx]
     g0, g1 = float(lo.min()), float(hi.max())
     rng = (g1 - g0) or 1.0
 
     def norm(a):
-        return [float((v - g0) / rng) for v in a]
+        return [float((x - g0) / rng) for x in a]
 
-    return GlyphSpec(kind="fan", source="prior_analytic"), {
-        "mid": norm(mean),
-        "lo": norm(lo),
-        "hi": norm(hi),
-    }
+    data = {"mid": norm(mean), "lo": norm(lo), "hi": norm(hi), "band": 0.9, "steps": int(n)}
+    return GlyphSpec(kind="fan", source=source), data, None
 
 
 def _lkj(var):
@@ -380,38 +446,56 @@ def _ar_order(rho_in) -> int | None:
         return None
 
 
+def _is_stationary(phi: np.ndarray) -> bool:
+    """Every root of the AR lag polynomial outside the unit circle <=> every eigenvalue of the
+    companion matrix strictly inside it (with a margin: a unit root is not stationary)."""
+    p = phi.size
+    comp = np.zeros((p, p))
+    comp[0, :] = phi
+    if p > 1:
+        comp[1:, :-1] = np.eye(p - 1)
+    return bool(np.max(np.abs(np.linalg.eigvals(comp))) < 1.0 - 1e-8)
+
+
 def _ar(var):
-    rho_in = var.owner.inputs[0]  # AR coefficients
+    op = var.owner.op
+    rho_in = var.owner.inputs[0]  # AR coefficients (with the intercept first when constant=True)
+    const = bool(getattr(op, "constant_term", False))
+    order = getattr(op, "ar_order", None)
     if _depends_on_rv(rho_in):
-        # the coefficients are a prior: their .eval() is a meaningless random draw. Don't fake a
-        # PACF — show the AR ORDER honestly (p schematic lags, then the cutoff), in schematic style.
-        p = _ar_order(rho_in)
-        if not p:
-            return None
-        nlags = min(10, p + 4)
-        vals = [0.7 if i < p else 0.0 for i in range(nlags)]
-        return GlyphSpec(kind="stem", source="prior_family_only"), {
-            "lags": list(range(1, nlags + 1)),
-            "values": vals,
-        }
+        # the coefficients are a prior: their .eval() is a meaningless random draw, and no PACF
+        # heights are knowable. The order IS structural — say that, don't draw made-up stems.
+        p = order if order else ((_ar_order(rho_in) or 1) - (1 if const else 0))
+        return (
+            None,
+            None,
+            gd.GlyphNote(f"AR({p}): partial autocorrelation cuts off after lag {p}"),
+        )
     rho = _ev(rho_in)
     if rho is None:
         return None
-    rho = np.atleast_1d(rho).ravel().astype(float)
-    p = rho.size
+    try:
+        rho = _one_member(np.atleast_1d(rho), 1).ravel().astype(float)
+    except _Differ:
+        return None, None, gd.GlyphNote("elements differ")
+    phi = rho[1:] if const else rho
+    if order:
+        phi = phi[: int(order)]
+    p = phi.size
     if p == 0:
         return None
-    nlags = min(10, p + 4)
-    if np.sum(rho**2) >= 1.0:  # known but non-stationary
+    if not _is_stationary(phi):
         return _badge("autoregressive — non-stationary")
-    try:  # known, stationary coefficients -> the true theoretical PACF
-        pacf = _levinson_pacf(_ar_acf(rho, nlags), nlags)
+    nlags = min(10, p + 4)
+    try:  # known, stationary coefficients -> the true theoretical PACF of the stationary process
+        pacf = _levinson_pacf(_ar_acf(phi, nlags), nlags)
     except Exception:
         return None
-    return GlyphSpec(kind="stem", source="prior_analytic"), {
-        "lags": list(range(1, len(pacf) + 1)),
-        "values": pacf,
-    }
+    return (
+        GlyphSpec(kind="stem", source="prior_analytic"),
+        {"lags": list(range(1, len(pacf) + 1)), "values": pacf, "stationary": True},
+        None,
+    )
 
 
 def _is_rv(i) -> bool:
@@ -422,30 +506,49 @@ def _is_rv(i) -> bool:
     return _op_is_rv(op, unknown=False) if op is not None else False
 
 
+def _mixture_parts(var):
+    """(weights | None, components). Weights come from the op's verified first ``dist_params``
+    slot (``w``); they are None when a parent governs them (e.g. a Dirichlet) or when batched
+    weight rows differ."""
+    node = var.owner
+    try:
+        dp = list(node.op.dist_params(node))
+    except Exception:
+        return None, []
+    if not dp:
+        return None, []
+    comps = [c for c in dp[1:] if _is_rv(c)]
+    w = _ev(dp[0])
+    if w is not None:
+        try:
+            w = _one_member(np.asarray(w, float), 1).ravel()
+        except _Differ:
+            w = None
+    if w is not None and (np.any(w < 0) or abs(float(w.sum()) - 1.0) > 1e-6):
+        w = None
+    return w, comps
+
+
 def _mixture(var):
-    comps = [i for i in var.owner.inputs if _is_rv(i)]  # actual component RVs (not weight vectors)
+    w, comps = _mixture_parts(var)
     names = [_dist_name(c) for c in comps]
-    if "DiracDelta" in names:  # zero-inflated / hurdle: a spike at 0 + the base count pmf
-        base = next((c for c in comps if _dist_name(c) != "DiracDelta"), None)
-        bn, bp = (_dist_name(base), gd._numeric_params(base)) if base is not None else (None, None)
-        bars = gd._pmf(bn, bp) if (bn and bp is not None) else None
-        if bars is not None:
-            return GlyphSpec(kind="mixture", source="prior_analytic"), {"base": bars, "spike": 0.85}
-        return None
+    if "DiracDelta" in names:
+        return _point_mass_mixture(w, comps, names)
     # continuous mixture: overlay component densities on ONE shared x-range (a single batched RV
     # carries all components, so expand its vector params element-wise)
     frozens = []
     for c in comps:
         name, params = _dist_name(c), gd._numeric_params(c)
         if not name or params is None:
-            continue
+            return None  # an unknown component: no honest overlay
         arrs = [np.atleast_1d(np.asarray(p, float).ravel()) for p in params]
         k = max((a.size for a in arrs), default=1)
-        for idx in range(min(k, 6)):
+        for idx in range(k):
             fr = gd._scipy_frozen(name, [a[idx % a.size] for a in arrs])
-            if fr is not None:
-                frozens.append(fr)
-    if len(frozens) < 2:
+            if fr is None:
+                return None
+            frozens.append(fr)
+    if len(frozens) < 2 or len(frozens) > 8:
         return None
     lo = min(float(fr.ppf(0.01)) for fr in frozens)
     hi = max(float(fr.ppf(0.99)) for fr in frozens)
@@ -456,38 +559,68 @@ def _mixture(var):
     # Scale each component by its weight when the weights are KNOWN: a 0.9/0.1 mixture whose
     # components are drawn at equal height misrepresents which one carries the mass. Unknown
     # (prior) weights keep the unweighted overlay — shapes only, no claim about proportions.
-    w = _mixture_weights(var, len(pdfs))
-    if w is not None:
-        pdfs = [p * wi for p, wi in zip(pdfs, w, strict=True)]  # _mixture_weights matched len
+    weighted = w is not None and w.size == len(pdfs)
+    if weighted:
+        pdfs = [p * wi for p, wi in zip(pdfs, w, strict=True)]
     gmax = max(float(np.max(p)) for p in pdfs) or 1.0
     curves = [{"xs": [float(x) for x in xs], "ys": [float(y / gmax) for y in p]} for p in pdfs]
-    return GlyphSpec(kind="mixture", source="prior_analytic"), {
-        "curves": curves,
-        "weighted": w is not None,
-    }
+    spec = GlyphSpec(kind="mixture", source="prior_analytic")
+    data = {"curves": curves, "weighted": weighted}
+    if weighted:
+        return spec, data, None
+    return spec, data, gd.GlyphNote("components only: the mixture weights depend on parents")
 
 
-def _mixture_weights(var, k: int) -> list | None:
-    """The mixture's weight vector, if it is numeric and matches the component count. Returns
-    None when the weights are themselves a prior (a Dirichlet) — there is no honest number to
-    scale by, and `.eval()` would draw a random one."""
-    try:
-        for i in var.owner.inputs:
-            a = _ev(i)
-            if a is None:
-                continue
-            a = np.asarray(a, float).ravel()
-            if a.size == k and np.all(a >= 0) and abs(float(a.sum()) - 1.0) < 1e-6:
-                return [float(x) for x in a]
-    except Exception:
-        return None
-    return None
-
-
-# Canonical step heights for the BART glyph — a fixed, plausible sum-of-trees draw (parameter-free,
-# so it is identical on every render). It depicts BART's STRUCTURE (piecewise-constant function),
-# never the node's fitted values — the same honest-schematic stance as the random-walk fan.
-_BART_STEPS = [0.40, 0.62, 0.55, 0.80, 0.48, 0.68, 0.42, 0.58]
+def _point_mass_mixture(w, comps, names):
+    """Zero-inflated (point-mass) mixture: the EXACT mixture pmf ``sum_i w_i pmf_i(k)``, so the
+    bar at the point mass is its true total probability (the point's own weight plus the base
+    family's mass there). A DiracDelta keeps its real location."""
+    pmfs: list[tuple[str, object]] = []  # ("point", loc) | ("base", frozen)
+    for c, name in zip(comps, names, strict=True):
+        params = gd._numeric_params(c)
+        if params is None or not gd._uniform_params(params):
+            return None
+        if name == "DiracDelta":
+            pmfs.append(("point", round(float(np.asarray(params[0]).reshape(-1)[0]))))
+        else:
+            fr = gd._discrete_frozen(name, params)
+            if fr is None:
+                return None
+            pmfs.append(("base", fr))
+    los, his = [], []
+    for kind, v in pmfs:
+        if kind == "point":
+            los.append(v)
+            his.append(v)
+        else:
+            los.append(int(v.ppf(0.001)))
+            his.append(int(v.ppf(0.999)))
+    lo, hi = min(los), max(his)
+    hi = min(hi, lo + 39)
+    cats = np.arange(lo, hi + 1)
+    if w is None or w.size != len(pmfs):
+        base = next((v for k, v in pmfs if k == "base"), None)
+        if base is None:
+            return None
+        hts = np.asarray(base.pmf(cats), float)
+        m = float(hts.max()) or 1.0
+        return (
+            GlyphSpec(kind="mixture", source="prior_analytic"),
+            {"base": {"cats": [int(c) for c in cats], "heights": [float(h / m) for h in hts]}},
+            gd.GlyphNote("base component only: the point-mass weight depends on parents"),
+        )
+    total = np.zeros(cats.size)
+    for wi, (kind, v) in zip(w, pmfs, strict=True):
+        total += wi * ((cats == v).astype(float) if kind == "point" else np.asarray(v.pmf(cats)))
+    m = float(total.max()) or 1.0
+    return (
+        GlyphSpec(kind="mixture", source="prior_analytic"),
+        {
+            "base": {"cats": [int(c) for c in cats], "heights": [float(h / m) for h in total]},
+            "weighted": True,
+        },
+        None,
+    )
 
 
 def special_glyph(var):
@@ -499,7 +632,7 @@ def special_glyph(var):
     try:
         params = gd._numeric_params(var)  # inside the guard: it walks + evals the param graph
         if cls in ("MvNormalRV", "MvStudentTRV"):
-            r = _multivariate(params)
+            r = _multivariate(params, cls)
             return (*r, None) if r else _badge("multivariate — covariance not numeric")
         if cls in ("WishartRV", "MatrixNormalRV", "KroneckerNormalRV"):
             r = _matrix_only(params)
@@ -525,36 +658,34 @@ def special_glyph(var):
             return _badge("truncated")
         if cls == "RandomWalkRV":
             r = _random_walk(var)
-            return (*r, None) if r else _badge("random walk")
+            return r if r else _badge("random walk")
         if cls == "AutoRegressiveRV":
-            r = _ar(var)  # may already be a full badge 3-tuple (non-stationary case)
-            return (r if len(r) == 3 else (*r, None)) if r else _badge("autoregressive")
+            r = _ar(var)  # already a full 3-tuple (glyph, badge or note)
+            return r if r else _badge("autoregressive")
         if cls == "GARCH11RV":
             return _badge("GARCH(1,1) — conditional volatility")
         if cls in ("EulerMaruyamaRV",):
             return _badge("SDE — opaque drift/diffusion")
         if cls in ("MixtureRV", "_HurdleRV"):
-            r = _mixture(var)
-            return (*r, None) if r else _badge("mixture")
+            r = _mixture(var)  # a full 3-tuple (a partial picture carries its note)
+            return r if r else _badge("mixture")
         if cls in ("CARRV", "ICARRV"):
             r = _matrix_only(params)
             return (*r, None) if r else _badge("spatial (CAR/ICAR)")
         if cls in ("FlatRV", "HalfFlatRV"):
             return _badge("improper prior")
-        if cls.startswith(
-            "BART"
-        ):  # pymc-bart op is BART_<name>; sum of trees => step-function draws
-            return (
-                GlyphSpec(kind="step", source="prior_family_only"),
-                {"ys": list(_BART_STEPS)},
-                None,
-            )
+        if cls.startswith("BART"):  # pymc-bart op is BART_<name>
+            # No closed-form prior; any drawn step function would be made-up heights. State the
+            # structure in words instead.
+            return None, None, gd.GlyphNote("sum of trees: a piecewise-constant function of X")
         if (
             cls in ("CustomDistRV", "SymbolicRandomVariable")
             or "CustomDist" in cls
             or "Simulator" in cls
         ):
             return _badge("custom density — elided")
+    except _Differ:
+        return None, None, gd.GlyphNote("elements differ")
     except Exception:
         return _badge("elided")
     return None, None, None

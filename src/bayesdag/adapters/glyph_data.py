@@ -19,6 +19,13 @@ _GRID = 64
 _MAX_STAT_POINTS = 50_000
 
 
+class GlyphNote(str):
+    """A caption for a node that is fully representable but carries no curve (or only a partial
+    one): "shape depends on alpha (a parent)", "elements differ". Returned in the third slot of a
+    provider's ``(spec, data, reason)`` tuple, where a plain ``str`` would be an elision badge —
+    the type is what tells the adapter "caption, not warning"."""
+
+
 def _thin(v: np.ndarray) -> np.ndarray:
     """Deterministic strided subsample for O(n)-sensitive stats (KDE / MLE fit) — an MLE on
     50k points is visually identical to 1M but ~100x faster. Never RNG (glyphs must be
@@ -145,7 +152,13 @@ def _pmf(dist: str, p: list, max_cats: int = 40) -> dict | None:
     """Analytic pmf for a discrete prior with numeric params -> ``{cats, heights}`` (bar glyph)."""
     try:
         if dist == "Categorical":  # the prob vector IS the pmf
-            probs = np.asarray(p[0], float).ravel()
+            probs = np.asarray(p[0], float)
+            if probs.ndim > 1:  # a batch of categoricals: one picture only if all are identical
+                rows = probs.reshape(-1, probs.shape[-1])
+                if not np.all(rows == rows[0]):
+                    return None
+                probs = rows[0]
+            probs = probs.ravel()
             cats, heights = list(range(probs.size)), probs
         else:
             fr = _discrete_frozen(dist, p)
@@ -514,6 +527,12 @@ def glyph_for(
             return spec, data, elision
 
         params = _numeric_params(var)
+        if dist == "Categorical" and params is not None:
+            probs = np.asarray(params[0])
+            if probs.ndim > 1 and not np.all(
+                probs.reshape(-1, probs.shape[-1]) == probs.reshape(-1, probs.shape[-1])[0]
+            ):
+                return None, None, GlyphNote("elements differ")
         # A varying vector prior gives each element its OWN density, so no single curve is the
         # node's prior — those fall through to the schematic. Categorical is exempt: its vector
         # param IS the pmf, not a per-element parameterization.

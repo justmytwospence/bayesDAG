@@ -17,7 +17,7 @@ from typing import Any
 
 from .. import labels
 from ..ir import EdgeIR, Meta, ModelIR, NodeIR, OverlayRef, ParamIR, PlateIR
-from .glyph_data import glyph_for
+from .glyph_data import GlyphNote, glyph_for
 from .pytensor_latex import render_value
 
 _SKIP_PARAMS = {"self", "size", "rng", "dtype", "name", "kwargs", "args"}
@@ -233,6 +233,9 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
         tname = getattr(tr, "name", None) if tr is not None else None
         unconstrained = f"{name}_{tname}__" if tname else None
         glyph_spec, glyph_data, elision = _safe_glyph(var, role, dist, model, idata, named)
+        glyph_note = None
+        if isinstance(elision, GlyphNote):  # a caption on a representable node, not a badge
+            glyph_note, elision = str(elision), None
         # A deterministic whose equation was elided to illegible matrix plumbing ([⋯]) shouldn't carry a
         # transfer glyph either (the function isn't a meaningful modeling transform — e.g. LKJ corr/stds).
         # Match ONLY the plumbing marker \cdots; \ldots is a legitimate long-vector/budget abbreviation.
@@ -256,6 +259,7 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
                 overlays=overlays_for(name, role, dims, idata),
                 representable=elision is None,
                 elision_reason=elision,
+                glyph_note=glyph_note,
             )
         )
 

@@ -71,15 +71,13 @@ _DRAW = [
         ),
         "curve",
     ),
-    (
-        "softmax",
-        lambda: pm.Deterministic("d", pm.math.softmax(pm.Normal("e", 0, 1, shape=3))),
-        "bars",
-    ),
 ]
 
 # Builders whose deterministic "d" is NOT provably depictable -> equation-only (glyph is None).
 _SKIP = [
+    # softmax outputs one point on the simplex whose coordinates depend on the inputs: there are
+    # no honest bar heights (it gets a caption instead — see test_softmax_is_a_caption)
+    ("softmax", lambda: pm.Deterministic("d", pm.math.softmax(pm.Normal("e", 0, 1, shape=3)))),
     (
         "bilinear tau*eta",
         lambda: pm.Deterministic("d", pm.HalfNormal("t", 1) * pm.Normal("e", 0, 1)),
@@ -136,6 +134,13 @@ def test_provably_depictable_draws(label, builder, kind):
 @pytest.mark.parametrize("label,builder", _SKIP, ids=[c[0] for c in _SKIP])
 def test_unprovable_skips_to_equation_only(label, builder):
     assert _glyph(builder) is None, label  # zero false positives: never a misleading curve
+
+
+def test_softmax_is_a_caption():
+    with pm.Model() as m:
+        pm.Deterministic("d", pm.math.softmax(pm.Normal("e", 0, 1, shape=3)))
+    n = to_ir(m).node("d")
+    assert n.glyph is None and n.glyph_note == "a probability vector over 3 categories"
 
 
 def test_curve_is_parameter_free_and_deterministic():

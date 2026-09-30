@@ -165,13 +165,13 @@ def _node(build):
 
 @pytest.mark.parametrize("name", list(CATALOG))
 def test_every_distribution_renders(name):
-    """Convert + lay out + render the full SVG; the node must be handled (a glyph or an honest
-    badge), never left as an unhandled crash."""
+    """Convert + lay out + render the full SVG; the node must be handled (a glyph, an honest
+    badge, or a caption saying why no curve is drawn), never left as an unhandled crash."""
     ir, _m = _node(CATALOG[name])
     n = ir.node("x")
     assert n is not None, name
-    # handled = has a shape glyph OR an honest elision badge
-    assert (n.glyph is not None) or (n.elision_reason is not None), name
+    # handled = a shape glyph OR an honest elision badge OR a caption
+    assert (n.glyph is not None) or (n.elision_reason is not None) or n.glyph_note, name
     assert "<svg" in to_svg(ir, layout(ir)), name
 
 
