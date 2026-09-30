@@ -72,6 +72,48 @@ def _const_tex(var: Any) -> str | None:
     return "[" + head + r",\,\ldots]"
 
 
+# Operator precedence of a rendered fragment, so a parent op knows when to parenthesize it.
+# Higher binds tighter. NEG sits between ADD and MUL: `a\,(-b)` needs parens, `-a + b` does not.
+CMP, ADD, NEG, MUL, FRAC, POW, ATOM = 0, 1, 1.5, 2, 2.5, 3, 4
+
+
+def _paren(t: str) -> str:
+    return rf"\left({t}\right)"
+
+
+def _wrap_if(t: str, prec: float, need: float) -> str:
+    return _paren(t) if prec < need else t
+
+
+def _cast_kind(owner: Any) -> str:
+    """'invisible' for a value-preserving (widening / same-kind) cast; 'int' for a float->integer
+    cast (truncates toward zero — a step function); 'bool' for a cast to bool (an indicator)."""
+    try:
+        out_k = np.dtype(owner.outputs[0].dtype).kind
+        in_k = np.dtype(owner.inputs[0].dtype).kind
+    except Exception:
+        return "invisible"
+    if out_k == "b" and in_k != "b":
+        return "bool"
+    if out_k in "iu" and in_k == "f":
+        return "int"
+    return "invisible"
+
+
+# CAReduce scalar op -> how the reduction reads. Keyed on the scalar op class (not the Op class)
+# so `Sum`, `Prod`, `Max`, `All`, `Any` and any bare `CAReduce` all dispatch the same way.
+_REDUCTIONS = {
+    "Add": r"\textstyle\sum",
+    "Mul": r"\textstyle\prod",
+    "Maximum": r"\max",
+    "ScalarMaximum": r"\max",
+    "Minimum": r"\min",
+    "ScalarMinimum": r"\min",
+    "AND": r"\textstyle\bigwedge",
+    "OR": r"\textstyle\bigvee",
+}
+
+
 def render_value(
     var: Any,
     named: dict[int, str],
@@ -80,77 +122,100 @@ def render_value(
     budget: list[int] | None = None,
     _root: bool = False,
 ) -> tuple[str, set[str]]:
-    """Return ``(latex, used_leaf_names)``. ``named`` maps ``id(var) -> name``."""
-    if budget is None:
-        budget = [40]
+    """Return ``(latex, used_leaf_names)``. ``named`` maps ``id(var) -> name``.
+
+    ``used`` always holds EVERY named leaf the expression depends on (the edge set), while only
+    the FIRST occurrence of each leaf is token-wrapped: a repeated ``\\cssId{tok-mu}`` would give
+    the composed SVG duplicate element ids."""
+    state = {"budget": budget if budget is not None else [40], "seen": set()}
+    tex, used, _ = _render(var, named, wrap_leaves, state, _root)
+    return tex, used
+
+
+def _render(var, named, wrap, st, root=False) -> tuple[str, set[str], float]:
     from pytensor.tensor.elemwise import DimShuffle
 
     # A named variable (other than the root we were asked to expand) is a leaf.
-    if not _root and id(var) in named:
+    if not root and id(var) in named:
         nm = named[id(var)]
         sym = symbol_for(nm)
-        if wrap_leaves:
-            return rf"\cssId{{tok-{nm}}}{{{sym}}}", {nm}
-        return sym, {nm}
+        if wrap and nm not in st["seen"]:
+            st["seen"].add(nm)
+            return rf"\cssId{{tok-{nm}}}{{{sym}}}", {nm}, ATOM
+        return sym, {nm}, ATOM
 
     owner = getattr(var, "owner", None)
     if owner is None:
         c = _const_tex(var)
-        return (c if c is not None else r"\,\cdot\,"), set()
+        if c is None:
+            return r"\,\cdot\,", set(), ATOM
+        return c, set(), (NEG if c.startswith("-") else ATOM)
 
-    budget[0] -= 1
-    if budget[0] <= 0:
-        return r"\ldots", set()
+    st["budget"][0] -= 1
+    if st["budget"][0] <= 0:
+        return r"\ldots", set(), ATOM
 
     op = owner.op
-    if type(op).__name__ in _UNWRAP_OPS:
-        return render_value(owner.inputs[0], named, wrap_leaves=wrap_leaves, budget=budget)
-    if isinstance(op, DimShuffle):
-        return render_value(owner.inputs[0], named, wrap_leaves=wrap_leaves, budget=budget)
 
     def R(v):
-        return render_value(v, named, wrap_leaves=wrap_leaves, budget=budget)
+        return _render(v, named, wrap, st)
+
+    if type(op).__name__ in _UNWRAP_OPS or isinstance(op, DimShuffle):
+        return R(owner.inputs[0])
 
     used: set[str] = set()
     sname = _scalar_op_name(op)
     if sname:
-        parts = []
+        if sname == "Cast":
+            kind = _cast_kind(owner)
+            t, u, p = R(owner.inputs[0])
+            if kind == "int":
+                return rf"\operatorname{{int}}\!\left({t}\right)", u, ATOM
+            if kind == "bool":
+                return rf"\mathbb{{1}}\!\left[{t}\right]", u, ATOM
+            return t, u, p
+        parts: list[tuple[str, float]] = []
         for inp in owner.inputs:
-            t, u = R(inp)
-            parts.append(t)
+            t, u, p = R(inp)
+            parts.append((t, p))
             used |= u
+        texts = [t for t, _ in parts]
         if sname == "Add":
-            return " + ".join(parts), used
-        if sname == "Sub":
-            return " - ".join(parts), used
+            out = [
+                _paren(t) if (p < ADD or (i > 0 and p == NEG)) else t
+                for i, (t, p) in enumerate(parts)
+            ]
+            return " + ".join(out), used, ADD
+        if sname == "Sub" and len(parts) == 2:
+            (lt, lp), (rt, rp) = parts
+            return f"{_wrap_if(lt, lp, ADD)} - {_wrap_if(rt, rp, MUL)}", used, ADD
         if sname == "Mul":
-            return "\\,".join(parts), used
+            return "\\,".join(_wrap_if(t, p, MUL) for t, p in parts), used, MUL
         if sname in ("TrueDiv", "IntDiv") and len(parts) >= 2:
-            return rf"\frac{{{parts[0]}}}{{{parts[1]}}}", used
+            frac = rf"\frac{{{texts[0]}}}{{{texts[1]}}}"
+            if sname == "IntDiv":  # floor division: the floor is part of the value
+                return rf"\left\lfloor {frac} \right\rfloor", used, ATOM
+            return frac, used, FRAC
         if sname == "Pow" and len(parts) >= 2:
-            b_op = _scalar_op_name(getattr(getattr(owner.inputs[0], "owner", None), "op", None))
-            base = (
-                rf"\left({parts[0]}\right)"
-                if b_op in ("Add", "Sub", "Mul", "Neg", "TrueDiv")
-                else parts[0]
-            )
-            return rf"{base}^{{{parts[1]}}}", used
+            (bt, bp), (et, _) = parts[0], parts[1]
+            return rf"{_wrap_if(bt, bp, ATOM)}^{{{et}}}", used, POW
         if sname == "Neg":
-            return rf"-{parts[0]}", used
+            t, p = parts[0]
+            return rf"-{_wrap_if(t, p, MUL)}", used, NEG
         if sname == "Exp":
-            return rf"\exp\!\left({parts[0]}\right)", used
+            return rf"\exp\!\left({texts[0]}\right)", used, ATOM
         if sname == "Log":
-            return rf"\log\!\left({parts[0]}\right)", used
+            return rf"\log\!\left({texts[0]}\right)", used, ATOM
         if sname == "Sqrt":
-            return rf"\sqrt{{{parts[0]}}}", used
+            return rf"\sqrt{{{texts[0]}}}", used, ATOM
         if sname == "Reciprocal":  # PyMC exposes Exp/Gamma scale as reciprocal(rate) -> show 1/rate
-            if parts[0] == "1":  # fold ONLY the trivial 1/1; 1/0.1 stays a fraction (it
-                return "1", used  # preserves the user's rate parameterization — honesty)
-            return rf"\frac{{1}}{{{parts[0]}}}", used
+            if texts[0] == "1":  # fold ONLY the trivial 1/1; 1/0.1 stays a fraction (it
+                return "1", used, ATOM  # preserves the user's rate parameterization — honesty)
+            return rf"\frac{{1}}{{{texts[0]}}}", used, FRAC
         if sname == "Second" and len(parts) >= 2:  # second(a, b) broadcasts b to a's shape -> b
-            return parts[1], used
-        if sname in ("Cast", "Identity") and parts:  # type-cast wrappers are invisible to the math
-            return parts[0], used
+            return parts[1][0], used, parts[1][1]
+        if sname == "Identity" and parts:
+            return parts[0][0], used, parts[0][1]
         _CMP = {
             "LE": r"\le",
             "GE": r"\ge",
@@ -160,31 +225,43 @@ def render_value(
             "AND": r"\land",
             "OR": r"\lor",
         }
-        if (
-            sname in _CMP and len(parts) >= 2
-        ):  # a comparison/boolean reads infix, not operatorname(...)
-            return rf"{parts[0]} {_CMP[sname]} {parts[1]}", used
-        if (
-            sname == "Switch" and len(parts) >= 3
-        ):  # where(cond, a, b) -> a conditional (e.g. a tree split)
-            return rf"\left({parts[0]} \,?\, {parts[1]} : {parts[2]}\right)", used
-        return rf"\operatorname{{{sname.lower()}}}\!\left({', '.join(parts)}\right)", used
+        if sname in _CMP and len(parts) >= 2:  # a comparison/boolean reads infix
+            return rf"{texts[0]} {_CMP[sname]} {texts[1]}", used, CMP
+        if sname == "Switch" and len(parts) >= 3:  # where(cond, a, b) -> a conditional
+            return rf"\left({texts[0]} \,?\, {texts[1]} : {texts[2]}\right)", used, ATOM
+        return (
+            rf"\operatorname{{{sname.lower()}}}\!\left({', '.join(texts)}\right)",
+            used,
+            ATOM,
+        )
 
     if type(op).__name__ == "Softmax":  # non-Elemwise but a recognizable transfer -> name it
-        t, u = R(owner.inputs[0])
-        return rf"\operatorname{{softmax}}\!\left({t}\right)", u
+        t, u, _ = R(owner.inputs[0])
+        return rf"\operatorname{{softmax}}\!\left({t}\right)", u, ATOM
 
-    if type(op).__name__ in ("Sum", "CAReduce"):  # a reduction reads as a sum, not an opaque f(...)
-        t, u = R(owner.inputs[0])
-        return rf"\textstyle\sum {t}", u
+    red = _reduction_symbol(op)
+    if red is not None:  # a reduction names its actual operation, never a blanket sum
+        t, u, p = R(owner.inputs[0])
+        return f"{red} {_wrap_if(t, p, ATOM)}", u, ADD
 
     # Unknown op: render named-bearing inputs as f(...), else elide.
     sub = []
     for inp in owner.inputs:
-        t, u = R(inp)
+        t, u, _ = R(inp)
         if u:
             sub.append(t)
             used |= u
     if sub:
-        return rf"f\!\left({', '.join(sub)}\right)", used
-    return r"\ldots", set()
+        return rf"f\!\left({', '.join(sub)}\right)", used, ATOM
+    return r"\ldots", set(), ATOM
+
+
+def _reduction_symbol(op: Any) -> str | None:
+    try:
+        from pytensor.tensor.elemwise import CAReduce
+    except Exception:  # pragma: no cover
+        return None
+    if not isinstance(op, CAReduce):
+        return None
+    name = type(getattr(op, "scalar_op", None)).__name__
+    return _REDUCTIONS.get(name, r"\operatorname{reduce}")
