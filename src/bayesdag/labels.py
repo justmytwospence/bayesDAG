@@ -140,22 +140,53 @@ DIST_SYMBOLS = {
 }
 
 
+# Characters with a meaning in TeX. A variable name is arbitrary text, so each is escaped before it
+# reaches MathJax: an unescaped `&` is a TeX alignment error, and MathJax's error node then leaks
+# the raw `&` into an SVG attribute (malformed XML).
+_TEX_ESCAPES = {
+    "\\": r"\backslash{}",
+    "{": r"\{",
+    "}": r"\}",
+    "&": r"\&",
+    "%": r"\%",
+    "$": r"\$",
+    "#": r"\#",
+    "_": r"\_",
+    "^": r"\hat{}",
+    "~": r"\sim{}",
+}
+
+
+def _tex_text(token: str) -> str:
+    return "".join(_TEX_ESCAPES.get(c, c) for c in token)
+
+
+def _is_greek(token: str) -> bool:
+    return token in _GREEK_LOWER or token in _GREEK_UPPER
+
+
 def _atom(token: str) -> str:
-    if token in _GREEK_LOWER or token in _GREEK_UPPER:
+    if _is_greek(token):
         return "\\" + token
-    if len(token) == 1:
-        return token
     if token.isdigit():
         return token
-    return r"\mathrm{" + token + "}"
+    if len(token) == 1:
+        return _tex_text(token)
+    return r"\mathrm{" + _tex_text(token) + "}"
 
 
 def symbol_for(name: str) -> str:
-    """LaTeX symbol for a variable name (greek detection + subscripts).
+    """LaTeX symbol for a variable name.
 
-    ``mu`` -> ``\\mu``, ``y_obs`` -> ``y_{\\mathrm{obs}}``, ``beta_1`` -> ``\\beta_{1}``.
+    Math-style subscripts only where the name reads as math — a Greek or single-letter base:
+    ``mu`` -> ``\mu``, ``mu_a`` -> ``\mu_{a}``, ``y_obs`` -> ``y_{\mathrm{obs}}``,
+    ``beta_1`` -> ``\beta_{1}``. A multi-letter word base is a NAME, not a symbol with an index,
+    so it stays whole and upright: ``between_subject_sd`` -> ``\mathrm{between\_subject\_sd}``
+    (subscripting it as ``between_{subject,sd}`` invented structure the name does not have).
     """
     base, _, sub = name.partition("_")
+    if not (_is_greek(base) or len(base) == 1):
+        return r"\mathrm{" + _tex_text(name) + "}"
     out = _atom(base)
     if sub:
         out += "_{" + ",".join(_atom(s) for s in sub.split("_") if s) + "}"

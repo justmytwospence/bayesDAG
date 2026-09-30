@@ -113,3 +113,31 @@ def test_dom_slug_keeps_colliding_names_apart():
     for raw in ("a b", "a|b", "θ", "x[0]"):
         slug = _dom_slug(raw)
         assert re.fullmatch(r"[A-Za-z0-9_-]+", slug), f"{raw!r} -> {slug!r} is not DOM-safe"
+
+
+def test_hostile_names_round_trip_through_attributes():
+    """A variable name may contain quotes, angle brackets, separators and non-ASCII; every
+    attribute built from one must stay well-formed XML and carry the name back exactly."""
+    import xml.etree.ElementTree as ET
+
+    import pymc as pm
+
+    from bayesdag.convert import to_ir
+    from bayesdag.layout import layout
+    from bayesdag.render_svg import to_svg
+
+    names = ['a"b', "c<d>&e", "f|g", "θ_ü"]
+    with pm.Model() as m:
+        parent = pm.Normal(names[0], 0, 1)
+        kid = pm.Normal(names[1], parent, 1)
+        pm.Normal(names[2], kid, 1)
+        pm.Normal(names[3], 0, 1)
+    ir = to_ir(m)
+    svg = to_svg(ir, layout(ir))
+    root = ET.fromstring(svg)  # raises on malformed XML
+    got = {el.get("data-node") for el in root.iter() if el.get("data-node") is not None}
+    assert got == set(names)
+    ids = [el.get("id") for el in root.iter() if el.get("id")]
+    assert len(ids) == len(set(ids))
+    srcs = {el.get("data-src") for el in root.iter() if el.get("data-src")}
+    assert names[0] in srcs

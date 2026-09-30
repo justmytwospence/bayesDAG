@@ -17,6 +17,13 @@ from . import legend as _legend
 from .glyph.kinds import bar_layout as glyph_bar_layout
 from .ir import Box, LayoutResult, ModelIR, NodeIR
 
+
+def _attr(s: object) -> str:
+    """Escape a value for a double-quoted XML attribute. ``escape`` alone leaves ``"`` intact, so
+    a variable named ``a"b`` closed the attribute early and broke (or injected into) the SVG."""
+    return escape(str(s), {'"': "&quot;"})
+
+
 _LEGEND_GAP = 14.0
 _BELL = (
     [0.0, 0.15, 0.3, 0.4, 0.5, 0.6, 0.7, 0.85, 1.0],
@@ -171,7 +178,7 @@ def _edge(pts: list[list[float]], src: str, tgt: str) -> str:
     else:
         d = "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts)
     return (
-        f'<path class="bd-edge" data-src="{escape(src)}" data-tgt="{escape(tgt)}" d="{d}" '
+        f'<path class="bd-edge" data-src="{_attr(src)}" data-tgt="{_attr(tgt)}" d="{d}" '
         'fill="none" stroke="#555" stroke-width="1.3" marker-end="url(#bd-arrow)"/>'
     )
 
@@ -570,7 +577,7 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, legend: bool = True) -> str:
         b = layout.plate_boxes.get(p.id)
         if b:
             body.append(
-                f'<g class="bd-plate" data-plate="{escape(p.id)}">' + _plate(b, p.label) + "</g>"
+                f'<g class="bd-plate" data-plate="{_attr(p.id)}">' + _plate(b, p.label) + "</g>"
             )
     # Two passes so a later node's (opaque) chrome box can never paint over an earlier node's
     # label/glyph: ALL chrome first, then ALL labels+glyphs on top. Each pass tags its group with
@@ -580,7 +587,7 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, legend: bool = True) -> str:
     # the LayoutResult is authoritative; `n.box` is only a convenience mirror of it
     drawn = [(n, b) for n in ir.nodes if (b := (layout.node_boxes.get(n.id) or n.box)) is not None]
     for n, b in drawn:  # chrome (boxes) behind everything else node-ish
-        body.append(f'<g class="bd-node" data-node="{escape(n.id)}">' + _node_chrome(n, b) + "</g>")
+        body.append(f'<g class="bd-node" data-node="{_attr(n.id)}">' + _node_chrome(n, b) + "</g>")
     font_defs: dict[str, str] = {}  # content-hashed glyph id -> path data (shared across labels)
     for n, b in drawn:  # labels + glyphs above all chrome
         if n.label_svg:
@@ -624,7 +631,7 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, legend: bool = True) -> str:
                 f'<text x="{b.x + 7:.1f}" y="{b.y + b.h - 5:.1f}" font-size="8" fill="#8a6d3b" '
                 f'font-style="italic">⚠ {escape(reason)}</text>'
             )
-        body.append(f'<g class="bd-node" data-node="{escape(n.id)}">' + "".join(parts) + "</g>")
+        body.append(f'<g class="bd-node" data-node="{_attr(n.id)}">' + "".join(parts) + "</g>")
     if font_defs:  # one shared <defs> for all hoisted MathJax glyphs (sorted: deterministic bytes)
         body.insert(
             1,
