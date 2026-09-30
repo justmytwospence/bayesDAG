@@ -95,3 +95,46 @@ def subgraph(ir: ModelIR, var_names: Sequence[str]) -> ModelIR:
             and kept([x for xs in b.roles.values() for x in xs])
         ],
     )
+
+
+def drop_index_data(ir: ModelIR) -> ModelIR:
+    """A new ``ModelIR`` without the index-only ``pm.Data`` nodes (``usage == "index"``: integer
+    lookup tables such as ``county_idx``) — but only those whose name every consumer's equation
+    already shows (``a[county_idx]``), so nothing the reader needs leaves the page. Pure
+    omission: their edges and plate memberships go with them; the input IR is not mutated."""
+    from .labels import symbol_for
+
+    by_id = {n.id: n for n in ir.nodes}
+    consumers: dict[str, list[str]] = {}
+    for e in ir.edges:
+        consumers.setdefault(e.source, []).append(e.target)
+    drop = set()
+    for n in ir.nodes:
+        if n.usage != "index":
+            continue
+        sym = symbol_for(n.id)
+        kids = consumers.get(n.id, [])
+        if kids and all(sym in (by_id[k].label_tex or "") for k in kids if k in by_id):
+            drop.add(n.id)
+    if not drop:
+        return ir
+    plates = [
+        dataclasses.replace(p, members=[m for m in p.members if m not in drop]) for p in ir.plates
+    ]
+    kept = [p for p in plates if p.members]
+    kept_ids = {p.id for p in kept}
+    # a plate emptied by the drop disappears; a child plate whose parent went is re-rooted
+    kept = [
+        p if p.parent is None or p.parent in kept_ids else dataclasses.replace(p, parent=None)
+        for p in kept
+    ]
+    return dataclasses.replace(
+        ir,
+        nodes=[n for n in ir.nodes if n.id not in drop],
+        edges=[e for e in ir.edges if e.source not in drop and e.target not in drop],
+        plates=kept,
+        blocks=[
+            dataclasses.replace(b, members=[m for m in b.members if m not in drop])
+            for b in ir.blocks
+        ],
+    )

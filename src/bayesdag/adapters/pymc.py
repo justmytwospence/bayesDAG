@@ -175,6 +175,62 @@ def _safe_render_value(val, named, **kw) -> tuple[str, set]:
         return r"\ldots", set()
 
 
+def _index_only_data(model: Any, role_of: dict[int, str]) -> dict[str, str]:
+    """``{name: "index"}`` for every integer ``pm.Data`` whose EVERY use in the model is as an
+    index into a gather/slice — a lookup table (``county_idx``) rather than a quantity the model
+    computes with. Anything else (arithmetic use, a float) is left alone."""
+    try:
+        from pytensor.graph.traversal import ancestors
+    except Exception:  # pragma: no cover
+        return {}
+    data = {
+        id(v): nm
+        for nm, v in model.named_vars.items()
+        if role_of.get(id(v)) == "data" and str(getattr(v, "dtype", "")).startswith(("int", "uint"))
+    }
+    if not data:
+        return {}
+    outputs = [v for v in model.named_vars.values() if role_of.get(id(v)) not in (None, "data")]
+    uses: dict[int, list[bool]] = {k: [] for k in data}
+    seen: set[int] = set()
+    try:
+        for v in ancestors(outputs):
+            node = getattr(v, "owner", None)
+            if node is None or id(node) in seen:
+                continue
+            seen.add(id(node))
+            gather = type(node.op).__name__ in (
+                "AdvancedSubtensor",
+                "AdvancedSubtensor1",
+                "Subtensor",
+            )
+            for i, inp in enumerate(node.inputs):
+                if id(inp) in uses:
+                    uses[id(inp)].append(gather and i > 0)
+    except Exception:
+        return {}
+    return {data[k]: "index" for k, u in uses.items() if u and all(u)}
+
+
+def _nest_plates(plates: list[PlateIR]) -> None:
+    """Nest a multi-dim plate inside the plate over its LEADING dims when one exists: ``protein x
+    batch`` sits inside ``protein`` and is labelled by its trailing dim. This is plate notation's
+    Cartesian replication ("indexed by protein, then batch") — not a claim of statistical nesting.
+    Only named dims nest (an unnamed shape carries no identity to match on)."""
+    by_dims = {tuple(p.dims): p for p in plates if p.source == "named"}
+    for p in plates:
+        if p.source != "named" or len(p.dims) < 2:
+            continue
+        for k in range(len(p.dims) - 1, 0, -1):  # the longest leading prefix wins
+            outer = by_dims.get(tuple(p.dims[:k]))
+            if outer is not None and outer is not p:
+                p.parent = outer.id
+                p.label = " x ".join(
+                    f"{nm} ({ln})" for nm, ln in zip(p.dims[k:], p.lengths[k:], strict=False)
+                )
+                break
+
+
 def _plate_id(names: tuple, lengths: tuple, used: set[str]) -> str:
     """A readable, collision-free plate id. An unnamed axis contributes its length (``len3``), so
     two dimless vectors of different lengths no longer share ``plate_None``; a rare collision
@@ -211,6 +267,7 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
 
     compute = g.make_compute_graph()
     var_names = list(compute)
+    index_usage = _index_only_data(model, role_of)
 
     # child -> {parent_name: [token_id, ...]} — every slot a parent feeds, in slot order
     rv_param_map: dict[str, dict[str, list[str]]] = {}
@@ -246,6 +303,12 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
                 expr_tex, used = r"[\,\cdots\,]", set()
             det_tokens[name] = used
             label_tex, label_tree = labels.assemble_deterministic(name, expr_tex, sorted(used))
+        elif role == "potential" and getattr(var, "owner", None) is not None:
+            # a log-density FACTOR: show its expression (same visitor, budget and elision as a
+            # deterministic), so a likelihood written as Potentials is readable in the diagram
+            expr_tex, used = _safe_render_value(var, named, wrap_leaves=True, _root=True)
+            det_tokens[name] = used
+            label_tex, label_tree = labels.assemble_potential(name, expr_tex, sorted(used))
         dims = list(n2d.get(name, ()))
         node_coords = {d: coords[d] for d in dims if d in coords} or None
         tr = transforms.get(var) if hasattr(transforms, "get") else None
@@ -264,6 +327,7 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
             NodeIR(
                 id=name,
                 role=role,
+                usage=index_usage.get(name),
                 observed=observed,
                 dist=dist,
                 params=params,
@@ -340,6 +404,7 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
                 source="named" if all(names) else "shape",
             )
         )
+    _nest_plates(plates)
 
     meta = Meta.stamp(source_ppl="pymc", model_name=getattr(model, "name", None) or None)
     return ModelIR(nodes=nodes, edges=edges, plates=plates, meta=meta)

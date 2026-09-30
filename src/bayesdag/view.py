@@ -11,7 +11,7 @@ import logging
 from typing import Any
 
 from . import diagnostics, geometry, render_static
-from .convert import subgraph, to_ir
+from .convert import drop_index_data, subgraph, to_ir
 from .ir import ModelIR
 from .layout import layout
 from .render_svg import render_node_panel, render_observed_panel, strip_token_ids, to_svg
@@ -77,6 +77,7 @@ class ModelGraphView:
         widget_legend: bool = False,
         var_names: Any = None,
         ppc_draws: int | None = 200,
+        hide_index_data: bool = True,
     ) -> None:
         _warm_layout_engine()  # build the ELK V8 isolate on its worker WHILE to_ir runs
         # A prebuilt IR (or its dict form) carries no pymc model: the adapter already ran, so
@@ -94,6 +95,8 @@ class ModelGraphView:
         # a caller's IR object (or a second view of it) is never mutated.
         base = to_ir(model_or_ir)
         self.ir = copy.deepcopy(base) if prebuilt else base
+        if hide_index_data:  # lookup-table Data whose name every consumer's equation shows
+            self.ir = drop_index_data(self.ir)
         if var_names is not None:
             self.ir = subgraph(self.ir, list(var_names))
         self._rankdir = rankdir
@@ -478,6 +481,7 @@ def view(
     widget_legend: bool = False,
     var_names: Any = None,
     ppc_draws: int | None = 200,
+    hide_index_data: bool = True,
 ) -> ModelGraphView:
     """Visualize a PyMC model (or a ``ModelIR``). Returns a :class:`ModelGraphView` that
     renders interactively in a notebook and statically elsewhere.
@@ -488,6 +492,9 @@ def view(
     ``var_names`` (default ``None`` = everything) restricts the diagram to those variables
     plus their direct parents — one hop of context (``pm.model_to_graphviz(var_names=…)`` keeps
     all ancestors instead).
+    ``hide_index_data`` (default ``True``) leaves out integer ``pm.Data`` used only as a gather
+    index (``county_idx``) when every consumer's equation already shows its name
+    (``a[county_idx]``); ``False`` keeps those nodes.
     ``ppc_draws`` (default 200) is the draw count for the **interactive** plate
     prior-predictive panels, which forward-simulate the model; ``0`` skips them entirely.
     Static rendering never pays this cost.
@@ -500,4 +507,5 @@ def view(
         widget_legend=widget_legend,
         var_names=var_names,
         ppc_draws=ppc_draws,
+        hide_index_data=hide_index_data,
     )

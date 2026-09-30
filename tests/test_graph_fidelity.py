@@ -113,3 +113,71 @@ def test_real_models_pass_the_check(eight_schools_ir):
         z = pm.Normal("z", 0, 1, dims="g")
         pm.Normal("y", z * s, s, observed=np.zeros(3), dims="g")
     schema.check(to_ir(m))
+
+
+def _radon(**kw):
+    rng = np.random.default_rng(0)
+    cidx = rng.integers(0, 4, 20)
+    with pm.Model(coords={"county": range(4), "obs": range(20)}) as m:
+        a = pm.Normal("a", 0, 1, dims="county")
+        ci = pm.Data("county_idx", cidx, dims="obs")
+        fl = pm.Data("floor", rng.integers(0, 2, 20).astype(float), dims="obs")
+        pm.Normal("y", a[ci] + 0.5 * fl, 1.0, observed=rng.normal(size=20), dims="obs")
+    return m
+
+
+def test_index_only_data_is_marked_and_hidden_by_default():
+    import bayesdag
+    from bayesdag.convert import drop_index_data
+
+    ir = to_ir(_radon())
+    assert ir.node("county_idx").usage == "index"
+    assert ir.node("floor").usage is None  # used arithmetically
+    shown = drop_index_data(ir)
+    assert shown.node("county_idx") is None and shown.node("floor") is not None
+    assert r"\mathrm{county\_idx}" in shown.node("y").label_tex  # the name is still on the page
+    schema.check(shown)
+    assert bayesdag.view(_radon(), ppc_draws=0).ir.node("county_idx") is None
+    assert bayesdag.view(_radon(), ppc_draws=0, hide_index_data=False).ir.node("county_idx")
+
+
+def test_integer_data_used_arithmetically_is_kept():
+    with pm.Model() as m:
+        k = pm.Data("k", np.array([1, 2, 3]))
+        pm.Normal("y", k * 2.0, 1.0, observed=np.zeros(3))
+    assert to_ir(m).node("k").usage is None
+
+
+def test_multi_dim_plates_nest_under_their_leading_dim():
+    with pm.Model(coords={"protein": range(3), "batch": range(2)}) as m:
+        pm.Normal("mean", 0, 1, dims="protein")
+        pm.Normal("offset", 0, 1, dims=("protein", "batch"))
+    ir = to_ir(m)
+    inner = next(p for p in ir.plates if p.dims == ["protein", "batch"])
+    outer = next(p for p in ir.plates if p.dims == ["protein"])
+    assert inner.parent == outer.id and inner.label == "batch (2)"
+    schema.check(ir)
+    from bayesdag.layout import layout
+
+    res = layout(ir)
+    ob, ib = res.plate_boxes[outer.id], res.plate_boxes[inner.id]
+    assert ob.x <= ib.x and ib.x + ib.w <= ob.x + ob.w  # drawn inside
+
+
+def test_no_prefix_plate_means_no_nesting():
+    with pm.Model(coords={"protein": range(3), "batch": range(2)}) as m:
+        pm.Normal("offset", 0, 1, dims=("protein", "batch"))
+    (p,) = to_ir(m).plates
+    assert p.parent is None and p.label == "protein (3) x batch (2)"
+
+
+def test_potentials_show_their_log_density_expression():
+    with pm.Model() as m:
+        x = pm.Normal("x", 0, 1, shape=3)
+        pm.Potential("pen", -(x**2).sum())
+    ir = to_ir(m)
+    pen = ir.node("pen")
+    assert pen.label_tex.startswith(r"\log\psi_{\mathrm{pen}} = ")
+    assert r"\cssId{tok-x}" in pen.label_tex
+    e = next(e for e in ir.edges if e.target == "pen")
+    assert e.target_token_id == "x"

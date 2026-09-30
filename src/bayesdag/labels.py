@@ -269,6 +269,16 @@ def assemble_deterministic(
     return label, tree
 
 
+def assemble_potential(
+    node_name: str, expr_tex: str, leaf_tokens: list[str]
+) -> tuple[str, TokenIR]:
+    """A ``pm.Potential``: a log-density factor ``log psi_name = expr`` — neither sampled nor
+    observed, it adds ``expr`` to the model's log density."""
+    label = rf"\log\psi_{{{symbol_for(node_name)}}} = {expr_tex}"
+    tree = TokenIR(token_id="root", tex=label, children=[TokenIR(t, t) for t in leaf_tokens])
+    return label, tree
+
+
 def assemble_bare(node_name: str, kind_tex: str | None = None) -> tuple[str, TokenIR]:
     """For data/potential/elided nodes: just the symbol (optionally annotated)."""
     sym = symbol_for(node_name)
