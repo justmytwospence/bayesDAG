@@ -117,6 +117,19 @@ Declared structures are drawn with a dashed inner border and marked "annotated";
 
 In the widget, a structure box pins like a node (its card lists roles, notes and every member's equation, with an **expand** button); the toolbar switches between the overview and all variables. `v.set_detail(...)`, `v.expand(block_id)`, `v.collapse(...)`, `v.to_svg(detail=...)` and `v.panel_svg("block", block_id=...)` do the same from Python. The selected structure is the `selected_block` trait; `selected_node` only ever holds a variable name.
 
+### Once it's fit
+
+With a posterior attached, each structure offers the pictures its literature uses — in the widget, pin the structure (or the node carrying its tag) and pick one; from Python, `v.fitted_panels(block_id)` lists them and `v.panel_svg(kind, block_id=...)` draws one:
+
+| structure | panels |
+|---|---|
+| hierarchy | **shrinkage plot** (Efron–Morris / Gelman–Hill: each group's raw estimate → its posterior mean, pulled toward the population mean, against group size) · **population distribution** (draws of `N(μ, τ)` and where a new group would fall, groups ticked) · **pooling factor** (Gelman & Pardoe's λ, plus each group's fraction pulled in) |
+| regression | **fitted effect** on the outcome's scale with a 90% band and the data (LogNormal: median *and* mean) · **lines per group** (the radon figure: complete, no and partial pooling) · **intercepts vs slopes** |
+| shrinkage prior | **κ** (the horseshoe's shrinkage factors: most near 1, a few near 0) · **local scale vs coefficient** (with the slab's ceiling) |
+| measured latent | **readings vs inferred truth** on the 1:1 line |
+
+The rules that keep these honest: posterior quantities come straight from the draws. A group's "raw" estimate is its data mean minus the rest of the predictor at the fit, which is exact bookkeeping because the recognized predictor is affine. Raw-data comparisons are only drawn where they are like for like: an identity link (or log, for a LogNormal), one grouping index, one covariate. Under a logit link, for instance, the shrinkage plot says why it isn't drawn. Effect curves vary one covariate over every observed row and average (an average predictive comparison), rather than inventing an "average observation"; κ is labelled as the orthogonal-design approximation when predictors are correlated.
+
 Plates mean "indexed by": a `(protein, batch)` array sits inside the `protein` plate because its first index is the protein — a statement about indexing, not a claim that batches are exchangeable within proteins.
 
 ### A `pm.Model` is not a causal DAG

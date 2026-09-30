@@ -117,5 +117,7 @@ oracle tests in `test_constructs.py` / `test_glyph.py`; the third is the structu
 - [x] measured latent (errors-in-variables) — tag
 - [x] user annotations (`BlockSpec`), drawn as annotated
 - [x] overview projection (default), expand/collapse, widget block cards, `selected_block`
+- [x] fitted panels (`adapters/fitted.py` + `render_panels.py`): shrinkage plot, population distribution, pooling factor, fitted effect, lines per group, intercepts vs slopes, horseshoe κ, local scale vs coefficient, readings vs truth
+- [ ] fitted panels for non-identity links (shrinkage plot on the link scale with a clear caveat) · correlated-effects ellipses from an LKJ/MvNormal fit · grouped posterior predictive checks
 - [ ] nested blocks · block hulls in the full graph · missing-data split/join recognition · matrix/constrained-basis reparameterizations (annotate them for now)
 - [ ] Nested / prefixed submodels as blocks

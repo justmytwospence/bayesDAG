@@ -198,3 +198,28 @@ decisions were confirmed by the owner: **overview by default**, a **user annotat
   Playwright/shadow-DOM (the JS queries only inside its own element; node:test + jsdom cover the
   controller); inferring statistical nesting from dims (plates mean "indexed by" — a
   `(protein, batch)` array nests under `protein` as plate notation, nothing more).
+
+## Decision log — fitted-structure panels (2026-09)
+
+Each recognized structure now offers the pictures its literature uses, once a posterior is
+attached: the Efron–Morris shrinkage plot (Efron & Morris 1977; Gelman & Hill 2007, ch. 12), the
+population distribution with a new group's posterior predictive, Gelman & Pardoe's (2006) pooling
+factor, the radon "lines per group" figure (complete / no / partial pooling), varying intercepts
+vs slopes, the fitted effect on the outcome scale, the horseshoe's shrinkage factors κ and local
+scale vs coefficient (Piironen & Vehtari 2017), and readings vs inferred truth.
+
+- **Raw estimates are exact bookkeeping, not a second model.** A group's raw estimate is its data
+  mean minus the rest of the predictor evaluated at posterior means; because the regression rule
+  proved the predictor affine in its leaves, that equals the rest's posterior mean exactly.
+- **Only like-for-like comparisons.** Raw group summaries are drawn only on the predictor's own
+  scale: an identity link, or log for a LogNormal. Under a logit or log link the panel refuses
+  with its reason rather than comparing group proportions to a linear-predictor effect.
+- **Average predictive comparisons, not an invented mean observation.** Effect curves and
+  per-group lines vary ONE covariate over every observed row and average (Gelman & Pardoe 2007).
+  This also works when the predictor carries unnamed per-row constants (a fixed matrix of
+  first-stage summaries), where "hold everything else at its mean" has nothing to hold.
+- **κ is labelled for what it is:** exact for an orthogonal design, the standard approximation
+  otherwise, with the effective number of coefficients Σ(1 − κ_j) as a summary; heteroskedastic
+  likelihoods use each row's own σ_i.
+- **No selection by significance, no inclusion probabilities,** and the intercept–slope panel's
+  correlation of posterior means is captioned as descriptive (the model may estimate none).
