@@ -145,3 +145,59 @@ def test_repeated_leaf_is_token_wrapped_once():
     tex, used = render_value(d, named, wrap_leaves=True, _root=True)
     assert tex.count(r"\cssId{tok-a}") == 1
     assert used == {"a"}
+
+
+def _det(build, coords=None):
+    with pm.Model(coords=coords or {}) as m:
+        d = pm.Deterministic("d", build())
+    named = {id(v): n for n, v in m.named_vars.items()}
+    return render_value(d, named, wrap_leaves=True, _root=True)
+
+
+def test_matrix_products_read_as_juxtaposition():
+    X = np.ones((4, 3))
+    for build in (
+        lambda: pm.Data("X", X) @ pm.Normal("b", 0, 1, shape=3),
+        lambda: pt.dot(pm.Data("X", X), pm.Normal("b", 0, 1, shape=3)),
+    ):
+        tex, used = _det(build)
+        assert used == {"X", "b"} and "f\\!" not in tex
+        assert r"{X}\,\cssId{tok-b}{b}" in tex
+
+
+def test_a_constant_design_matrix_is_named_by_its_shape():
+    tex, _ = _det(
+        lambda: pt.as_tensor(np.arange(12.0).reshape(4, 3)) @ pm.Normal("b", 0, 1, shape=3)
+    )
+    assert r"\mathbf{C}_{4\times 3}" in tex
+
+
+def test_gathers_show_their_index_token():
+    idx = np.array([0, 1, 1, 2])
+
+    def build():
+        a = pm.Normal("a", 0, 1, shape=3)
+        return a[pm.Data("county_idx", idx)]
+
+    tex, used = _det(build)
+    assert used == {"a", "county_idx"}
+    assert r"\cssId{tok-county_idx}{\mathrm{county\_idx}}" in tex and "[" in tex
+    tex, _ = _det(lambda: pm.Normal("a", 0, 1, shape=3)[idx])  # a constant index array
+    assert r"[\cdot]" in tex
+
+
+def test_slices_joins_sorts_and_assignment():
+    tex, _ = _det(lambda: pm.Normal("a", 0, 1, shape=(3, 4))[:, 2])
+    assert "[{:}" in tex and "2]" in tex
+    tex, _ = _det(lambda: pt.concatenate([pt.zeros(1), pm.Normal("q", 0, 1, shape=2)]))
+    assert tex.count(";") == 1 and r"\left[" in tex
+    tex, _ = _det(lambda: pt.sort(pm.Normal("a", 0, 1, shape=3)))
+    assert r"\operatorname{sort}" in tex
+    tex, used = _det(
+        lambda: pt.set_subtensor(pt.zeros(4)[np.array([1, 3])], pm.Normal("y", 0, 1, shape=2))
+    )
+    assert r"\operatorname{set}" in tex and used == {"y"}
+    tex, _ = _det(lambda: pt.sqr(pm.Normal("a", 0, 1) + 1.0))
+    assert r"\right)^{2}" in tex
+    tex, _ = _det(lambda: pm.Normal("a", 0, 1, shape=3).mean())
+    assert r"\operatorname{mean}" in tex

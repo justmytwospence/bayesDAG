@@ -211,8 +211,8 @@ def build_poisson_loglink():
 
 
 def build_softmax_categorical():
-    """Multinomial choice: a softmax (multinomial-logit) classifier — `probs` shows the **simplex**
-    transfer glyph over the K categories."""
+    """Multinomial choice: a softmax (multinomial-logit) classifier — `probs` is captioned as a
+    probability vector over the K categories."""
     rng = np.random.default_rng(10)
     n, K = 120, 3
     x = rng.normal(0, 1, n)

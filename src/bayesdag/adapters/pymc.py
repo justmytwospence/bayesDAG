@@ -237,9 +237,12 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
             )
         elif role == "deterministic" and getattr(var, "owner", None) is not None:
             expr_tex, used = _safe_render_value(var, named, wrap_leaves=True, _root=True)
-            # nested unknown ops (f(f(...))) = auto-generated matrix/plumbing (e.g. LKJ corr/stds,
-            # OrderedLogistic class probs). They render as an illegible f-mess -> elide honestly.
-            if r"f\!\left(f\!\left" in expr_tex:
+            # unknown ops wrapped around more unknown ops or element assignment = auto-generated
+            # matrix plumbing (LKJ corr/stds, OrderedLogistic class probs): an illegible mess ->
+            # elide honestly.
+            if r"f\!\left(" in expr_tex and (
+                r"f\!\left(f\!\left" in expr_tex or r"\operatorname{set}" in expr_tex
+            ):
                 expr_tex, used = r"[\,\cdots\,]", set()
             det_tokens[name] = used
             label_tex, label_tree = labels.assemble_deterministic(name, expr_tex, sorted(used))

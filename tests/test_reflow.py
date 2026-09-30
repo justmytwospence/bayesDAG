@@ -192,15 +192,17 @@ def test_no_spurious_exit_kink_when_token_within_source_box():
     ir = to_ir(build_softmax_categorical())
     res = layout(ir)
     child = "category_logits"
+    checked = 0
     for src in ("intercept", "slope"):
         sb = res.node_boxes[src]
         tok = res.node_token_anchors[child][src]
         tx = tok.x + tok.w / 2.0
-        assert (
-            sb.x <= tx <= sb.x + sb.w
-        )  # precondition: the token is within the source box x-extent
+        if not sb.x <= tx <= sb.x + sb.w:
+            continue  # the case under test: the token is within the source box x-extent
+        checked += 1
         xs = [p[0] for p in res.edge_paths[src, child]]
         assert max(xs) - min(xs) < 1.5  # whole edge is one vertical column — no jog/kink
+    assert checked, "neither edge exercises the within-extent case any more"
 
 
 def test_layout_is_deterministic():

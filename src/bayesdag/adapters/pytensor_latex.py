@@ -64,6 +64,8 @@ def _const_tex(var: Any) -> str | None:
     # A constant vector (all entries equal) reads as the single value it repeats.
     if np.all(flat == flat[0]):
         return _fmt_scalar(flat[0].item())
+    if arr.ndim >= 2:  # a constant matrix (a design matrix, a basis): bold C with its shape
+        return r"\mathbf{C}_{" + r"\times ".join(str(d) for d in arr.shape) + "}"
     # Otherwise show the actual values — eliding to "[⋯]" wastes the same space while
     # hiding that it's a vector. Show a few entries, then a trailing ellipsis if long.
     if flat.size <= 4:
@@ -174,6 +176,9 @@ def _render(var, named, wrap, st, root=False) -> tuple[str, set[str], float]:
             if kind == "bool":
                 return rf"\mathbb{{1}}\!\left[{t}\right]", u, ATOM
             return t, u, p
+        if sname == "TrueDiv" and _is_mean(owner):  # sum(x) / size(x): a mean
+            t, u, _ = R(owner.inputs[0].owner.inputs[0])
+            return rf"\operatorname{{mean}}\!\left({t}\right)", u, ATOM
         parts: list[tuple[str, float]] = []
         for inp in owner.inputs:
             t, u, p = R(inp)
@@ -191,6 +196,9 @@ def _render(var, named, wrap, st, root=False) -> tuple[str, set[str], float]:
             return f"{_wrap_if(lt, lp, ADD)} - {_wrap_if(rt, rp, MUL)}", used, ADD
         if sname == "Mul":
             return "\\,".join(_wrap_if(t, p, MUL) for t, p in parts), used, MUL
+        if sname == "Sqr":
+            t, p = parts[0]
+            return rf"{_wrap_if(t, p, ATOM)}^{{2}}", used, POW
         if sname in ("TrueDiv", "IntDiv") and len(parts) >= 2:
             frac = rf"\frac{{{texts[0]}}}{{{texts[1]}}}"
             if sname == "IntDiv":  # floor division: the floor is part of the value
@@ -239,6 +247,10 @@ def _render(var, named, wrap, st, root=False) -> tuple[str, set[str], float]:
         t, u, _ = R(owner.inputs[0])
         return rf"\operatorname{{softmax}}\!\left({t}\right)", u, ATOM
 
+    structural = _render_structural(op, owner, R)
+    if structural is not None:
+        return structural
+
     red = _reduction_symbol(op)
     if red is not None:  # a reduction names its actual operation, never a blanket sum
         t, u, p = R(owner.inputs[0])
@@ -265,3 +277,116 @@ def _reduction_symbol(op: Any) -> str | None:
         return None
     name = type(getattr(op, "scalar_op", None)).__name__
     return _REDUCTIONS.get(name, r"\operatorname{reduce}")
+
+
+def _is_mean(owner) -> bool:
+    """``x.mean()`` builds ``sum(x) / <size from x.shape>``: a Sum numerator over a denominator
+    computed from shapes alone (no random variable, a Shape op in its graph)."""
+    try:
+        num, den = owner.inputs[0], owner.inputs[1]
+        if type(getattr(getattr(num, "owner", None), "op", None)).__name__ != "Sum":
+            return False
+        from pytensor.graph.traversal import ancestors
+
+        ops = {type(a.owner.op).__name__ for a in ancestors([den]) if a.owner is not None}
+        return bool(ops & {"Shape", "Shape_i"}) and not ops & {"RandomVariable"}
+    except Exception:
+        return False
+
+
+_COMMA = r",\,"
+
+
+def _slice_tex(idx) -> str:
+    """One index entry of a constant Subtensor: a scalar or a ``start:stop:step`` slice."""
+
+    def val(x):
+        if x is None:
+            return ""
+        d = getattr(x, "data", None)
+        return _fmt_scalar(np.asarray(d).item()) if d is not None else r"\cdot"
+
+    if isinstance(idx, slice):
+        a, b, c = val(idx.start), val(idx.stop), val(idx.step)
+        return f"{a}{{:}}{b}" + (f"{{:}}{c}" if c else "")
+    return val(idx)
+
+
+def _render_structural(op, owner, R):
+    """Array plumbing that has a faithful reading: matrix products, gathers, slices,
+    concatenation, sorting, element assignment. Returns ``(tex, used, prec)`` or None."""
+    name = type(op).__name__
+    ins = owner.inputs
+
+    def dot_like() -> bool:
+        if name in ("Dot", "Dot22", "BatchedDot"):
+            return True
+        return name == "Blockwise" and type(getattr(op, "core_op", None)).__name__ in (
+            "Dot",
+            "Dot22",
+        )
+
+    if dot_like():  # a matrix product reads as juxtaposition: X beta
+        (a, ua, pa), (b, ub, pb) = R(ins[0]), R(ins[1])
+        return rf"{_wrap_if(a, pa, MUL)}\,{_wrap_if(b, pb, MUL)}", ua | ub, MUL
+    if name in ("AdvancedSubtensor", "AdvancedSubtensor1"):
+        a, ua, pa = R(ins[0])
+        used = set(ua)
+        idx = []
+        for i in ins[1:]:
+            t, u, _ = R(i)
+            used |= u
+            # an unnamed constant index array is plumbing: show that it IS an index, not its values
+            idx.append(r"\cdot" if not u and getattr(i, "owner", None) is None else t)
+        return _wrap_if(a, pa, ATOM) + "[" + _COMMA.join(idx) + "]", used, ATOM
+    if name == "Subtensor":
+        try:
+            from pytensor.tensor.subtensor import indices_from_subtensor
+
+            idxs = indices_from_subtensor(ins[1:], op.idx_list)
+        except Exception:
+            return None
+        if any(
+            getattr(x, "owner", None) is not None
+            for i in idxs
+            for x in ((i.start, i.stop, i.step) if isinstance(i, slice) else (i,))
+        ):
+            return None  # a computed (non-constant) slice bound: leave to the generic path
+        a, ua, pa = R(ins[0])
+        body = _COMMA.join(_slice_tex(i) for i in idxs)
+        return _wrap_if(a, pa, ATOM) + "[" + body + "]", ua, ATOM
+    if name == "Join":  # ins[0] is the axis
+        parts = [R(i) for i in ins[1:]]
+        used = set().union(*(u for _, u, _ in parts)) if parts else set()
+        return r"\left[" + r";\,".join(t for t, _, _ in parts) + r"\right]", used, ATOM
+    if name == "MakeVector":
+        parts = [R(i) for i in ins]
+        used = set().union(*(u for _, u, _ in parts)) if parts else set()
+        return r"\left[" + r",\,".join(t for t, _, _ in parts) + r"\right]", used, ATOM
+    if name == "SortOp":
+        t, u, _ = R(ins[0])
+        return rf"\operatorname{{sort}}\!\left({t}\right)", u, ATOM
+    if name in ("IncSubtensor", "AdvancedIncSubtensor", "AdvancedIncSubtensor1"):
+        verb = "set" if getattr(op, "set_instead_of_inc", False) else "inc"
+        (x, ux, _), (y, uy, _) = R(ins[0]), R(ins[1])
+        used = ux | uy
+        idx = []
+        for i in ins[2:]:
+            t, u, _ = R(i)
+            used |= u
+            idx.append(r"\cdot" if not u else t)
+        where = _COMMA.join(idx) if idx else r"\cdot"
+        return rf"\operatorname{{{verb}}}\!\left({x},\ {where},\ {y}\right)", used, ATOM
+    if name == "Alloc":  # broadcast a value to a shape: the value is what the equation says
+        return R(ins[0])
+    if name in ("Reshape", "SpecifyShape"):  # value-preserving re-views
+        return R(ins[0])
+    if name == "Blockwise":
+        core = type(getattr(op, "core_op", None)).__name__
+        parts = [R(i) for i in ins]
+        used = set().union(*(u for _, u, _ in parts)) if parts else set()
+        if not used:
+            return None
+        args = ", ".join(t for t, u, _ in parts if u)
+        return rf"\operatorname{{{core.lower()}}}\!\left({args}\right)", used, ATOM
+    return None
