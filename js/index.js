@@ -162,10 +162,11 @@ export default {
         tooltip.style.top = ev.clientY - r.top + el.scrollTop + 12 + "px";
         tooltip.style.display = "block";
       }
-      function blockRows(bid) {
+      function blockRows(bid, withTitle) {
         const b = (spec.blocks || {})[bid];
         if (!b) return [];
         const rows = [];
+        if (withTitle) rows.push(`<div class="bd-block-head">${esc(b.title)}</div>`);
         const prov = b.provenance === "annotated" ? "annotated by the user" : "read off the graph";
         rows.push(`<div class="bd-block-sub">${esc(prov)}${b.workflow ? " · " + esc(b.workflow.replace("_", " ")) : ""}</div>`);
         for (const [role, names] of Object.entries(b.roles || {})) {
@@ -183,6 +184,13 @@ export default {
             })
             .join("");
           rows.push(`<details class="bd-members"><summary>inside (${b.members.length})</summary>${inner}</details>`);
+        }
+        // the classic fitted pictures of this structure; Python computes one when asked
+        if (b.panels && b.panels.length) {
+          const btns = b.panels
+            .map((p) => `<button class="bd-fit-panel-btn" data-block="${esc(bid)}" data-kind="${esc(p.kind)}">${esc(p.label)}</button>`)
+            .join("");
+          rows.push(`<div class="bd-fit-panels">${btns}</div>`);
         }
         if (b.contracted) rows.push(`<button class="bd-expand-btn" data-block="${esc(bid)}">expand</button>`);
         else if (b.expanded) rows.push(`<button class="bd-collapse-btn" data-block="${esc(bid)}">collapse</button>`);
@@ -206,6 +214,17 @@ export default {
           btn.addEventListener("click", (ev) => {
             ev.stopPropagation();
             setExpanded(btn.dataset.block, false);
+          })
+        );
+        card.querySelectorAll(".bd-fit-panel-btn").forEach((btn) =>
+          btn.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            panel.innerHTML =
+              `<div class="bd-panel-head">${esc(btn.textContent)}<span>click empty space to close</span></div>` +
+              '<div class="bd-placeholder">computing from the fit&hellip;</div>';
+            panel.style.display = "block";
+            model.set("panel_request", { kind: btn.dataset.kind, block_id: btn.dataset.block, nonce: Date.now() });
+            model.save_changes();
           })
         );
         card.querySelectorAll(".bd-page-btn").forEach((btn) =>
@@ -260,7 +279,9 @@ export default {
           rows.push(`<div class="bd-overlay bd-marginals">${m.svg}${pager}</div>`);
         }
         if (isBlock) rows.push(...blockRows(n.block));
-        else if (n.in_block) rows.push(...blockRows(n.in_block));
+        else if (n.in_block) rows.push(...blockRows(n.in_block, true));
+        // tag-only structures (a centered hierarchy, a regression) live on their anchor's card
+        (n.blocks_here || []).forEach((bid) => rows.push(...blockRows(bid, true)));
         // posterior-geometry panels offered by this node (the funnel joint)
         const auxes = (spec.aux || {})[id] || [];
         auxes.forEach((a, i) => {
@@ -411,6 +432,13 @@ export default {
     function onPanel() {
       // a page of a Python-rendered panel arrived: swap it into the open card
       const resp = model.get("panel_response") || {};
+      if (resp.request && resp.request.kind !== "marginals" && resp.request.block_id) {
+        // a fitted-structure panel: Python drew it (or says why it cannot be drawn)
+        const head = panel.querySelector(".bd-panel-head");
+        panel.innerHTML = (head ? head.outerHTML : "") + (resp.svg || `<div class="bd-placeholder">${esc(resp.reason || "unavailable")}</div>`);
+        panel.style.display = "block";
+        return;
+      }
       const slot = card.querySelector(".bd-marginals");
       if (!slot || !resp.request || resp.request.kind !== "marginals") return;
       const node = resp.request.node_id;

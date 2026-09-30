@@ -284,3 +284,26 @@
   font-size: 11px;
   color: #6b7280;
 }
+.bd-block-head {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid #eceef1;
+  font-weight: 600;
+  font-size: 11px;
+  color: #374151;
+}
+.bd-fit-panels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.bd-fit-panel-btn {
+  font: 11px system-ui, sans-serif;
+  padding: 1px 8px;
+  border: 1px solid #f0c39a;
+  border-radius: 10px;
+  background: #fff7f0;
+  color: #9a4a12;
+  cursor: pointer;
+}

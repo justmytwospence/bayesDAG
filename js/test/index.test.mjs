@@ -51,6 +51,7 @@ function setup(specOverrides = {}, traits = {}) {
         contracted: true,
         display_id: "block:hierarchy:theta",
         expanded: false,
+        panels: [{ kind: "shrinkage", label: "shrinkage toward the population" }],
       },
     },
     plates: {},
@@ -152,4 +153,17 @@ test("cleanup unsubscribes every listener", async () => {
   cleanup();
   assert.equal(model.handlers["change:spec"].length, 0);
   assert.equal(model.handlers["change:panel_response"].length, 0);
+});
+
+test("a fitted-structure panel is requested from Python and shown with its reason", async () => {
+  const { el, state, model } = await mount();
+  const ME = el.ownerDocument.defaultView.MouseEvent;
+  body(el, "block:hierarchy:theta").dispatchEvent(new ME("click", { bubbles: true }));
+  el.querySelector(".bd-fit-panel-btn").dispatchEvent(new ME("click", { bubbles: true }));
+  assert.equal(state.panel_request.kind, "shrinkage");
+  assert.equal(state.panel_request.block_id, "block:hierarchy:theta");
+  assert.match(el.querySelector(".bd-panel").innerHTML, /computing/);
+  state.panel_response = { request: state.panel_request, status: "unavailable", svg: "", reason: "needs an identity link" };
+  model.fire("change:panel_response");
+  assert.match(el.querySelector(".bd-panel").innerHTML, /needs an identity link/);
 });
