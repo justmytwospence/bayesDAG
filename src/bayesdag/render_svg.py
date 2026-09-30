@@ -52,9 +52,15 @@ _GLYPH_COLORS = {
         "#7a5bd0",
         "#7a5bd0",
     ),  # transfer-function curve (a 4th hue: a computed transform)
+    # exact standardized shape: the prior green's family, in grey-green (no values on its axis)
+    "conditional_standardized": ("#6f8f7a", "#6f8f7a"),
+    "implied_family": ("#5b6b7f", "#5b6b7f"),  # implied by a recognized structure
+    "posterior_quantiles": ("#d2691e", "#d2691e"),
+    "posterior_predictive": ("#3a5f95", "#5a7fb5"),
+    "prior_predictive": ("#3a5f95", "#5a7fb5"),
 }
-# MLE best-fit family curve drawn over an observed histogram (the conventional "fitted curve" red;
-# distinct from data=blue, prior=green, posterior=orange).
+# the legacy (schema 1.0) best-fit family curve over an observed histogram — only ever drawn for
+# IR saved by an older bayesdag; new observed glyphs carry no fitted curve.
 _OVERLAY = "#c0392b"
 # hedged diagnostic mark (same amber as the elision badge: both mean "read the caption", never
 # "this is wrong")
@@ -305,18 +311,18 @@ def render_observed_panel(node_id: str, dist: str | None, glyph_data: dict) -> s
         _, centers = glyph_bar_layout(k, plot)  # tick under each bar center (kept in sync)
         idxs = range(k) if k <= 10 else (0, k // 2, k - 1)
         ticks = [((centers[i] - plot.x) / plot.w, cats[i]) for i in idxs]
-    elif overlay and (fit.get("family") or dist):  # continuous + best-fit curve
+    elif overlay and (fit.get("family") or dist):  # legacy IR: continuous + best-fit curve
         kind = "hist_overlay"
         fam = fit.get("family") or dist
-        title = f"{escape(node_id)} — best-fit {escape(fam)}{n_str}"
+        title = f"{escape(node_id)} — best-fit {escape(fam)}{n_str} (legacy)"
         sub = fit.get("params") or ""
-        caption = "shape check: data vs best-fit family — not a goodness-of-fit test"
+        caption = "legacy: a family fitted to the data's marginal, not the model's prediction"
         x0, x1 = float(edges[0]), float(edges[-1])
         ticks = [(0.0, x0), (0.5, 0.5 * (x0 + x1)), (1.0, x1)]
-    else:  # continuous, no fit available
+    else:  # continuous data
         kind = "histogram"
         title = f"{escape(node_id)} — observed data{n_str}"
-        sub = "best-fit overlay n/a (unfittable likelihood)"
+        sub = "attach posterior_predictive draws to compare with the model"
         caption = ""
         x0, x1 = float(edges[0]), float(edges[-1])
         ticks = [(0.0, x0), (0.5, 0.5 * (x0 + x1)), (1.0, x1)]
@@ -473,9 +479,19 @@ def render_node_panel(n) -> str:
     stroke, fill = _GLYPH_COLORS.get(n.glyph.source, ("#2a8a55", "#2a8a55"))
     title = escape(n.id) + (f" ~ {escape(n.dist)}" if n.dist else "")
     caption = escape(_SOURCE_LABELS.get(n.glyph.source, n.glyph.source))
-    pooled = (n.glyph_data or {}).get("pooled")
-    if pooled:  # one density built from ALL elements' draws — not any single element's marginal
+    gd = n.glyph_data or {}
+    pooled = gd.get("pooled")
+    if pooled:  # legacy IR: one density built from ALL elements' draws
         caption += f" · pooled over {int(pooled)} elements"
+    if n.glyph.kind == "multi":
+        caption += f" · one curve per element (n = {gd.get('n')})"
+    if n.glyph.kind == "forest":
+        shown, total = gd.get("shown"), gd.get("n")
+        caption += f" · {total} elements sorted by median, 50%/90% intervals"
+        if shown and total and shown < total:
+            caption += f" (every {total // shown}th rank shown)"
+    if n.glyph.kind == "ppc":
+        caption += " · bars = data, orange = the model's replicates"
     spikes = (n.glyph_data or {}).get("spikes") or []
     ps = [sp["p"] for sp in spikes if isinstance(sp, dict) and sp.get("p") is not None]
     if ps:  # the bars are deliberately exaggerated to be visible — give the real numbers
@@ -525,7 +541,30 @@ def _legend_swatch(kind: str, b: Box) -> str:
         if src == "deterministic_fn":
             scurve = {"xs": [0.0, 0.25, 0.5, 0.75, 1.0], "ys": [0.05, 0.2, 0.5, 0.8, 0.95]}
             return glyph.render("curve", scurve, b, stroke=stroke, fill=fill)
-        kindname = "schematic" if src == "prior_family_only" else "density"
+        if src == "posterior_quantiles":
+            q = {
+                "q05": [0.1, 0.2, 0.35, 0.5],
+                "q25": [0.25, 0.35, 0.45, 0.6],
+                "q50": [0.35, 0.45, 0.55, 0.7],
+                "q75": [0.45, 0.55, 0.65, 0.8],
+                "q95": [0.6, 0.7, 0.8, 0.95],
+                "lo": 0.0,
+                "hi": 1.0,
+            }
+            return glyph.render("forest", q, b, stroke=stroke, fill=fill)
+        if src in ("posterior_predictive", "prior_predictive"):
+            data = {
+                "edges": [0, 1, 2, 3],
+                "counts": [0.6, 1.0, 0.45],
+                "xs": [0, 1, 2, 3],
+                "ys": [0.5, 0.9, 0.6, 0.2],
+            }
+            return glyph.render("ppc", data, b, fill=fill, stroke=stroke)
+        kindname = (
+            "schematic"
+            if src in ("prior_family_only", "conditional_standardized", "implied_family")
+            else "density"
+        )
         return glyph.render(kindname, {"xs": _BELL[0], "ys": _BELL[1]}, b, stroke=stroke, fill=fill)
     if kind == "plate":
         return (

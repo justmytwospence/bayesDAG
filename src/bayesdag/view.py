@@ -163,19 +163,20 @@ class ModelGraphView:
     def _apply_data(self, idata: Any) -> dict:
         """Set the data layer (posterior glyphs, overlays, diagnostics) from ``idata`` — or clear
         all of it together when ``idata`` is None. Returns the model-level diagnostics."""
-        from .adapters.glyph_data import posterior_glyph
+        from .adapters.glyph_data import posterior_glyph, predictive_glyph
         from .adapters.pymc import overlays_for
 
         self._idata = idata
         for n in self.ir.nodes:
             base_spec, base_data, base_note = self._base_glyphs[n.id]
-            # deterministics depict a transfer FUNCTION, and observed nodes their data; neither is
-            # a posterior, so both keep what they were built with
-            post = (
-                posterior_glyph(n.id, n.dist, idata)
-                if idata is not None and n.role not in ("deterministic", "observed")
-                else None
-            )
+            # deterministics depict a transfer FUNCTION (their posterior goes to the card); an
+            # observed node shows its data — against the model's replicates when the caller
+            # supplied predictive draws
+            post = None
+            if idata is not None and n.role == "observed":
+                post = predictive_glyph(n.id, n.dist, idata)
+            elif idata is not None and n.role not in ("deterministic", "data", "potential"):
+                post = posterior_glyph(n.id, n.dist, idata)
             if post is not None:
                 n.glyph, n.glyph_data = post
                 n.glyph_note = None

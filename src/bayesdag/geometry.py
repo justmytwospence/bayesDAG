@@ -29,6 +29,9 @@ STANDOFF = 4.0  # gap above a token edge's VISIBLE target surface (box border fo
 # overlaid curves, a fan, a stem plot) read better in a slightly taller strip than a single curve.
 _TALL_GLYPHS = frozenset({"heatmap", "pairplot"})
 _TALLER_STRIP = frozenset({"fan", "stem", "cutpoints", "simplex", "mixture"})
+# `multi`, `forest` and `ppc` deliberately use the STANDARD strip: they replace a prior density
+# or a data histogram when idata is attached, and keeping the height is what lets update() leave
+# the diagram where it is.
 # A deterministic transfer function (the `curve` kind) has a CANONICAL shape — its width carries
 # no information, so it must not stretch with the equation. Cap + center it under the equation;
 # a wide `θ = μ + τ·η` no longer smears the S-curve/line across the whole node.

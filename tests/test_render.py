@@ -41,7 +41,7 @@ def test_svg_is_well_formed_xml(eight_schools_ir):
     # one rect per node (chrome) at minimum, plus the plate
     assert svg.count("<rect") >= len(eight_schools_ir.nodes)
     assert "marker-end" in svg  # edges have arrowheads
-    assert "#c0392b" in svg  # observed node's MLE best-fit family overlay curve
+    assert "#c0392b" not in svg  # no fitted-family overlay curve on new IR
 
 
 @pytest.mark.skipif(not _math, reason="needs the built mathjax bundle")

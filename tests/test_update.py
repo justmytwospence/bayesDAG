@@ -56,10 +56,11 @@ def test_the_diagram_does_not_move_when_the_posterior_arrives(fitted_eight_schoo
 
     assert v.layout is before_layout  # literally reused, not recomputed to the same numbers
     assert _boxes(v) == before_boxes
+    assert v.ir.node("eta").glyph.kind == "multi"
     assert _sources(v) == {
         "mu": "posterior_kde",
         "tau": "posterior_kde",
-        "eta": "posterior_kde",
+        "eta": "posterior_kde",  # one curve per school (never one pooled curve)
         "theta": None,  # a deterministic depicts its transfer function, never a posterior
         "y_obs": "observed_hist",  # observed nodes keep their data
     }
@@ -99,8 +100,8 @@ def test_overlay_refs_follow_the_attached_idata(fitted_eight_schools):
 
 
 def test_a_glyph_that_changes_size_class_forces_a_relayout():
-    """An MvNormal's prior is a pairplot — a ~90px square. Its posterior is a pooled KDE strip of
-    30px. Reusing the old boxes there would leave the node sized for a glyph it no longer draws,
+    """An MvNormal's prior is a pairplot — a ~90px square. Its posterior is a per-element strip
+    of 30px. Reusing the old boxes there would leave the node sized for a glyph it no longer draws,
     so the size check has to catch it and lay out again."""
     from bayesdag import geometry
 
@@ -115,7 +116,7 @@ def test_a_glyph_that_changes_size_class_forces_a_relayout():
 
     v.update(idata=idata)
 
-    assert v.ir.node("z").glyph.kind == "density"  # posterior wins over the construct glyph
+    assert v.ir.node("z").glyph.kind == "multi"  # posterior wins over the construct glyph
     assert v.layout is not before_layout, "the size class changed; the layout must be redone"
     assert _boxes(v) != before_boxes
     # and the new box is the one the new glyph actually wants

@@ -10,7 +10,8 @@ from bayesdag.render_svg import to_svg
 def test_build_is_context_aware(eight_schools_ir):
     swatches = {i.swatch for i in legend.build(eight_schools_ir)}
     assert {"role:latent", "role:observed", "role:deterministic"} <= swatches
-    assert {"glyph:prior_analytic", "glyph:observed_hist", "glyph:best_fit"} <= swatches
+    assert {"glyph:prior_analytic", "glyph:observed_hist"} <= swatches
+    assert "glyph:best_fit" not in swatches  # no fitted-family overlay on new IR
     assert {"symbol:~", "symbol:=", "plate"} <= swatches
     # no posterior entry without an idata
     assert "glyph:posterior_kde" not in swatches
