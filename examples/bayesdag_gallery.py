@@ -993,6 +993,83 @@ def _(bayesdag, compare, structures):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    # Once it's fit: the classic pictures of each structure
+
+    With a posterior attached, each recognized structure offers the pictures its literature uses
+    (in the widget: pin a structure — or the node carrying its tag — and pick one; from Python:
+    `view.panel_svg(kind, block_id=...)`). Hierarchies get the **shrinkage plot**, the
+    **population distribution** and the **pooling factor**; regressions the **fitted effect** on
+    the outcome's scale, **lines per group** and **intercepts vs slopes**; shrinkage priors the
+    horseshoe's **κ** and **local scale vs coefficient**; measured latents **readings vs truth**.
+    A panel that would not be a like-for-like comparison (raw group means under a logit link, say)
+    says why instead of drawing.
+    """)
+    return
+
+
+@app.cell
+def _(pm):
+    def fit(model):
+        with model:
+            idata = pm.sample(draws=400, tune=400, chains=2, random_seed=1, progressbar=False)
+        return idata
+
+    return (fit,)
+
+
+@app.cell
+def _(bayesdag, mo):
+    def panels(model, idata, title):
+        v = bayesdag.view(model, idata=idata, ppc_draws=0)
+        tabs = {}
+        for b in v.blocks:
+            for kind in v.fitted_panels(b.id):
+                tabs[f"{b.anchor}: {kind.replace('_', ' ')}"] = mo.Html(
+                    v.panel_svg(kind, block_id=b.id)
+                )
+        return mo.vstack([mo.md(f"## {title}"), mo.ui.tabs(tabs), mo.ui.anywidget(v.widget())])
+
+    return (panels,)
+
+
+@app.cell
+def _(fit, panels, structures):
+    _m = structures.build_radon_centered()
+    panels(_m, fit(_m), "F1 - Radon: varying intercepts and slopes")
+    return
+
+
+@app.cell
+def _(fit, panels, structures):
+    _m = structures.build_eight_schools_noncentered()
+    panels(_m, fit(_m), "F2 - Eight schools")
+    return
+
+
+@app.cell
+def _(fit, panels, structures):
+    _m = structures.build_regularized_horseshoe()
+    panels(_m, fit(_m), "F3 - Regularized horseshoe")
+    return
+
+
+@app.cell
+def _(fit, panels, structures):
+    _m = structures.build_vo2max_like()
+    panels(_m, fit(_m), "F4 - The outcome model: subjects, horseshoe, log-normal likelihood")
+    return
+
+
+@app.cell
+def _(fit, panels, structures):
+    _m = structures.build_measurement_error()
+    panels(_m, fit(_m), "F5 - Measurement error")
+    return
+
+
 @app.cell
 def _(mo):
     mo.md(r"""
