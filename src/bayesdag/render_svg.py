@@ -411,12 +411,18 @@ def render_joint_panel(aux) -> str:
             f'<text x="{plot.x - 4:.1f}" y="{plot.y + frac * plot.h + 3:.1f}" text-anchor="end" '
             f'font-size="8" fill="#777">{val:.3g}</text>'
         )
-    # POINTS, not draws: a vector child contributes one point per element per draw, so calling
-    # these "draws" would inflate the divergence count the reader already saw on the strip.
-    n_div, n_total = data.get("n_divergent", 0), data.get("n_total", 0)
+    # TRANSITIONS: a vector child plots one point per element per draw, but the count is of
+    # draws, so it matches the model-level divergence count the reader already saw.
+    n_div, n_total = data.get("n_divergent"), data.get("n_total", 0)
+    cnt = (
+        f"{n_div} of {n_total} draws divergent (red)"
+        if n_div is not None
+        else "divergences not recorded for this run"
+    )
+    if data.get("thinned"):
+        cnt += " · non-divergent draws thinned"
     out.append(
-        f'<text x="{pad:.0f}" y="{cap_y - 12:.1f}" font-size="9" fill="#9aa0a6">'
-        f"{n_div} of {n_total} plotted points come from divergent draws (red)</text>"
+        f'<text x="{pad:.0f}" y="{cap_y - 12:.1f}" font-size="9" fill="#9aa0a6">{cnt}</text>'
     )
     out.append(
         f'<text x="{pad:.0f}" y="{cap_y:.1f}" font-size="9" fill="#9aa0a6">'

@@ -215,11 +215,12 @@ def _funnel_idata(n_div=6, draws=200):
 
 def test_funnel_joint_separates_divergent_draws_and_labels_a_computed_axis():
     data = diagnostics.funnel_joint(_funnel_idata(), "tau", "theta", None)
-    assert data["n_divergent"] == 6 * 8  # a vector child contributes one point per element
-    assert data["y_label"] == "theta"
+    assert data["n_divergent"] == 6  # divergent TRANSITIONS, not element-points
+    assert data["n_total"] == _funnel_idata()["posterior"].sizes["draw"]  # one chain
+    assert len(data["div_x"]) == 6 * 8  # ... but every element of a divergent draw is plotted
+    assert data["y_label"] == "theta (8 elements overlaid)"
     # no unconstrained_posterior in this idata, so the log axis is ours — and says so
     assert data["x_label"] == "log(tau) (computed)"
-    assert len(data["div_x"]) == data["n_divergent"]
     # the divergences really are in the neck: their log(tau) is below the bulk's median
     assert max(data["div_x"]) < float(np.median(data["x"]))
 
@@ -232,7 +233,7 @@ def test_the_joint_prefers_the_samplers_own_unconstrained_draws():
     tree["unconstrained_posterior"] = xr.Dataset(
         {"tau_log__": (("chain", "draw"), np.log(base["posterior"]["tau"].values))}
     )
-    data = diagnostics.funnel_joint(xr.DataTree.from_dict(tree), "tau", "theta", "tau_log__")
+    data = diagnostics.funnel_joint(xr.DataTree.from_dict(tree), "tau", "theta", "tau_log__", "log")
     assert data["x_label"] == "log(tau)"
     assert "computed" not in data["x_label"]
 
@@ -277,7 +278,7 @@ def test_the_joint_becomes_an_aux_view_and_a_rendered_panel():
 
     panel = render_joint_panel(aux)
     assert panel.startswith("<svg") and "divergent draws" in panel
-    assert "plotted points" in panel  # points, not draws: a vector child multiplies them
+    assert "draws divergent" in panel  # transitions, not element-points
     assert "#c0392b" in panel  # the divergent draws are actually drawn
 
     assert ModelIR.from_dict(ir.to_dict()).aux_views == ir.aux_views  # schema round trip
@@ -294,3 +295,75 @@ def test_the_card_offers_the_joint_from_the_flagged_node():
     assert list(spec["aux"]) == ["tau"]  # offered from the scale — the neck of the funnel
     assert spec["aux"]["tau"][0]["label"] == "joint: theta vs log(tau)"
     assert "<svg" in spec["aux"]["tau"][0]["panel"]
+
+
+def test_the_joint_pairs_draws_by_coordinate_not_storage_order():
+    """A group stored (draw, chain), or with its chains relabelled in a different order, must
+    still pair each theta draw with ITS OWN tau draw."""
+    rng = np.random.default_rng(0)
+    tau = np.exp(rng.normal(size=(2, 50)))
+    theta = tau[:, :, None] * rng.normal(size=(2, 50, 3))
+    div = np.zeros((2, 50), bool)
+    div[1, :5] = True
+    straight = xr.DataTree.from_dict(
+        {
+            "posterior": xr.Dataset(
+                {
+                    "tau": (("chain", "draw"), tau),
+                    "theta": (("chain", "draw", "g"), theta),
+                },
+                coords={"chain": [0, 1]},
+            ),
+            "sample_stats": xr.Dataset(
+                {"diverging": (("chain", "draw"), div)}, coords={"chain": [0, 1]}
+            ),
+        }
+    )
+    scrambled = xr.DataTree.from_dict(
+        {
+            "posterior": xr.Dataset(
+                {
+                    "tau": (("draw", "chain"), tau.T),  # stored transposed
+                    "theta": (("chain", "draw", "g"), theta),
+                },
+                coords={"chain": [0, 1]},
+            ),
+            "sample_stats": xr.Dataset(  # chains stored in the other order
+                {"diverging": (("chain", "draw"), div[::-1])}, coords={"chain": [1, 0]}
+            ),
+        }
+    )
+    a = diagnostics.funnel_joint(straight, "tau", "theta", None)
+    b = diagnostics.funnel_joint(scrambled, "tau", "theta", None)
+    assert a["n_divergent"] == b["n_divergent"] == 5
+    assert sorted(a["div_x"]) == sorted(b["div_x"])
+    assert sorted(a["x"]) == sorted(b["x"])
+
+
+def test_mismatched_draw_sets_give_no_joint_rather_than_a_wrong_one():
+    base = _funnel_idata()
+    tree = base.to_dict()
+    tree["/sample_stats"] = xr.Dataset(
+        {"diverging": (("chain", "draw"), np.zeros((1, 10), bool))}  # too few draws
+    )
+    assert diagnostics.funnel_joint(xr.DataTree.from_dict(tree), "tau", "theta", None) == {}
+
+
+def test_a_scale_that_is_not_positive_keeps_its_own_axis():
+    base = _funnel_idata()
+    tree = base.to_dict()
+    tree["/posterior"]["tau"] = tree["/posterior"]["tau"] - 1.0  # crosses zero
+    data = diagnostics.funnel_joint(xr.DataTree.from_dict(tree), "tau", "theta", None)
+    assert data["x_label"] == "tau" and data["axis_space"] == "constrained"
+
+
+def test_vector_diagnostics_name_the_worst_coordinate():
+    rng = np.random.default_rng(1)
+    x = rng.normal(size=(4, 200, 3))
+    x[0, :, 2] += 5.0  # element 2 disagrees across chains
+    idata = xr.DataTree.from_dict(
+        {"posterior": xr.Dataset({"x": (("chain", "draw", "g"), x)}, coords={"g": ["a", "b", "c"]})}
+    )
+    d = diagnostics.per_node(idata, ["x"])["x"]
+    assert d["rhat_at"] == "g=c"
+    assert any("worst element: g=c" in r for r in diagnostics.describe(d))
