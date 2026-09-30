@@ -119,7 +119,7 @@ def test_constructs_with_a_prior_subparam_keep_their_deterministic_glyph():
     when a trailing param is a prior: an LKJCholeskyCov's correlation marginal needs only n & eta (not
     its sd_dist prior), and a driftless random walk's normalized fan is scale-invariant (the prior
     innovation scale cancels). A construct whose shape GENUINELY depends on a prior — an MvNormal whose
-    covariance is the LKJ draw — honestly badges instead of fabricating a random pairplot."""
+    covariance is the LKJ draw — gets a caption instead of fabricating a random pairplot."""
 
     def lkj_chol():
         with pm.Model() as m:
@@ -170,9 +170,9 @@ def test_constructs_with_a_prior_subparam_keep_their_deterministic_glyph():
     )
 
     ab = to_ir(mvn_lkj_cov()).node("ab")
-    assert (
-        ab.glyph.kind == "schematic" and ab.representable is False
-    )  # covariance is a genuine prior
+    # the covariance is a genuine prior: no fixed picture, said in a caption (the model is fine)
+    assert ab.glyph is None and ab.representable
+    assert ab.glyph_note == "no fixed picture: the covariance comes from parents"
 
 
 def test_ar_pacf_real_only_when_coefficients_are_known():
@@ -289,7 +289,8 @@ def test_random_walk_fan_only_trusts_a_normal_innovation():
 def test_eval_safety_gate_fails_closed(monkeypatch):
     """`_depends_on_rv` is the SINGLE gate in front of every `.eval()` in the adapters, so it must
     fail CLOSED. If the pytensor traversal API moves (it has moved once — hence the import shim),
-    an unresolvable graph walk must report "prior-governed", degrading the node to a schematic.
+    an unresolvable graph walk must report "prior-governed", degrading the node to a
+    parameter-free standardized shape.
     Failing open would `.eval()` through parent RVs and badge a random draw as an analytic prior."""
     import sys
     import types
@@ -313,7 +314,8 @@ def test_eval_safety_gate_fails_closed(monkeypatch):
 
     assert constructs._depends_on_rv(const) is True  # unresolvable -> assume prior-governed
     spec, _data, _elision = glyph_for(mu, "latent", "Normal", m)
-    assert spec.source == "prior_family_only"  # degraded to the schematic, not a fabricated prior
+    # degraded to the parameter-free standardized shape, not a fabricated analytic prior
+    assert spec.source == "conditional_standardized"
 
 
 def test_unclassifiable_op_is_not_taken_for_a_mixture_component():
@@ -460,3 +462,16 @@ def test_batched_mvnormal_reads_the_covariance_slot():
     cov = np.array([[1.0, 0.5], [0.5, 1.0]])
     n = _node_of(lambda: pm.MvNormal("x", mu=np.zeros((4, 2)), cov=cov, shape=(4, 2)))
     assert n.glyph.kind == "pairplot" and np.allclose(n.glyph_data["cov"], cov)
+
+
+def test_parent_dependent_constructs_are_captioned_not_badged():
+    def trunc():
+        pm.TruncatedNormal("x", mu=pm.Normal("m", 0, 1), sigma=1, lower=0)
+
+    def dirich():
+        pm.Dirichlet("x", a=pm.HalfNormal("a", 1, shape=3))
+
+    for build in (trunc, dirich):
+        n = _node_of(build)
+        assert n.glyph is None and n.representable and n.elision_reason is None
+        assert n.glyph_note.startswith("no fixed curve")

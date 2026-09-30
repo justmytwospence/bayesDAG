@@ -22,6 +22,11 @@ _SOURCE_LABELS = {
     "posterior_bars": "posterior (from idata, per class)",
     "observed_hist": "observed data (histogram)",
     "deterministic_fn": "transfer function (canonical shape)",
+    "conditional_standardized": "exact shape — location/scale set by parents or per element",
+    "implied_family": "implied distribution (recognized structure)",
+    "posterior_predictive": "posterior predictive check (from idata)",
+    "prior_predictive": "prior predictive check (from idata)",
+    "posterior_quantiles": "posterior intervals per element (from idata)",
 }
 
 
@@ -44,6 +49,11 @@ def build(ir: ModelIR) -> list[LegendItem]:
         "posterior_bars",
         "observed_hist",
         "prior_family_only",
+        "conditional_standardized",
+        "implied_family",
+        "posterior_predictive",
+        "prior_predictive",
+        "posterior_quantiles",
         "deterministic_fn",
     ):
         if any(n.glyph and n.glyph.source == src for n in ir.nodes):

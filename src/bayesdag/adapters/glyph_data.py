@@ -14,16 +14,10 @@ from __future__ import annotations
 import numpy as np
 
 from ..ir import GlyphSpec
+from ._ptutil import GlyphNote, uniform
 
 _GRID = 64
 _MAX_STAT_POINTS = 50_000
-
-
-class GlyphNote(str):
-    """A caption for a node that is fully representable but carries no curve (or only a partial
-    one): "shape depends on alpha (a parent)", "elements differ". Returned in the third slot of a
-    provider's ``(spec, data, reason)`` tuple, where a plain ``str`` would be an elision badge —
-    the type is what tells the adapter "caption, not warning"."""
 
 
 def _thin(v: np.ndarray) -> np.ndarray:
@@ -43,30 +37,102 @@ def _scalars(p) -> list:
 
 def _uniform_params(p) -> bool:
     """True when every param array holds a single value (or a constant broadcast of one), so one
-    scalar per slot describes the WHOLE node.
+    scalar per slot describes the WHOLE node — see ``_ptutil.uniform``."""
+    return uniform(p)
 
-    A genuinely varying vector prior — ``pm.Normal("b", mu=[0, 5], sigma=[1, 10])`` — gives each
-    element a different density, and no single curve is "the node's prior". Reading element 0 and
-    badging it ``prior_analytic`` would state something false about the other elements, so the
-    caller falls back to the family schematic instead."""
+
+# Standardized fill per ``dist_params`` slot, in op order. A number is the canonical value of a
+# LOCATION or SCALE slot (0 / 1): a parent there only moves or stretches the curve, so the shape is
+# still exact. ``S`` marks a SHAPE slot (a df, an alpha, a log-scale sigma, …): if a parent governs
+# it, no single curve is honest. Families not listed have no proven location-scale structure, and
+# every discrete family's parameters change its shape.
+S = None
+_STD_FILL: dict[str, list] = {
+    "Normal": [0.0, 1.0],
+    "HalfNormal": [0.0, 1.0],
+    "Cauchy": [0.0, 1.0],
+    "HalfCauchy": [1.0],
+    "Laplace": [0.0, 1.0],
+    "Logistic": [0.0, 1.0],
+    "Gumbel": [0.0, 1.0],
+    "Moyal": [0.0, 1.0],
+    "ZeroSumNormal": [1.0, S],  # [sigma, n] — n is structural and always numeric
+    "Uniform": [0.0, 1.0],
+    "Exponential": [1.0],  # op exposes the scale
+    "AsymmetricLaplace": [1.0, S, 0.0],  # [b (scale), kappa, mu]
+    "StudentT": [S, 0.0, 1.0],
+    "HalfStudentT": [S, 1.0],
+    "SkewNormal": [0.0, 1.0, S],
+    "ExGaussian": [0.0, S, S],  # the shape is nu/sigma: both must be known
+    "VonMises": [0.0, S],
+    "Gamma": [S, 1.0],
+    "InverseGamma": [S, 1.0],
+    "Weibull": [S, 1.0],
+    "Pareto": [S, 1.0],
+    "Rice": [S, 1.0],  # [b = nu/sigma, sigma]
+    "Wald": [S, S, 0.0],  # the shape is mu/lam; alpha shifts
+    "LogNormal": [0.0, S],  # exp(mu) is a scale; sigma is the shape
+}
+_S = S
+del S
+
+
+def _conditional_shape(var, dist: str | None, vals: list | None = None):
+    """The glyph for a latent with no single set of numbers: some slot is governed by a parent,
+    or (``vals`` given) its numeric slots vary across elements.
+
+    Exact when every such slot is a pure location/scale slot of its family and every shape slot
+    is a known, elementwise-uniform number: then the standardized curve IS the node's shape up to
+    where it sits and how wide it is. Otherwise no curve — and a caption naming the slots whose
+    parents decide the shape. Never a generic stand-in bell."""
+    from . import _ptutil
+
+    if vals is None:
+        vals = _ptutil.slot_values(var)
+    names = _slot_names(var, dist, len(vals))
+    fill = _STD_FILL.get(dist or "")
+    if fill is None or len(fill) != len(vals):
+        governed = [n for n, v in zip(names, vals, strict=False) if v is None and n]
+        return None, None, GlyphNote(_shape_note(governed))
+    shape_unknown = [
+        names[i] for i, (f, v) in enumerate(zip(fill, vals, strict=True)) if f is _S and v is None
+    ]
+    if shape_unknown:
+        return None, None, GlyphNote(_shape_note(shape_unknown))
+    shape_vals = [v for f, v in zip(fill, vals, strict=True) if f is _S]
+    if not uniform(shape_vals):
+        return None, None, GlyphNote("elements differ in shape")
+    params = [
+        (np.asarray(v).reshape(-1)[0] if f is _S else f) for f, v in zip(fill, vals, strict=True)
+    ]
+    frozen = _scipy_frozen(dist, params)
+    data = _density_from_frozen(frozen) if frozen is not None else _custom_density(dist, params)
+    if data is None:
+        return None, None, GlyphNote(_shape_note([]))
+    xs = np.asarray(data["xs"], float)
+    span = float(xs[-1] - xs[0]) or 1.0
+    # the axis carries no values (location/scale are the parents'), so it is rescaled to [0, 1]
+    # and the zero marker stays off
+    data["xs"] = [float((x - xs[0]) / span) for x in xs]
+    data.update({"family": dist, "exact": True})
+    return GlyphSpec(kind="schematic", source="conditional_standardized"), data, None
+
+
+def _slot_names(var, dist, n) -> list[str]:
     try:
-        for x in p or []:
-            a = np.asarray(x).reshape(-1)
-            if a.size > 1 and not np.all(a == a.flat[0]):
-                return False
+        from .pymc import _resolved_param_names
+
+        return [x or "" for x in _resolved_param_names(dist, var.owner.op, n)]
     except Exception:
-        return False
-    return True
+        return [""] * n
 
 
-def _canonical_bell() -> dict:
-    """A fixed, parameter-free bell on [0, 1] for the family-only *schematic* — a conditional latent
-    whose true shape depends on parent draws. We show this illustrative shape (rendered grey + dashed)
-    rather than sampling a misleading one through the parents. On [0, 1] it never straddles x=0, so the
-    zero-reference marker correctly stays off an axis that carries no real values."""
-    xs = [i / 40.0 for i in range(41)]
-    ys = [float(np.exp(-0.5 * ((x - 0.5) / 0.16) ** 2)) for x in xs]
-    return {"xs": xs, "ys": ys}
+def _shape_note(slots: list[str]) -> str:
+    if not slots:
+        return "no fixed curve: its shape depends on parents"
+    if len(slots) == 1:
+        return f"no fixed curve: {slots[0]} comes from a parent"
+    return f"no fixed curve: {', '.join(slots)} come from parents"
 
 
 def _scipy_frozen(dist: str, p: list):
@@ -391,30 +457,11 @@ def _discrete_bars(values, max_cats: int = 30) -> dict | None:
 
 def _numeric_params(var) -> list | None:
     """The node's distribution parameters as numpy arrays — but ONLY for a root prior, i.e. one
-    whose every parameter is a fixed constant. Returns None for a conditional latent (any parameter
-    governed by a parent RV): there ``.eval()`` would silently draw a random sample rather than read
-    a value, yielding a different (misleading) shape on every render. None routes such a node to the
-    family-only schematic — restoring the prior (analytic) vs latent (schematic) distinction and
-    keeping the glyph deterministic (static == widget == itself across builds)."""
-    from .constructs import _depends_on_rv  # lazy: avoids the glyph_data<->constructs import cycle
+    whose every parameter is a fixed constant. None for a conditional latent (any parameter
+    governed by a parent RV): there ``.eval()`` would silently draw a random sample."""
+    from . import _ptutil
 
-    node = var.owner
-    op = node.op
-    try:
-        dparams = list(op.dist_params(node))
-    except Exception:
-        dparams = list(node.inputs[2:])
-    out = []
-    for dp in dparams:
-        if _depends_on_rv(
-            dp
-        ):  # parent RV governs this slot -> not a root prior; never a random draw
-            return None
-        try:
-            out.append(np.asarray(dp.eval()))
-        except Exception:
-            return None
-    return out
+    return _ptutil.numeric_params(var)
 
 
 def _observed_values(var, model):
@@ -550,8 +597,19 @@ def glyph_for(
             data = _custom_density(dist, params)
             if data is not None:
                 return GlyphSpec(kind="density", source="prior_analytic"), data, None
-        # params depend on parents (hierarchical) or unmapped dist -> a parameter-free family/schematic
-        # shape (grey + dashed); never a value sampled through the parents.
-        return GlyphSpec(kind="schematic", source="prior_family_only"), _canonical_bell(), None
+        if params is not None:
+            # every slot is numeric, yet no single analytic curve applies: a varying vector
+            # prior gives each element its own density
+            if not _uniform_params(params):
+                # elements differ in location/scale only -> the standardized shape is still
+                # exact for every element; differing SHAPE -> no single curve
+                return _conditional_shape(var, dist, list(params))
+            if dist == "DiracDelta" and params:
+                v = float(np.asarray(params[0]).reshape(-1)[0])
+                return None, None, GlyphNote(f"a point mass at {v:.4g}")
+            return None, None, GlyphNote(f"no analytic {dist} shape is drawn")
+        # a parent governs some slot: the family's exact standardized shape when location/scale
+        # are all that depend on parents, else no curve and a caption — never a sampled value
+        return _conditional_shape(var, dist)
 
     return None, None, None  # data / potential (deterministics dispatch above) -> no shape glyph

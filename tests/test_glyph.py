@@ -33,9 +33,9 @@ def test_zero_reference_marker():
 
 def test_conditional_latent_is_schematic_not_a_random_draw():
     """The prior-vs-latent distinction: a ROOT prior (all params fixed) gets an analytic shape; a
-    CONDITIONAL latent (any param is a parent RV) must fall to the family-only schematic rather than
-    being silently sampled into a misleading, non-deterministic green density (the old bug, where
-    ``.eval()`` drew a random value through the parents)."""
+    CONDITIONAL latent (any param is a parent RV) must never be silently sampled into a misleading,
+    non-deterministic density (the old bug, where ``.eval()`` drew a random value through the
+    parents). A Normal whose loc/scale come from parents has an EXACT standardized shape."""
     import pymc as pm
 
     from bayesdag.convert import to_ir
@@ -49,7 +49,8 @@ def test_conditional_latent_is_schematic_not_a_random_draw():
 
     g = {n.id: n.glyph for n in to_ir(build()).nodes}
     assert g["mu"].source == "prior_analytic" and g["sigma"].source == "prior_analytic"
-    assert g["x"].source == "prior_family_only" and g["x"].kind == "schematic"
+    assert g["x"].source == "conditional_standardized" and g["x"].kind == "schematic"
+    assert to_ir(build()).node("x").glyph_data["exact"] is True
     # the schematic is a fixed, parameter-FREE shape: it must be identical regardless of the parent
     # scale (proving it's canonical, never a value sampled through the parents at render time).
     assert to_ir(build(1.0)).node("x").glyph_data == to_ir(build(100.0)).node("x").glyph_data
@@ -58,8 +59,9 @@ def test_conditional_latent_is_schematic_not_a_random_draw():
 def test_varying_vector_prior_does_not_plot_element_zero_as_the_node():
     """An iid vector prior broadcasts ONE density across its elements, so a single analytic curve
     is honest. A varying vector prior gives each element its own density — plotting element 0 and
-    badging it `prior_analytic` would state something false about the rest, so it degrades to the
-    family schematic. A Categorical is exempt: its vector param IS the pmf."""
+    badging it `prior_analytic` would state something false about the rest. Elements that differ
+    only in location/scale still share an exact standardized shape. A Categorical is exempt: its
+    vector param IS the pmf."""
     import numpy as np
     import pymc as pm
 
@@ -72,7 +74,7 @@ def test_varying_vector_prior_does_not_plot_element_zero_as_the_node():
 
     g = {n.id: n.glyph for n in to_ir(m).nodes}
     assert g["iid"].source == "prior_analytic" and g["iid"].kind == "density"
-    assert g["varying"].source == "prior_family_only" and g["varying"].kind == "schematic"
+    assert g["varying"].source == "conditional_standardized" and g["varying"].kind == "schematic"
     assert g["choice"].source == "prior_analytic" and g["choice"].kind == "bars"
 
 
@@ -341,3 +343,66 @@ def test_cutpoints_glyph_renders_bars_and_ticks():
     )
     assert out.count("<rect") == 4  # one bar per category
     assert out.count("<line") >= 3  # one tick per cutpoint
+
+
+def _cond(build):
+    import pymc as pm
+
+    from bayesdag.convert import to_ir
+
+    with pm.Model() as m:
+        build()
+    return to_ir(m).node("x")
+
+
+def test_exact_shapes_for_location_scale_conditionals():
+    """A parent in a location/scale slot leaves the family's shape exact; the curve must be THAT
+    family's standardized shape, not one bell for everything."""
+    import numpy as np
+    import pymc as pm
+    import scipy.stats as st
+
+    n = _cond(lambda: pm.HalfStudentT("x", nu=2, sigma=pm.HalfNormal("s", 1)))
+    d = n.glyph_data
+    assert (
+        n.glyph.source == "conditional_standardized"
+        and d["exact"]
+        and d["family"] == ("HalfStudentT")
+    )
+    # compare against the analytic half-t(2) on the same (rescaled) grid
+    hi = st.t(df=2).ppf(0.995)
+    xs = np.asarray(d["xs"]) * hi
+    ref = st.t(df=2).pdf(xs)
+    assert np.allclose(np.asarray(d["ys"]), ref / ref.max(), atol=1e-6)
+
+    u = _cond(lambda: pm.Uniform("x", lower=pm.Normal("a", 0, 1), upper=5.0))
+    assert u.glyph_data["exact"] and np.allclose(u.glyph_data["ys"], 1.0)
+
+    lo = _cond(lambda: pm.LogNormal("x", mu=pm.Normal("m", 0, 1), sigma=0.5))
+    assert lo.glyph.source == "conditional_standardized"
+
+
+def test_parent_governed_shape_gets_no_curve_and_names_the_slot():
+    import pymc as pm
+
+    for build, slot in [
+        # op-level slot names (Gamma's op calls alpha "shape", StudentT's nu "df")
+        (lambda: pm.Gamma("x", alpha=pm.HalfNormal("a", 1), beta=1.0), "shape"),
+        (lambda: pm.Beta("x", alpha=pm.HalfNormal("a", 1), beta=2.0), "alpha"),
+        (lambda: pm.LogNormal("x", mu=0.0, sigma=pm.HalfNormal("s", 1)), "sigma"),
+        (lambda: pm.StudentT("x", nu=pm.Gamma("n", 2, 0.1), mu=0, sigma=1), "df"),
+    ]:
+        n = _cond(build)
+        assert n.glyph is None and n.representable, slot
+        assert n.glyph_note == f"no fixed curve: {slot} comes from a parent", n.glyph_note
+    p = _cond(lambda: pm.Poisson("x", mu=pm.HalfNormal("m", 1)))
+    assert p.glyph is None and "comes from a parent" in p.glyph_note
+
+
+def test_standardized_shape_is_independent_of_parent_values():
+    import pymc as pm
+
+    def gd(scale):
+        return _cond(lambda: pm.HalfStudentT("x", nu=3, sigma=pm.HalfNormal("s", scale))).glyph_data
+
+    assert gd(1.0) == gd(50.0)

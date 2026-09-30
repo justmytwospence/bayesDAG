@@ -72,10 +72,12 @@ def render_labels(ir: ModelIR) -> dict[str, dict]:
     return info
 
 
-def node_token_anchors(box: Box, label_w: float, label_h: float, bboxes: dict) -> dict[str, Box]:
+def node_token_anchors(
+    box: Box, label_w: float, label_h: float, bboxes: dict, *, tag: str | None = None
+) -> dict[str, Box]:
     """Project the label's fractional token bboxes into absolute boxes within ``box`` — the
     anchor a port-edge terminates on (token top-center, with a standoff applied at draw)."""
-    ox, oy = geometry.label_origin(box, label_w)
+    ox, oy = geometry.label_origin(box, label_w, tag=tag)
     anchors: dict[str, Box] = {}
     for tok, (fx, fy, fw, fh) in bboxes.items():
         anchors[tok] = Box(ox + fx * label_w, oy + fy * label_h, fw * label_w, fh * label_h)

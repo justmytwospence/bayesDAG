@@ -203,7 +203,11 @@ def _build_graph(ir: ModelIR, info: dict, rankdir: str) -> dict:
     def node_json(n) -> dict:
         lw, lh = info[n.id]["w"], info[n.id]["h"]
         w, h = geometry.node_size(
-            lw, lh, n.glyph.kind if n.glyph else None, n.glyph_data if n.glyph else None
+            lw,
+            lh,
+            n.glyph.kind if n.glyph else None,
+            n.glyph_data if n.glyph else None,
+            **geometry.flags(n),
         )
         d: dict = {"id": n.id, "width": float(w), "height": float(h)}
         ports = []
@@ -472,7 +476,7 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
             continue
         res.node_boxes[n.id] = b
         res.node_token_anchors[n.id] = common.node_token_anchors(
-            b, info[n.id]["w"], info[n.id]["h"], info[n.id]["bboxes"]
+            b, info[n.id]["w"], info[n.id]["h"], info[n.id]["bboxes"], tag=n.tag
         )
 
     for p in ir.plates:

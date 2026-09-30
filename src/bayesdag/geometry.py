@@ -17,6 +17,11 @@ GLYPH_H = 30.0  # reserved height for a 1-D distribution-shape glyph strip
 GAP = 4.0  # gap between label and glyph
 MIN_W = 56.0
 MIN_H = 38.0
+TAG_H = 12.0  # a recognized-structure tag strip above the label ("partial pooling · centered")
+CAP_H = 11.0  # a caption row below everything (glyph note / elision badge)
+CAPTION_PX_PER_CHAR = 4.6  # 8px italic system-ui, a conservative average advance
+TAG_PX_PER_CHAR = 4.8
+MAX_TEXT_W = 190.0  # a caption/tag widens its node up to this, then truncates (the card has it all)
 STANDOFF = 4.0  # gap above a token edge's VISIBLE target surface (box border for bordered nodes,
 # token glyph for borderless) so the arrowhead tip sits ~3px clear and never covers the surface
 
@@ -38,6 +43,27 @@ def has_glyph_data(glyph_kind: str | None, glyph_data: dict | None) -> bool:
     not on role — so a deterministic with a transfer-function glyph reserves a strip, while an
     equation-only deterministic (and any glyph-less node) stays compact."""
     return glyph_kind is not None and bool(glyph_data)
+
+
+def caption_text(n) -> str | None:
+    """The one caption row a node carries: an elision badge (a warning) wins over a glyph note (a
+    plain caption). Duck-typed on the NodeIR fields so this module stays IR-light."""
+    reason = getattr(n, "elision_reason", None)
+    if reason:
+        return "⚠ " + reason
+    return getattr(n, "glyph_note", None) or None
+
+
+def flags(n) -> dict:
+    """The optional text rows a node reserves space for — passed to every sizing/placement helper
+    by BOTH layout and render, so they agree exactly."""
+    return {"tag": getattr(n, "tag", None) or None, "caption": caption_text(n)}
+
+
+def fit_text(text: str, width: float, px_per_char: float) -> str:
+    """Truncate to the drawable width with an ellipsis (the full text lives in the card)."""
+    n = max(4, int((width - 2 * 7.0) / px_per_char))
+    return text if len(text) <= n else text[: n - 1] + "…"
 
 
 def label_px_size(svg: str | None) -> tuple[float, float]:
@@ -73,20 +99,29 @@ def node_size(
     label_h: float,
     glyph_kind: str | None = None,
     glyph_data: dict | None = None,
+    *,
+    tag: str | None = None,
+    caption: str | None = None,
 ) -> tuple[float, float]:
     if has_glyph_data(glyph_kind, glyph_data):
         gmin_w, gh = glyph_area(glyph_kind, glyph_data)
         block = gh + GAP
     else:
         gmin_w, block = 0.0, 0.0
-    w = max(MIN_W, label_w + 2 * PAD, gmin_w + 2 * PAD)
-    h = max(MIN_H, PAD + label_h + block + PAD)
-    return w, h
+    text_w = 0.0
+    if tag:
+        text_w = max(text_w, min(MAX_TEXT_W, len(tag) * TAG_PX_PER_CHAR + 14.0))
+    if caption:
+        text_w = max(text_w, min(MAX_TEXT_W, len(caption) * CAPTION_PX_PER_CHAR + 14.0))
+    w = max(MIN_W, label_w + 2 * PAD, gmin_w + 2 * PAD, text_w)
+    h = PAD + (TAG_H if tag else 0.0) + label_h + block + (CAP_H if caption else 0.0) + PAD
+    return w, max(MIN_H, h)
 
 
-def label_origin(box: Box, label_w: float) -> tuple[float, float]:
-    """Top-left px of the label SVG within a node box (centered horizontally, top-aligned)."""
-    return box.x + (box.w - label_w) / 2.0, box.y + PAD
+def label_origin(box: Box, label_w: float, *, tag: str | None = None) -> tuple[float, float]:
+    """Top-left px of the label SVG within a node box (centered horizontally, top-aligned, below
+    the tag strip when there is one)."""
+    return box.x + (box.w - label_w) / 2.0, box.y + PAD + (TAG_H if tag else 0.0)
 
 
 def glyph_rect(
@@ -94,10 +129,12 @@ def glyph_rect(
     label_h: float,
     glyph_kind: str | None = None,
     glyph_data: dict | None = None,
+    *,
+    tag: str | None = None,
 ) -> Box | None:
     if not has_glyph_data(glyph_kind, glyph_data):
         return None
-    top = box.y + PAD + label_h + GAP
+    top = box.y + PAD + (TAG_H if tag else 0.0) + label_h + GAP
     _, gh = glyph_area(glyph_kind, glyph_data)
     if glyph_kind in _TALL_GLYPHS:  # a centered (near-)square block for 2-D glyphs
         side = min(box.w - 2 * PAD, gh)

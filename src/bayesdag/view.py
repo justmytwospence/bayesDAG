@@ -208,7 +208,7 @@ class ModelGraphView:
                 return False
             lw, lh = geometry.label_px_size(n.label_svg)
             kind = n.glyph.kind if n.glyph else None
-            w, h = geometry.node_size(lw, lh, kind, n.glyph_data)
+            w, h = geometry.node_size(lw, lh, kind, n.glyph_data, **geometry.flags(n))
             if abs(w - box.w) > 0.5 or abs(h - box.h) > 0.5:
                 return False
         return True

@@ -16,101 +16,21 @@ from __future__ import annotations
 import numpy as np
 
 from ..ir import GlyphSpec
+from . import _ptutil as _pt
 from . import glyph_data as gd
 
 _GRID = 64
 
 
-def _ev(t) -> np.ndarray | None:
-    """Evaluate a (usually constant) tensor input to a numpy array, or None if it can't sample OR
-    is governed by a parent RV (whose ``.eval()`` would be a random draw, not the real value)."""
-    if _depends_on_rv(t):
-        return None
-    try:
-        return np.asarray(t.eval(), dtype=float)
-    except Exception:
-        return None
-
-
-def _op_is_rv(op, *, unknown: bool = True) -> bool:
-    """True if ``op`` is a random-variable op.
-
-    ``unknown`` is what we report when NEITHER base class can be imported, i.e. when the op
-    cannot be classified at all. Callers pick the direction that degrades honestly: the
-    eval-safety gate passes ``True`` ("assume random", costing a schematic), while component
-    *selection* passes ``False`` ("not a component", costing a badge). Never let an
-    unclassifiable op read as a known constant — that is what licenses a random `.eval()`."""
-    checked = False
-    for mod_name, cls_name in (
-        ("pytensor.tensor.random.op", "RandomVariable"),
-        ("pymc.distributions.distribution", "SymbolicRandomVariable"),
-    ):
-        try:
-            from importlib import import_module
-
-            cls = getattr(import_module(mod_name), cls_name)
-        except Exception:
-            continue
-        checked = True
-        if isinstance(op, cls):
-            return True
-    return unknown if not checked else False
+# the knowability gate and its helpers live in _ptutil; these names are kept for callers/tests
+_ev = _pt.ev
+_op_is_rv = _pt.op_is_rv
+_dist_name = _pt.dist_name
+_lead_numeric = _pt.lead_numeric
 
 
 def _depends_on_rv(t) -> bool:
-    """True if a tensor's value is governed by a random variable (a prior) rather than fixed
-    constants — i.e. `.eval()` would return an arbitrary random draw, not the real value.
-
-    **Fails closed.** This is the single gate in front of every `.eval()` in the adapters, so
-    any internal failure (a moved pytensor traversal API — it has moved once already, hence
-    the import shim below) reports True: the node falls to a deterministic schematic instead
-    of silently plotting a random draw badged as an analytic prior."""
-    try:
-        try:
-            from pytensor.graph.traversal import ancestors  # pytensor >= 2.x new location
-        except Exception:
-            from pytensor.graph.basic import ancestors  # older pytensor
-    except Exception:
-        return True  # can't walk the graph -> assume prior-governed
-    try:
-        for a in ancestors([t]):
-            op = getattr(getattr(a, "owner", None), "op", None)
-            if op is not None and _op_is_rv(op):
-                return True
-    except Exception:
-        return True
-    return False
-
-
-def _dist_name(rv) -> str | None:
-    op = getattr(getattr(rv, "owner", None), "op", None)
-    if op is None:
-        return None
-    pn = getattr(op, "_print_name", None)
-    return pn[0] if pn else type(op).__name__.removesuffix("RV")
-
-
-def _lead_numeric(var, k: int) -> list | None:
-    """The first k distribution params as numeric arrays — for constructs that need only a LEADING
-    subset (e.g. LKJ's n & eta, a random walk's drift) whose TRAILING params may legitimately be
-    priors that must never be sampled (an LKJCholeskyCov's sd_dist, an innovation's scale). Returns
-    None if any of the first k is itself a prior or non-evaluable."""
-    node = getattr(var, "owner", None)
-    if node is None:
-        return None
-    try:
-        dparams = list(node.op.dist_params(node))
-    except Exception:
-        dparams = list(node.inputs[2:])
-    out = []
-    for dp in dparams[:k]:
-        if _depends_on_rv(dp):
-            return None
-        try:
-            out.append(np.asarray(dp.eval()))
-        except Exception:
-            return None
-    return out
+    return _pt.depends_on_rv(t)
 
 
 def _base_frozen(rv):
@@ -623,6 +543,21 @@ def _point_mass_mixture(w, comps, names):
     )
 
 
+def _parent_note(var, cls: str):
+    from . import _ptutil
+
+    vals = _ptutil.slot_values(var)
+    names = gd._slot_names(var, _dist_name(var), len(vals))
+    governed = [n for n, v in zip(names, vals, strict=False) if v is None and n]
+    what = {
+        "MvNormalRV": "covariance",
+        "MvStudentTRV": "scale matrix",
+    }.get(cls)
+    if what and any(n in ("cov", "chol", "tau", "scale", "Sigma") for n in governed):
+        return gd.GlyphNote(f"no fixed picture: the {what} comes from parents")
+    return gd.GlyphNote(gd._shape_note(governed))
+
+
 def special_glyph(var):
     """Return (GlyphSpec, data, elision_reason) for a special construct, or (None, None, None)."""
     op = getattr(getattr(var, "owner", None), "op", None)
@@ -631,31 +566,46 @@ def special_glyph(var):
     cls = type(op).__name__
     try:
         params = gd._numeric_params(var)  # inside the guard: it walks + evals the param graph
+        # A construct whose picture needs numbers a parent supplies has no fixed shape — that is
+        # a caption on a representable node, not a warning badge.
+        from_parents = _parent_note(var, cls) if params is None else None
+
+        def got(r, reason):
+            if r:
+                return (*r, None)
+            return (None, None, from_parents) if from_parents else _badge(reason)
+
         if cls in ("MvNormalRV", "MvStudentTRV"):
-            r = _multivariate(params, cls)
-            return (*r, None) if r else _badge("multivariate — covariance not numeric")
+            return got(_multivariate(params, cls), "multivariate — covariance not numeric")
         if cls in ("WishartRV", "MatrixNormalRV", "KroneckerNormalRV"):
-            r = _matrix_only(params)
-            return (*r, None) if r else _badge("matrix-valued — params not numeric")
+            return got(_matrix_only(params), "matrix-valued — params not numeric")
         if cls in ("LKJCorrRV", "_LKJCholeskyCovRV"):
             r = _lkj(var)
             return (*r, None) if r else _badge("correlation-matrix prior")
         if cls == "DirichletRV":
-            r = _dirichlet(params)
-            return (*r, None) if r else _badge("simplex — concentration not numeric")
+            return got(_dirichlet(params), "simplex — concentration not numeric")
         if cls in ("DirichletMultinomialRV", "MultinomialRV", "StickBreakingWeightsRV"):
             return _badge("multivariate count/simplex")
         if cls == "InterpolatedRV":
-            r = _interpolated(params)
-            return (*r, None) if r else _badge("interpolated density")
+            return got(_interpolated(params), "interpolated density")
         if cls == "CensoredRV":
             r = _censored(var)
-            return (*r, None) if r else _badge("censored")
+            if r:
+                return (*r, None)
+            if _depends_on_rv(var.owner.inputs[0]) or any(
+                _depends_on_rv(i) for i in var.owner.inputs[1:3]
+            ):
+                return (
+                    None,
+                    None,
+                    gd.GlyphNote("no fixed curve: the censored base or bounds come from parents"),
+                )
+            return _badge("censored")
         if cls == "TruncatedNormalRV":
-            r = _truncated_normal(params)
-            return (*r, None) if r else _badge("truncated")
+            return got(_truncated_normal(params), "truncated")
         if cls == "TruncatedRV":
-            return _badge("truncated")
+            base = getattr(getattr(op, "base_rv_op", None), "name", None) or "base"
+            return None, None, gd.GlyphNote(f"truncated {base}: curve not drawn")
         if cls == "RandomWalkRV":
             r = _random_walk(var)
             return r if r else _badge("random walk")
@@ -670,8 +620,7 @@ def special_glyph(var):
             r = _mixture(var)  # a full 3-tuple (a partial picture carries its note)
             return r if r else _badge("mixture")
         if cls in ("CARRV", "ICARRV"):
-            r = _matrix_only(params)
-            return (*r, None) if r else _badge("spatial (CAR/ICAR)")
+            return got(_matrix_only(params), "spatial (CAR/ICAR)")
         if cls in ("FlatRV", "HalfFlatRV"):
             return _badge("improper prior")
         if cls.startswith("BART"):  # pymc-bart op is BART_<name>

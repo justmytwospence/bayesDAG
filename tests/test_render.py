@@ -141,3 +141,36 @@ def test_hostile_names_round_trip_through_attributes():
     assert len(ids) == len(set(ids))
     srcs = {el.get("data-src") for el in root.iter() if el.get("data-src")}
     assert names[0] in srcs
+
+
+def test_captions_and_tags_reserve_their_own_rows():
+    """A glyph note / elision badge gets a caption row BELOW the glyph, and a structure tag a
+    strip ABOVE the label — reserved by layout and render alike, so nothing overlaps."""
+    from bayesdag import geometry
+    from bayesdag.ir import Box, NodeIR
+
+    plain = geometry.node_size(80, 16, "density", {"xs": [0, 1], "ys": [0, 1]})
+    n = NodeIR(id="x", role="latent", tag="partial pooling · centered", glyph_note="note")
+    tall = geometry.node_size(80, 16, "density", {"xs": [0, 1], "ys": [0, 1]}, **geometry.flags(n))
+    assert tall[1] == plain[1] + geometry.TAG_H + geometry.CAP_H
+    b = Box(0, 0, tall[0], tall[1])
+    gr = geometry.glyph_rect(b, 16, "density", {"xs": [0, 1], "ys": [0, 1]}, tag=n.tag)
+    _, label_y = geometry.label_origin(b, 80, tag=n.tag)
+    tag_baseline = b.y + geometry.PAD + 6
+    caption_baseline = b.y + b.h - 5
+    assert tag_baseline < label_y  # tag above the label
+    assert gr.y + gr.h < caption_baseline - 6  # caption below the glyph
+
+
+def test_glyph_note_is_drawn_as_a_grey_caption():
+    import pymc as pm
+
+    from bayesdag.convert import to_ir
+    from bayesdag.layout import layout
+    from bayesdag.render_svg import to_svg
+
+    with pm.Model() as m:
+        pm.Gamma("g", alpha=pm.HalfNormal("a", 1), beta=1.0)
+    ir = to_ir(m)
+    svg = to_svg(ir, layout(ir))
+    assert 'class="bd-caption"' in svg and "no fixed curve" in svg and "⚠" not in svg

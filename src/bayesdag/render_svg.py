@@ -603,7 +603,7 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, legend: bool = True) -> str:
     for n, b in drawn:  # labels + glyphs above all chrome
         if n.label_svg:
             lw, lh = geometry.label_px_size(n.label_svg)
-            ox, oy = geometry.label_origin(b, lw)
+            ox, oy = geometry.label_origin(b, lw, tag=n.tag)
             parts = [
                 _embed_label(
                     n.label_svg,
@@ -622,7 +622,7 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, legend: bool = True) -> str:
             ]
         if n.glyph and n.glyph_data:
             _, lh = geometry.label_px_size(n.label_svg)
-            gr = geometry.glyph_rect(b, lh, n.glyph.kind, n.glyph_data)
+            gr = geometry.glyph_rect(b, lh, n.glyph.kind, n.glyph_data, tag=n.tag)
             if gr:
                 stroke, fill = _GLYPH_COLORS.get(n.glyph.source, ("#2a8a55", "#2a8a55"))
                 parts.append(glyph.render(n.glyph.kind, n.glyph_data, gr, stroke=stroke, fill=fill))
@@ -634,13 +634,19 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, legend: bool = True) -> str:
                 f'<circle class="bd-diag" cx="{b.x + b.w - 7:.1f}" cy="{b.y + 7:.1f}" r="3.2" '
                 f'fill="{_DIAG}" fill-opacity="0.85"/>'
             )
-        if getattr(n, "elision_reason", None):  # honesty badge: undrawable construct
-            reason = (
-                n.elision_reason if len(n.elision_reason) <= 30 else n.elision_reason[:29] + "…"
-            )
+        if n.tag:  # a recognized-structure tag, in its own strip above the label
+            text = geometry.fit_text(n.tag, b.w, geometry.TAG_PX_PER_CHAR)
             parts.append(
-                f'<text x="{b.x + 7:.1f}" y="{b.y + b.h - 5:.1f}" font-size="8" fill="#8a6d3b" '
-                f'font-style="italic">⚠ {escape(reason)}</text>'
+                f'<text class="bd-tag" x="{b.x + 7:.1f}" y="{b.y + geometry.PAD + 6:.1f}" '
+                f'font-size="8" fill="#4b5563">{escape(text)}</text>'
+            )
+        cap = geometry.caption_text(n)
+        if cap:  # the caption row: an elision badge (amber, a warning) or a glyph note (grey)
+            text = geometry.fit_text(cap, b.w, geometry.CAPTION_PX_PER_CHAR)
+            color = "#8a6d3b" if n.elision_reason else "#6b7280"
+            parts.append(
+                f'<text class="bd-caption" x="{b.x + 7:.1f}" y="{b.y + b.h - 5:.1f}" '
+                f'font-size="8" fill="{color}" font-style="italic">{escape(text)}</text>'
             )
         body.append(f'<g class="bd-node" data-node="{_attr(n.id)}">' + "".join(parts) + "</g>")
     if font_defs:  # one shared <defs> for all hoisted MathJax glyphs (sorted: deterministic bytes)

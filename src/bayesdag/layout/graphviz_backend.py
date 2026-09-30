@@ -42,6 +42,7 @@ def _build_dot(ir: ModelIR, info: dict[str, dict], rankdir: str) -> str:
             info[n.id]["h"],
             n.glyph.kind if n.glyph else None,
             n.glyph_data if n.glyph else None,
+            **geometry.flags(n),
         )
         return f"    {json.dumps(n.id)} [width={w / 72.0:.4f}, height={h / 72.0:.4f}];"
 
@@ -140,7 +141,7 @@ def layout(ir: ModelIR, *, rankdir: str = "TB") -> LayoutResult:
             box = Box(px - w / 2.0, (gh - py) - h / 2.0, w, h)
             n = by_id[name]
             anchors = common.node_token_anchors(
-                box, info[name]["w"], info[name]["h"], info[name]["bboxes"]
+                box, info[name]["w"], info[name]["h"], info[name]["bboxes"], tag=n.tag
             )
             n.box, n.port_anchors = box, anchors
             res.node_boxes[name] = box
