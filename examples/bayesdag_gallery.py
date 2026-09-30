@@ -861,7 +861,8 @@ def _(mo):
     `leaf_scale`. The `tree` plate carries each tree's parameters — `splits`, `split_point`,
     `leaf_left`, `leaf_right` — combined by the decision `tree_output`, summed to `prediction`. (The
     per-tree computation is a depth-1 stump for legibility; the depth prior is what grows real BART
-    deeper. bayesdag *also* renders an opaque `pmb.BART` node as a step-function glyph, in the tests.)
+    deeper. An opaque `pmb.BART` node carries a caption instead of a glyph: there is no closed-form
+    prior shape to draw.)
     """)
     return
 
@@ -877,6 +878,117 @@ def _(show, zoo):
         "`split_point`, and leaf values `leaf_left, leaf_right`; each tree is the decision "
         "`tree_output = (splits & x<=split_point ? leaf_left : leaf_right)`, and the regression mean is "
         "`prediction = sum(tree_output)`, closed by `y ~ Normal(prediction, noise)`.",
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    # Recognized structures
+
+    bayesdag reads well-known compound structures off the graph — **hierarchies** (centered and
+    non-centered), **global–local shrinkage** (the horseshoe and its regularized, half-t and co-data
+    variants), **regressions** and **measured latents** — and by default draws an **overview**: each
+    structure that owns variables (a non-centered hierarchy's `z`, a shrinkage prior's raw
+    coefficients) becomes one box carrying its implied distribution and its members' equations. The
+    rest are tagged in place. Every rule is structural (never a variable name) and claims only what
+    the op graph proves; the full graph is one click away (`detail="full"`, or the toolbar toggle).
+    """)
+    return
+
+
+@app.cell
+def _():
+    import structures
+
+    return (structures,)
+
+
+@app.cell
+def _(bayesdag, mo):
+    def compare(model, title, blurb, **kw):
+        v = bayesdag.view(model, ppc_draws=0, **kw)
+        return mo.vstack(
+            [
+                mo.md(f"## {title}\n\n{blurb}"),
+                mo.ui.tabs(
+                    {
+                        "overview": mo.Html(v.to_svg(detail="overview")),
+                        "full graph": mo.Html(v.to_svg(detail="full")),
+                        "interactive": mo.ui.anywidget(v.widget()),
+                    }
+                ),
+            ]
+        )
+
+    return (compare,)
+
+
+@app.cell(hide_code=True)
+def _(compare, structures):
+    compare(
+        structures.build_eight_schools_noncentered(),
+        "S1 - Eight schools, non-centered",
+        "`theta = mu + tau*eta` with `eta ~ Normal(0, 1)` is EXACTLY `theta ~ Normal(mu, tau)`: the "
+        "overview says so in one box, with that implied curve.",
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(compare, structures):
+    compare(
+        structures.build_radon_centered(),
+        "S2 - Radon, varying intercepts and slopes (centered)",
+        "Centered group effects are tagged in place (nothing to contract); the likelihood is "
+        "recognized as a linear regression with group effects. `county_idx` is folded into "
+        "`a[county_idx]`.",
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(compare, structures):
+    compare(
+        structures.build_regularized_horseshoe(2.0, codata=True),
+        "S3 - Regularized horseshoe with half-t(2) locals and co-data",
+        "The Piironen–Vehtari slab `c2 lam^2 / (c2 + tau^2 lam^2)` is matched structurally, the "
+        "half-t locals are named as such (not silently called the half-Cauchy horseshoe), and the "
+        "co-data center and local-scale modifier are called out.",
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(compare, structures):
+    compare(
+        structures.build_vo2max_like(),
+        "S4 - An outcome model: subjects, shrinkage and a log-normal likelihood",
+        "Non-centered subject offsets, a regularized half-t horseshoe over protein summaries, and a "
+        "LogNormal likelihood (whose `exp(mu)` is the conditional median, not the mean — the card "
+        "says so). `n_effective_proteins` and `obs_sd` stay visible: they are the model's own "
+        "quantities.",
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(bayesdag, compare, structures):
+    compare(
+        structures.build_bridge_measurement_like(),
+        "S5 - A measurement model, annotated",
+        "Its likelihood is written as Potentials, which no rule can read as a measurement model — so "
+        "it is DECLARED with `bayesdag.BlockSpec` and drawn with an 'annotated' marker.",
+        annotations=[
+            bayesdag.BlockSpec(
+                kind="measurement",
+                title="bridge measurement model",
+                members=["bridge_marginal", "study_censored", "y_above"],
+                notes=["likelihood: marginal over tubes plus censored study cells"],
+                workflow="joint",
+            )
+        ],
     )
     return
 
