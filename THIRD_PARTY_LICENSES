@@ -1,9 +1,10 @@
 THIRD-PARTY SOFTWARE NOTICES
 ============================
 
-bayesdag itself is MIT-licensed (see LICENSE). The distributed wheel additionally
-BUNDLES the third-party JavaScript below, in `bayesdag/static/`. Those components keep
-their own licenses, reproduced/referenced here as their terms require.
+bayesdag itself is licensed under the PolyForm Noncommercial License 1.0.0 (see
+LICENSE.md). The distributed wheel additionally BUNDLES the third-party JavaScript
+below, in `bayesdag/static/`. Those components are not covered by that license: they
+keep their own licenses, reproduced/referenced here as their terms require.
 
 --------------------------------------------------------------------------------
 elkjs — Eclipse Layout Kernel (JavaScript)

@@ -2,6 +2,7 @@
   "name": "bayesdag",
   "private": true,
   "version": "0.0.1",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "comments": {
     "PACKAGE_VERSION": "Must match the mathjax-full version below. The define kills MathJax's eval(\"require\") Node-detection branch so the bundle runs in bare V8; a stale value re-enables it and math rendering breaks at runtime. tests/test_rollback_and_export.py keeps this file's version in sync with pyproject.toml.",

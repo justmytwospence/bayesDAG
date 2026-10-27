@@ -93,4 +93,8 @@ The arrows here are the conditional-dependence arrows of a factorization — the
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE). The distributed wheel also bundles elkjs (EPL-2.0) and MathJax (Apache-2.0); their notices travel with it in [`THIRD_PARTY_LICENSES`](THIRD_PARTY_LICENSES).
+[PolyForm Noncommercial 1.0.0](LICENSE.md): free for personal use, research, education and noncommercial organizations. Commercial use requires a separate license; contact Spencer Boucher. Versions released before 2026-10-27 under MIT remain available under MIT.
+
+The distributed wheel also bundles elkjs (EPL-2.0) and MathJax (Apache-2.0), which keep their own licenses; their notices travel with it in [`THIRD_PARTY_LICENSES`](THIRD_PARTY_LICENSES).
+
+Outside contributions require agreeing to a contributor license agreement; open an issue before sending a pull request.
