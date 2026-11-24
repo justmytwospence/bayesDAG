@@ -119,7 +119,7 @@ def test_constructs_with_a_prior_subparam_keep_their_deterministic_glyph():
     when a trailing param is a prior: an LKJCholeskyCov's correlation marginal needs only n & eta (not
     its sd_dist prior), and a driftless random walk's normalized fan is scale-invariant (the prior
     innovation scale cancels). A construct whose shape GENUINELY depends on a prior — an MvNormal whose
-    covariance is the LKJ draw — honestly badges instead of fabricating a random pairplot."""
+    covariance is the LKJ draw — gets a caption instead of fabricating a random pairplot."""
 
     def lkj_chol():
         with pm.Model() as m:
@@ -128,10 +128,13 @@ def test_constructs_with_a_prior_subparam_keep_their_deterministic_glyph():
             )
         return m
 
-    def driftless_rw():
+    def driftless_rw(init=None):
         with pm.Model(coords={"t": range(8)}) as m:
             pm.GaussianRandomWalk(
-                "w", sigma=pm.HalfNormal("s", 1.0), init_dist=pm.Normal.dist(0, 1), dims="t"
+                "w",
+                sigma=pm.HalfNormal("s", 1.0),
+                init_dist=init if init is not None else pm.DiracDelta.dist(0.0),
+                dims="t",
             )
         return m
 
@@ -152,15 +155,24 @@ def test_constructs_with_a_prior_subparam_keep_their_deterministic_glyph():
     )  # deterministic: sd_dist never sampled
 
     rw = to_ir(driftless_rw()).node("w")
-    assert rw.glyph.kind == "fan" and rw.glyph.source == "prior_analytic"
+    assert rw.glyph.kind == "fan" and rw.glyph.source == "conditional_standardized"
     assert (
         to_ir(driftless_rw()).node("w").glyph_data == rw.glyph_data
     )  # deterministic: scale-invariant
 
-    ab = to_ir(mvn_lkj_cov()).node("ab")
+    # a spread-out start does NOT scale with the (unknown) innovation sd: the band's shape is
+    # genuinely unknown, so no fan — a caption says why
+    spread = to_ir(driftless_rw(pm.Normal.dist(0, 1))).node("w")
     assert (
-        ab.glyph.kind == "schematic" and ab.representable is False
-    )  # covariance is a genuine prior
+        spread.glyph is None
+        and spread.representable
+        and "depends on parents" in (spread.glyph_note or "")
+    )
+
+    ab = to_ir(mvn_lkj_cov()).node("ab")
+    # the covariance is a genuine prior: no fixed picture, said in a caption (the model is fine)
+    assert ab.glyph is None and ab.representable
+    assert ab.glyph_note == "no fixed picture: the covariance comes from parents"
 
 
 def test_ar_pacf_real_only_when_coefficients_are_known():
@@ -196,12 +208,11 @@ def test_ar_pacf_real_only_when_coefficients_are_known():
     assert f.glyph.kind == "stem" and f.glyph.source == "prior_analytic"
     assert [round(v, 2) for v in f.glyph_data["values"][:2]] == [0.75, 0.2]  # real PACF of AR(2)
 
-    runs = [to_ir(prior()).node("level").glyph_data["values"] for _ in range(2)]
-    assert runs[0] == runs[1]  # deterministic — not a random coefficient draw
+    # prior coefficients: no stem heights are knowable, so none are drawn; the ORDER is
+    # structural and is stated in words
     pn = to_ir(prior()).node("level")
-    assert pn.glyph.source == "prior_family_only"  # schematic (order only)
-    vals = pn.glyph_data["values"]
-    assert vals[0] > 0 and vals[1] > 0 and all(v == 0 for v in vals[2:])  # p=2 lags then cutoff
+    assert pn.glyph is None and pn.representable
+    assert pn.glyph_note == "AR(2): partial autocorrelation cuts off after lag 2"
 
 
 def test_ar_non_stationary_keeps_its_honesty_badge():
@@ -265,8 +276,8 @@ def test_random_walk_fan_only_trusts_a_normal_innovation():
             dims="t",
         )
     n = to_ir(m).node("w")
-    assert n.glyph.kind == "schematic" and n.representable is False
-    assert n.elision_reason == "random walk"
+    assert n.glyph is None and n.representable
+    assert "StudentT innovations" in n.glyph_note
 
     with pm.Model(coords={"t": range(8)}) as m2:  # the Normal case still draws its fan
         pm.GaussianRandomWalk("w", mu=0.5, sigma=1.0, init_dist=pm.Normal.dist(0, 1), dims="t")
@@ -278,7 +289,8 @@ def test_random_walk_fan_only_trusts_a_normal_innovation():
 def test_eval_safety_gate_fails_closed(monkeypatch):
     """`_depends_on_rv` is the SINGLE gate in front of every `.eval()` in the adapters, so it must
     fail CLOSED. If the pytensor traversal API moves (it has moved once — hence the import shim),
-    an unresolvable graph walk must report "prior-governed", degrading the node to a schematic.
+    an unresolvable graph walk must report "prior-governed", degrading the node to a
+    parameter-free standardized shape.
     Failing open would `.eval()` through parent RVs and badge a random draw as an analytic prior."""
     import sys
     import types
@@ -302,7 +314,8 @@ def test_eval_safety_gate_fails_closed(monkeypatch):
 
     assert constructs._depends_on_rv(const) is True  # unresolvable -> assume prior-governed
     spec, _data, _elision = glyph_for(mu, "latent", "Normal", m)
-    assert spec.source == "prior_family_only"  # degraded to the schematic, not a fabricated prior
+    # degraded to the parameter-free standardized shape, not a fabricated analytic prior
+    assert spec.source == "conditional_standardized"
 
 
 def test_unclassifiable_op_is_not_taken_for_a_mixture_component():
@@ -316,10 +329,10 @@ def test_unclassifiable_op_is_not_taken_for_a_mixture_component():
     )  # classifiable: plain object is no RV
 
 
-def test_bart_renders_as_step_function_with_clean_label():
-    """BART (sum-of-trees) has no closed-form prior density; its draws are piecewise-constant, so we
-    depict it with the canonical STEP-function schematic (honest structure, not the misleading bell),
-    and the label elides the response/tree-prior arrays -> `mu ~ BART(X, m)`."""
+def test_bart_states_its_structure_with_clean_label():
+    """BART (sum-of-trees) has no closed-form prior density. Any drawn step function would be
+    made-up heights, so the structure is stated in a caption instead; the label elides the
+    response/tree-prior arrays -> `mu ~ BART(X, m)`."""
     pmb = pytest.importorskip("pymc_bart")
     x = np.linspace(0, 5, 40)
     Y = np.sin(x) + 0.1 * x
@@ -329,11 +342,136 @@ def test_bart_renders_as_step_function_with_clean_label():
         pm.Normal("y", mu=m["mu"], sigma=pm.HalfNormal("sigma", 1), observed=Y)
     ir = to_ir(m)
     mu = ir.node("mu")
-    assert mu.glyph is not None and mu.glyph.kind == "step"
-    assert mu.elision_reason is None  # honest canonical depiction, not an "elided" badge
+    assert mu.glyph is None and mu.glyph_note.startswith("sum of trees")
+    assert mu.elision_reason is None  # representable: a caption, not an "elided" badge
     assert "arg0" not in mu.label_tex and "BART" in mu.label_tex
     assert r"\cssId{tok-X}" in mu.label_tex and r"\cssId{tok-m}" in mu.label_tex  # X + m shown
     assert ("X", "mu", "X") in [
         (e.source, e.target, e.target_token_id) for e in ir.edges
     ]  # data -> BART edge
     assert "<svg" in to_svg(ir, layout(ir))  # composes without crashing
+
+
+def _node_of(build):
+    with pm.Model() as m:
+        build()
+    return to_ir(m).node("x")
+
+
+@pytest.mark.parametrize("psi", [0.0, 0.3, 1.0])
+def test_zero_inflation_bar_is_the_true_mass_at_zero(psi):
+    """The zero bar used to be a fixed 0.85 whatever the weight. It must be the exact mixture
+    pmf: P(0) = (1 - psi) + psi * Poisson(0 | mu)."""
+    import scipy.stats as st
+
+    n = _node_of(lambda: pm.ZeroInflatedPoisson("x", psi=psi, mu=3.0))
+    base = n.glyph_data["base"]
+    cats = np.array(base["cats"])
+    truth = (1 - psi) * (cats == 0) + psi * st.poisson(3.0).pmf(cats)
+    assert np.allclose(np.array(base["heights"]), truth / truth.max())
+    assert "spike" not in n.glyph_data
+
+
+def test_point_mass_mixture_keeps_its_location():
+    n = _node_of(
+        lambda: pm.Mixture(
+            "x", w=[0.4, 0.6], comp_dists=[pm.DiracDelta.dist(2), pm.Poisson.dist(3.0)]
+        )
+    )
+    b = n.glyph_data["base"]
+    assert b["cats"][int(np.argmax(b["heights"]))] == 2  # the spike is AT 2, not at 0
+
+
+def test_mixture_with_prior_weights_says_it_is_components_only():
+    def build():
+        w = pm.Dirichlet("w", np.ones(2))
+        pm.Mixture("x", w=w, comp_dists=[pm.Normal.dist(0, 1), pm.Normal.dist(3, 1)])
+
+    n = _node_of(build)
+    assert n.glyph.kind == "mixture" and n.glyph_data["weighted"] is False
+    assert "weights depend on parents" in n.glyph_note
+
+
+@pytest.mark.parametrize(
+    "rho,stationary",
+    [
+        ([0.9, -0.5], True),
+        ([0.8, -0.8], True),
+        ([0.8, 0.3], False),  # sum(rho^2) < 1 but a root lies outside the unit circle
+        ([0.5, 0.5], False),  # unit root
+    ],
+)
+def test_ar_stationarity_uses_the_lag_polynomial(rho, stationary):
+    n = _node_of(lambda: pm.AR("x", rho=rho, sigma=1, init_dist=pm.Normal.dist(0, 1), steps=8))
+    if stationary:
+        assert n.glyph.kind == "stem" and n.elision_reason is None
+    else:
+        assert n.elision_reason == "autoregressive — non-stationary"
+
+
+def test_ar_intercept_is_not_read_as_a_coefficient():
+    """With constant=True, rho[0] is the intercept: a large intercept must not make a
+    stationary AR(1) look non-stationary."""
+    n = _node_of(
+        lambda: pm.AR(
+            "x", rho=[5.0, 0.5], constant=True, sigma=1, init_dist=pm.Normal.dist(0, 1), steps=8
+        )
+    )
+    assert n.glyph.kind == "stem"
+    assert round(n.glyph_data["values"][0], 6) == 0.5
+
+
+def test_censored_density_lives_inside_the_bounds():
+    import scipy.stats as st
+
+    n = _node_of(lambda: pm.Censored("x", pm.Normal.dist(0, 1), lower=-1, upper=2))
+    d = n.glyph_data
+    assert min(d["xs"]) >= -1 and max(d["xs"]) <= 2
+    ps = sorted(sp["p"] for sp in d["spikes"])
+    assert np.allclose(ps, sorted([st.norm.cdf(-1), st.norm.sf(2)]))
+
+
+def test_one_sided_censoring():
+    n = _node_of(lambda: pm.Censored("x", pm.Normal.dist(0, 1), lower=0.5, upper=None))
+    assert len(n.glyph_data["spikes"]) == 1 and min(n.glyph_data["xs"]) >= 0.5
+
+
+def test_random_walk_band_includes_the_initial_spread():
+    """Var[X_t] = v0 + t*v: a wide initial distribution must widen the band at t = 0."""
+
+    def width0(sd0):
+        n = _node_of(
+            lambda: pm.GaussianRandomWalk(
+                "x", mu=0.0, sigma=1.0, init_dist=pm.Normal.dist(0, sd0), steps=9
+            )
+        )
+        d = n.glyph_data
+        return (d["hi"][0] - d["lo"][0]) / (d["hi"][-1] - d["lo"][-1])
+
+    assert width0(0.0001) < 0.01  # a near-point start: the band opens from nothing
+    assert width0(3.0) > 0.5  # var0 = 9 against var_9 = 18
+
+
+def test_batched_dirichlet_with_differing_rows_is_not_one_glyph():
+    n = _node_of(lambda: pm.Dirichlet("x", a=np.array([[1.0, 2.0, 3.0], [5.0, 1.0, 1.0]])))
+    assert n.glyph is None and n.glyph_note == "elements differ"
+
+
+def test_batched_mvnormal_reads_the_covariance_slot():
+    """A batched MEAN is matrix-shaped too; the covariance must come from its own slot."""
+    cov = np.array([[1.0, 0.5], [0.5, 1.0]])
+    n = _node_of(lambda: pm.MvNormal("x", mu=np.zeros((4, 2)), cov=cov, shape=(4, 2)))
+    assert n.glyph.kind == "pairplot" and np.allclose(n.glyph_data["cov"], cov)
+
+
+def test_parent_dependent_constructs_are_captioned_not_badged():
+    def trunc():
+        pm.TruncatedNormal("x", mu=pm.Normal("m", 0, 1), sigma=1, lower=0)
+
+    def dirich():
+        pm.Dirichlet("x", a=pm.HalfNormal("a", 1, shape=3))
+
+    for build in (trunc, dirich):
+        n = _node_of(build)
+        assert n.glyph is None and n.representable and n.elision_reason is None
+        assert n.glyph_note.startswith("no fixed curve")

@@ -140,25 +140,60 @@ DIST_SYMBOLS = {
 }
 
 
+# Characters with a meaning in TeX. A variable name is arbitrary text, so each is escaped before it
+# reaches MathJax: an unescaped `&` is a TeX alignment error, and MathJax's error node then leaks
+# the raw `&` into an SVG attribute (malformed XML).
+_TEX_ESCAPES = {
+    "\\": r"\backslash{}",
+    "{": r"\{",
+    "}": r"\}",
+    "&": r"\&",
+    "%": r"\%",
+    "$": r"\$",
+    "#": r"\#",
+    "_": r"\_",
+    "^": r"\hat{}",
+    "~": r"\sim{}",
+}
+
+
+def _tex_text(token: str) -> str:
+    return "".join(_TEX_ESCAPES.get(c, c) for c in token)
+
+
+def _is_greek(token: str) -> bool:
+    return token in _GREEK_LOWER or token in _GREEK_UPPER
+
+
 def _atom(token: str) -> str:
-    if token in _GREEK_LOWER or token in _GREEK_UPPER:
+    if _is_greek(token):
         return "\\" + token
-    if len(token) == 1:
-        return token
     if token.isdigit():
         return token
-    return r"\mathrm{" + token + "}"
+    if len(token) == 1:
+        return _tex_text(token)
+    return r"\mathrm{" + _tex_text(token) + "}"
 
 
 def symbol_for(name: str) -> str:
-    """LaTeX symbol for a variable name (greek detection + subscripts).
+    r"""LaTeX symbol for a variable name.
 
-    ``mu`` -> ``\\mu``, ``y_obs`` -> ``y_{\\mathrm{obs}}``, ``beta_1`` -> ``\\beta_{1}``.
+    Math-style subscripts only where the name reads as math — a Greek or single-letter base:
+    ``mu`` -> ``\mu``, ``mu_a`` -> ``\mu_{a}``, ``y_obs`` -> ``y_{\mathrm{obs}}``,
+    ``beta_1`` -> ``\beta_{1}``. A multi-letter word base is a NAME, not a symbol with an index,
+    so it stays whole and upright: ``between_subject_sd`` -> ``\mathrm{between\_subject\_sd}``
+    (subscripting it as ``between_{subject,sd}`` invented structure the name does not have).
     """
     base, _, sub = name.partition("_")
+    if not (_is_greek(base) or len(base) == 1):
+        return r"\mathrm{" + _tex_text(name) + "}"
     out = _atom(base)
     if sub:
-        out += "_{" + ",".join(_atom(s) for s in sub.split("_") if s) + "}"
+        parts = [s for s in sub.split("_") if s]
+        if all(p.isdigit() or len(p) == 1 or _is_greek(p) for p in parts):
+            out += "_{" + ",".join(_atom(p) for p in parts) + "}"  # indices: beta_{1,2}
+        else:  # a worded subscript stays one word: n_{effective_proteins}
+            out += r"_{\mathrm{" + _tex_text("_".join(parts)) + "}}"
     return out
 
 
@@ -173,6 +208,19 @@ DIST_PARAM_TEMPLATES: dict[str, list[list[str | None]]] = {
     "RandomWalk": [["init", "innov", None]],  # [init_dist, innovation_dist, steps]
     "AR": [["rho", "sigma", "init", None]],  # [rho, sigma, init_dist, steps]
     "Censored": [["dist", "lower", "upper"]],
+    "TruncatedNormal": [["mu", "sigma", "lower", "upper"]],  # the op's (mu, sigma, lower, upper)
+    # SymbolicRandomVariable families whose op signature yields only arg0/arg1…; order verified
+    # against the logp-locked translations in adapters/glyph_data.py
+    "HalfStudentT": [["nu", "sigma"]],
+    "SkewStudentT": [["a", "b", "mu", "sigma"]],
+    "Kumaraswamy": [["a", "b"]],
+    "Wald": [["mu", "lam", "alpha"]],
+    "LogitNormal": [["mu", "sigma"]],
+    "Rice": [["b", "sigma"]],
+    "ExGaussian": [["mu", "sigma", "nu"]],
+    "AsymmetricLaplace": [["b", "kappa", "mu"]],
+    "DiscreteWeibull": [["q", "beta"]],
+    "Moyal": [["mu", "sigma"]],
     "Mixture": [
         ["w", "comp"],  # NormalMixture (single packed component)
         ["w", "comp1", "comp2"],  # ZeroInflated*/two-component (e.g. [w, zero-spike, count])
@@ -235,6 +283,16 @@ def assemble_deterministic(
         tex=label,
         children=[TokenIR(LHS_TOKEN, sym), *[TokenIR(t, t) for t in leaf_tokens]],
     )
+    return label, tree
+
+
+def assemble_potential(
+    node_name: str, expr_tex: str, leaf_tokens: list[str]
+) -> tuple[str, TokenIR]:
+    """A ``pm.Potential``: a log-density factor ``log psi_name = expr`` — neither sampled nor
+    observed, it adds ``expr`` to the model's log density."""
+    label = rf"\log\psi_{{{symbol_for(node_name)}}} = {expr_tex}"
+    tree = TokenIR(token_id="root", tex=label, children=[TokenIR(t, t) for t in leaf_tokens])
     return label, tree
 
 

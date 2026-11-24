@@ -12,8 +12,9 @@ _ROLE_LABELS = {
     "observed": "observed variable",
     "deterministic": "deterministic (computed)",
     "data": "data",
-    "potential": "potential (factor)",
+    "potential": "potential — a log-density factor (not sampled, not observed)",
     "factor": "factor",
+    "block": "block — a collapsed structure (several variables)",
 }
 _SOURCE_LABELS = {
     "prior_analytic": "prior density (parameters known)",
@@ -22,6 +23,11 @@ _SOURCE_LABELS = {
     "posterior_bars": "posterior (from idata, per class)",
     "observed_hist": "observed data (histogram)",
     "deterministic_fn": "transfer function (canonical shape)",
+    "conditional_standardized": "exact shape — location/scale set by parents or per element",
+    "implied_family": "implied distribution (recognized structure)",
+    "posterior_predictive": "posterior predictive check (from idata)",
+    "prior_predictive": "prior predictive check (from idata)",
+    "posterior_quantiles": "posterior intervals per element (from idata)",
 }
 
 
@@ -34,7 +40,7 @@ class LegendItem:
 def build(ir: ModelIR) -> list[LegendItem]:
     items: list[LegendItem] = []
 
-    for role in ("latent", "observed", "deterministic", "data", "potential", "factor"):
+    for role in ("latent", "observed", "deterministic", "data", "potential", "factor", "block"):
         if any(n.role == role for n in ir.nodes):
             items.append(LegendItem(f"role:{role}", _ROLE_LABELS[role]))
 
@@ -44,19 +50,28 @@ def build(ir: ModelIR) -> list[LegendItem]:
         "posterior_bars",
         "observed_hist",
         "prior_family_only",
+        "conditional_standardized",
+        "implied_family",
+        "posterior_predictive",
+        "prior_predictive",
+        "posterior_quantiles",
         "deterministic_fn",
     ):
         if any(n.glyph and n.glyph.source == src for n in ir.nodes):
             items.append(LegendItem(f"glyph:{src}", _SOURCE_LABELS[src]))
     if any(n.glyph and n.glyph.kind == "hist_overlay" for n in ir.nodes):
-        items.append(LegendItem("glyph:best_fit", "best-fit family (shape check)"))
+        items.append(LegendItem("glyph:best_fit", "best-fit family (legacy IR)"))
 
     if any(n.role in ("latent", "observed") for n in ir.nodes):
         items.append(LegendItem("symbol:~", "“~”  distributed as"))
     if any(n.role == "deterministic" for n in ir.nodes):
         items.append(LegendItem("symbol:=", "“=”  computed from"))
     if ir.plates:
-        items.append(LegendItem("plate", "plate — repeats over its dimension"))
+        items.append(LegendItem("plate", "plate — indexed by its dimension"))
+    if any(n.tag for n in ir.nodes):
+        items.append(LegendItem("tag", "small caption — a structure read off the graph"))
+    if any(b.provenance == "annotated" for b in ir.blocks):
+        items.append(LegendItem("annotated", "annotated — declared by the user, not verified"))
     if any(
         ("\\cdots" in (n.label_tex or "")) or ("\\ldots" in (n.label_tex or "")) or n.elision_reason
         for n in ir.nodes

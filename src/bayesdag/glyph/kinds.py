@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import math
+from html import escape
 from typing import Any
 
 from ..ir import Box
@@ -84,11 +85,10 @@ def render_density(
     )
 
 
-def render_schematic(data: dict[str, Any], box: Box, **_):
-    # Family shape only (a conditional latent whose params depend on parents): the same solid bell as a
-    # real density, but GREY — colour + the legend ("prior shape (depends on parents)") carry the
-    # "shape depends on parents" meaning, no dashing.
-    return render_density(data, box, stroke="#999", fill="#999")
+def render_schematic(data: dict[str, Any], box: Box, *, stroke="#999", fill="#999", **_):
+    # A shape with no values on its axis (an exact standardized family shape, or a legacy 1.0
+    # schematic): drawn like a density in a muted colour; the legend says what it means.
+    return render_density(data, box, stroke=stroke, fill=fill)
 
 
 def _bars(edges, counts, box: Box, fill, stroke) -> str:
@@ -190,12 +190,20 @@ def render_bars(data: dict[str, Any], box: Box, *, fill="#5a7fb5", stroke="#3a5f
     bw, centers = bar_layout(len(heights), box)
     base = box.y + box.h
     out = []
-    for hgt, cx in zip(heights, centers, strict=False):  # centers derived from len(heights)
+    bins = data.get("bins") if data.get("binned") else None
+    for i, (hgt, cx) in enumerate(zip(heights, centers, strict=False)):
         bh = max(0.0, min(1.0, hgt)) * box.h
-        out.append(
+        rect = (
             f'<rect x="{cx - bw / 2:.1f}" y="{base - bh:.1f}" width="{bw:.1f}" height="{bh:.1f}" '
-            f'fill="{fill}" stroke="{stroke}" stroke-width="0.4"/>'
+            f'fill="{fill}" stroke="{stroke}" stroke-width="0.4"'
         )
+        if bins and i < len(bins):
+            a, b = bins[i]
+            label = escape(f"{a}–{b}" if a != b else str(a))
+            out.append(f"{rect}><title>{label}</title></rect>")
+        else:
+            out.append(f"{rect}/>")
+
     return "".join(out)
 
 
@@ -406,6 +414,111 @@ def render_censored(data: dict[str, Any], box: Box, *, stroke="#2a8a55", fill="#
     return "".join(out)
 
 
+def render_multi(data: dict[str, Any], box: Box, *, stroke="#d2691e", **_):
+    """A few elements' posteriors, one unfilled curve each on a shared grid (jointly normalized,
+    so the heights compare). The elements are distinct: overlaying them keeps each one's shape,
+    where pooling them into one KDE would draw no element's posterior."""
+    xs, curves = data.get("xs"), data.get("curves")
+    if not xs or not curves:
+        return ""
+    out = [_zero_marker(box, min(xs), max(xs))]
+    for ys in curves:
+        pts = _poly(xs, ys, box)
+        out.append(
+            f'<path d="{_path(pts)}" fill="none" stroke="{stroke}" stroke-width="1.0" '
+            'opacity="0.75"/>'
+        )
+    return "".join(out)
+
+
+def render_forest(data: dict[str, Any], box: Box, *, stroke="#d2691e", fill="#d2691e", **_):
+    """Many elements' posteriors as a sorted interval band: x = element rank (sorted by median),
+    y = value. A light 5-95% band, a darker 25-75% band, the median line, and a dashed zero line
+    when 0 is in range — the shrinkage/caterpillar picture of a hierarchy at scale."""
+    q05, q25, q50 = data.get("q05"), data.get("q25"), data.get("q50")
+    q75, q95 = data.get("q75"), data.get("q95")
+    lo, hi = data.get("lo"), data.get("hi")
+    if not q50 or lo is None or hi is None or not hi > lo:
+        return ""
+    n = len(q50)
+
+    def sx(i):
+        return box.x + ((i + 0.5) / n) * box.w
+
+    def sy(v):
+        return box.y + box.h - (v - lo) / (hi - lo) * box.h
+
+    def band(a, b):
+        top = [(sx(i), sy(b[i])) for i in range(n)]
+        bot = [(sx(i), sy(a[i])) for i in range(n - 1, -1, -1)]
+        return _path(top + bot) + " Z"
+
+    out = []
+    if lo < 0 < hi:
+        y0 = sy(0.0)
+        out.append(
+            f'<line x1="{box.x:.1f}" y1="{y0:.1f}" x2="{box.x + box.w:.1f}" y2="{y0:.1f}" '
+            'stroke="#9aa0a6" stroke-width="0.6" stroke-dasharray="2,2"/>'
+        )
+    out.append(f'<path d="{band(q05, q95)}" fill="{fill}" fill-opacity="0.15" stroke="none"/>')
+    out.append(f'<path d="{band(q25, q75)}" fill="{fill}" fill-opacity="0.3" stroke="none"/>')
+    out.append(
+        f'<path d="{_path([(sx(i), sy(q50[i])) for i in range(n)])}" fill="none" '
+        f'stroke="{stroke}" stroke-width="1.1"/>'
+    )
+    return "".join(out)
+
+
+def render_ppc(data: dict[str, Any], box: Box, *, fill="#5a7fb5", stroke="#3a5f95", **_):
+    """A predictive check: the observed data against replicated data drawn by the MODEL (from the
+    caller's idata), on one shared scale. Continuous: data histogram + a few per-draw densities +
+    the pooled predictive density. Discrete: data bars + the predictive median and 5-95% whisker
+    per value."""
+    pred = "#d2691e"
+    if data.get("cats") is not None:
+        heights = data.get("heights") or []
+        out = [render_bars(data, box, fill=fill, stroke=stroke)]
+        _, centers = bar_layout(len(heights), box)
+        base = box.y + box.h
+        for cx, lo, mid, hi in zip(
+            centers,
+            data.get("pred_lo", []),
+            data.get("pred_mid", []),
+            data.get("pred_hi", []),
+            strict=False,
+        ):
+            out.append(
+                f'<line x1="{cx:.1f}" y1="{base - lo * box.h:.1f}" x2="{cx:.1f}" '
+                f'y2="{base - hi * box.h:.1f}" stroke="{pred}" stroke-width="1.2"/>'
+                f'<circle cx="{cx:.1f}" cy="{base - mid * box.h:.1f}" r="1.6" fill="{pred}"/>'
+            )
+        return "".join(out)
+    edges, counts, xs = data.get("edges"), data.get("counts"), data.get("xs")
+    if not edges or not counts or not xs:
+        return ""
+    # the histogram's bins live on the data's own range; map them onto the shared xs axis
+    x0, x1 = xs[0], xs[-1]
+    span = (x1 - x0) or 1.0
+    sub = Box(
+        box.x + (edges[0] - x0) / span * box.w,
+        box.y,
+        (edges[-1] - edges[0]) / span * box.w,
+        box.h,
+    )
+    out = [_zero_marker(box, x0, x1), _bars(edges, counts, sub, fill, stroke)]
+    for ys in data.get("draws", []):
+        out.append(
+            f'<path d="{_path(_poly(xs, ys, box))}" fill="none" stroke="{pred}" '
+            'stroke-width="0.6" opacity="0.35"/>'
+        )
+    if data.get("ys"):
+        out.append(
+            f'<path d="{_path(_poly(xs, data["ys"], box))}" fill="none" stroke="{pred}" '
+            'stroke-width="1.4"/>'
+        )
+    return "".join(out)
+
+
 register("density", render_density)
 register("schematic", render_schematic)
 register("curve", render_curve)
@@ -421,3 +534,6 @@ register("simplex", render_simplex)
 register("stem", render_stem)
 register("step", render_step)
 register("censored", render_censored)
+register("multi", render_multi)
+register("forest", render_forest)
+register("ppc", render_ppc)

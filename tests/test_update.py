@@ -56,11 +56,13 @@ def test_the_diagram_does_not_move_when_the_posterior_arrives(fitted_eight_schoo
 
     assert v.layout is before_layout  # literally reused, not recomputed to the same numbers
     assert _boxes(v) == before_boxes
+    assert v.ir.node("eta").glyph.kind == "multi"
     assert _sources(v) == {
         "mu": "posterior_kde",
         "tau": "posterior_kde",
-        "eta": "posterior_kde",
-        "theta": None,  # a deterministic depicts its transfer function, never a posterior
+        "eta": "posterior_kde",  # one curve per school (never one pooled curve)
+        # theta anchors a recognized hierarchy: an effect with a posterior of its own
+        "theta": "posterior_kde",
         "y_obs": "observed_hist",  # observed nodes keep their data
     }
     assert "#d2691e" in v.to_svg()  # the posterior colour reaches the figure
@@ -99,8 +101,8 @@ def test_overlay_refs_follow_the_attached_idata(fitted_eight_schools):
 
 
 def test_a_glyph_that_changes_size_class_forces_a_relayout():
-    """An MvNormal's prior is a pairplot — a ~90px square. Its posterior is a pooled KDE strip of
-    30px. Reusing the old boxes there would leave the node sized for a glyph it no longer draws,
+    """An MvNormal's prior is a pairplot — a ~90px square. Its posterior is a per-element strip
+    of 30px. Reusing the old boxes there would leave the node sized for a glyph it no longer draws,
     so the size check has to catch it and lay out again."""
     from bayesdag import geometry
 
@@ -115,7 +117,7 @@ def test_a_glyph_that_changes_size_class_forces_a_relayout():
 
     v.update(idata=idata)
 
-    assert v.ir.node("z").glyph.kind == "density"  # posterior wins over the construct glyph
+    assert v.ir.node("z").glyph.kind == "multi"  # posterior wins over the construct glyph
     assert v.layout is not before_layout, "the size class changed; the layout must be redone"
     assert _boxes(v) != before_boxes
     # and the new box is the one the new glyph actually wants
@@ -141,7 +143,7 @@ def test_the_widget_is_pushed_and_stays_in_parity(fitted_eight_schools):
     v.update(idata=idata)
 
     assert w.spec["svg"] != before  # the push actually happened
-    assert w.spec["svg"] == to_svg(v.ir, v.layout, legend=False)  # ...and parity survived it
+    assert w.spec["svg"] == to_svg(v.display_ir, v.layout, legend=False)  # parity survived it
     assert w.spec["nodes"]["mu"]["panel"]  # the card panel was rebuilt too
 
 
@@ -235,3 +237,87 @@ def test_a_dict_ir_is_not_mistaken_for_a_model(eight_schools_ir):
     assert v._model is None
     assert v._can_expand_plates is False
     assert v.expand_plates() == {}
+
+
+def test_detaching_a_constructor_idata_shows_the_prior(fitted_eight_schools):
+    """A view built WITH idata used to snapshot its posterior glyphs as the 'as-built' layer, so
+    `update(None)` kept showing posteriors while `.idata` said None."""
+    model, idata = fitted_eight_schools
+    v = bayesdag.view(model, idata=idata, ppc_draws=0)
+    assert _sources(v)["mu"] == "posterior_kde"
+    v.update(None)
+    assert _sources(v)["mu"] == "prior_analytic"
+    assert v.idata is None and all(n.diag is None for n in v.ir.nodes)
+    assert v.ir.aux_views == []
+
+
+def test_views_never_mutate_a_shared_prebuilt_ir(fitted_eight_schools):
+    from bayesdag.convert import to_ir
+
+    model, idata = fitted_eight_schools
+    ir = to_ir(model)
+    before = ir.to_dict()
+    a = bayesdag.view(ir, idata=idata, ppc_draws=0)
+    b = bayesdag.view(ir, ppc_draws=0)
+    assert ir.to_dict() == before
+    assert _sources(a)["mu"] == "posterior_kde" and _sources(b)["mu"] == "prior_analytic"
+
+
+def test_a_posterior_only_ir_does_not_fabricate_a_prior(fitted_eight_schools):
+    """An IR that was SAVED with posterior glyphs has no prior behind them. Detaching must not
+    leave the posterior on screen (claiming a prior) nor invent one: no curve, and a note."""
+    model, idata = fitted_eight_schools
+    saved = bayesdag.view(model, idata=idata, ppc_draws=0).ir.to_dict()
+    v = bayesdag.view(saved, ppc_draws=0)
+    assert _sources(v)["mu"] == "posterior_kde"  # shows what it was given
+    v.update(None)
+    mu = v.ir.node("mu")
+    assert mu.glyph is None and mu.glyph_note == "prior unavailable (posterior-only IR)"
+
+
+def test_marginals_panel_for_vectors_and_deterministics(fitted_eight_schools):
+    model, idata = fitted_eight_schools
+    v = bayesdag.view(model, idata=idata, ppc_draws=0)
+    svg = v.marginals_svg("theta")
+    assert "posterior per element" in svg and "coordinate order" in svg
+    assert ">S0<" in svg  # rows are labelled by their coordinate
+    assert bayesdag.view(model, ppc_draws=0).marginals_svg("theta") == ""  # no idata: nothing
+    with pytest.raises(ValueError):
+        v.marginals_svg("nope")
+
+
+def test_fitted_cache_tracks_explicit_updates(monkeypatch, fitted_eight_schools):
+    from bayesdag.adapters import fitted
+    from bayesdag.render_panels import RENDERERS
+
+    model, idata = fitted_eight_schools
+    v = bayesdag.view(model, idata=idata, ppc_draws=0)
+    w = v.widget()
+    block = v.ir.blocks[0]
+    kind = next(iter(fitted.PANELS))
+    calls = []
+
+    def compute(*args):
+        calls.append(len(calls) + 1)
+        return calls[-1]
+
+    monkeypatch.setattr(fitted, "compute", compute)
+    monkeypatch.setitem(RENDERERS, kind, lambda data: f"result {data}")
+    request = {"kind": kind, "block_id": block.id, "fit_revision": 0}
+    v._on_panel_request({"new": request})
+    assert w.panel_response["svg"] == "result 1"
+    v._on_panel_request({"new": request})
+    assert len(calls) == 1
+    v.update(idata)  # the same object may have been mutated
+    assert w.spec["fit_revision"] == 1
+    v._on_panel_request({"new": request})
+    assert len(calls) == 1  # obsolete work is rejected
+    v._on_panel_request({"new": {"kind": kind, "block_id": block.id}})
+    assert w.panel_response["svg"] == "result 2"
+    assert w.panel_response["fit_revision"] == 1
+    v.update(idata.copy())
+    v._on_panel_request({"new": {**request, "fit_revision": 2}})
+    assert w.panel_response["svg"] == "result 3"
+    v.update(None)
+    assert w.spec["fit_revision"] == 3
+    assert not v._fitted_cache

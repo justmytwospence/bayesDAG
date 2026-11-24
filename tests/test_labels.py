@@ -50,6 +50,24 @@ def test_symbol_for():
     assert symbol_for("beta_1") == r"\beta_{1}"
     assert symbol_for("Sigma") == r"\Sigma"
     assert symbol_for("x") == "x"
+    assert symbol_for("mu_a") == r"\mu_{a}"
+
+
+def test_word_names_stay_whole_and_upright():
+    """A multi-letter base is a name, not a symbol with an index: subscripting
+    `between_subject_sd` as `between_{subject,sd}` invented structure the name does not have."""
+    assert symbol_for("between_subject_sd") == r"\mathrm{between\_subject\_sd}"
+    assert symbol_for("count_prob") == r"\mathrm{count\_prob}"
+    assert symbol_for("county_idx") == r"\mathrm{county\_idx}"
+    # a single-letter base keeps its subscript, but a worded one stays one word
+    assert symbol_for("n_effective_proteins") == r"n_{\mathrm{effective\_proteins}}"
+    assert symbol_for("beta_1_2") == r"\beta_{1,2}"
+
+
+def test_tex_specials_in_names_are_escaped():
+    assert symbol_for("c<d>&e") == r"\mathrm{c<d>\&e}"
+    assert symbol_for("a{b}") == r"\mathrm{a\{b\}}"
+    assert symbol_for("&") == r"\&"
 
 
 def test_dist_symbol():

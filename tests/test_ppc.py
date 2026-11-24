@@ -58,9 +58,9 @@ def test_model_without_plates_returns_nothing():
     assert _expansions(m) == {}
 
 
-def test_sampling_failure_degrades_to_empty(monkeypatch, eight_schools_model):
+def test_sampling_failure_degrades_to_a_stated_error(monkeypatch, eight_schools_model):
     """Prior-predictive simulation is best-effort: a model that can't be forward-simulated must
-    yield no panels rather than breaking the widget build."""
+    not break the widget build — and the plate says it failed rather than showing an empty box."""
     import pymc
 
     monkeypatch.setattr(
@@ -68,7 +68,8 @@ def test_sampling_failure_degrades_to_empty(monkeypatch, eight_schools_model):
         "sample_prior_predictive",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("cannot simulate")),
     )
-    assert _expansions(eight_schools_model) == {}
+    out = _expansions(eight_schools_model)
+    assert out and all(p["status"] == "error" and "failed" in p["reason"] for p in out.values())
 
 
 def test_expansions_are_deterministic(eight_schools_model):

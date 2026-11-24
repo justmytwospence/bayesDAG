@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-from .glyph_data import _observed_values, _thin
+from .glyph_data import _DISCRETE, _bin_frequencies, _integer_bins, _observed_values, _thin
 
 _GRID = 48
 _MAX_CURVES = 40
@@ -34,17 +34,55 @@ def _kde(col: np.ndarray, xs: np.ndarray):
         return None
 
 
+def potential_note(model: Any) -> str | None:
+    """Why forward simulation would misrepresent this model, or None. ``pm.Potential`` terms
+    reweight the joint density but are invisible to ancestral sampling, so prior-predictive draws
+    would come from a DIFFERENT model than the one drawn."""
+    n = len(getattr(model, "potentials", []) or [])
+    if not n:
+        return None
+    return f"forward simulation ignores the model's {n} Potential{'s' if n != 1 else ''}"
+
+
+def _discrete_curves(flat: np.ndarray, n_inst: int, observed=None):
+    """Per-instance frequencies over shared inclusive integer bins."""
+    values = np.asarray(flat, float)
+    obs = np.asarray(observed if observed is not None else [], float).ravel()
+    if (
+        values.ndim != 2
+        or not values.size
+        or not np.all(np.isfinite(values))
+        or not np.all(values == np.round(values))
+        or not np.all(np.isfinite(obs))
+        or not np.all(obs == np.round(obs))
+    ):
+        return None
+    lo, hi = values.min(), values.max()
+    if obs.size:
+        lo, hi = min(lo, obs.min()), max(hi, obs.max())
+    bins = _integer_bins(int(lo), int(hi), 40)
+    curves = [_bin_frequencies(values[:, i], bins) for i in range(min(n_inst, _MAX_CURVES))]
+    xs = np.array([(a + b) / 2 for a, b in bins])
+    return (xs, curves, bins) if curves else None
+
+
 def prior_predictive_expansions(model: Any, ir: Any, draws: int = 200) -> dict[str, dict]:
+    """``{plate_id: {"status": "ready", "label", "members"}}`` — or, per plate, a
+    ``{"status": "unavailable" | "error", "reason"}`` the widget shows instead of an empty box."""
     plates = [p for p in ir.plates if p.members]
     if not plates:
         return {}
+    note = potential_note(model)
+    if note:
+        return {p.id: {"status": "unavailable", "reason": note} for p in plates}
     try:
         import pymc as pm
 
         with model:
             pp = pm.sample_prior_predictive(draws=draws, random_seed=0)
-    except Exception:
-        return {}
+    except Exception as exc:
+        reason = f"prior-predictive simulation failed ({type(exc).__name__})"
+        return {p.id: {"status": "error", "reason": reason} for p in plates}
 
     def get_draws(name: str):
         for grp in ("prior", "prior_predictive"):
@@ -67,15 +105,23 @@ def prior_predictive_expansions(model: Any, ir: Any, draws: int = 200) -> dict[s
             finite = flat[np.isfinite(flat)]
             if finite.size < 2:
                 continue
-            lo, hi = np.percentile(finite, [0.5, 99.5])
-            if not (hi > lo):
-                continue
-            xs = np.linspace(lo, hi, _GRID)
-            curves = []
-            for i in range(min(n_inst, _MAX_CURVES)):
-                ys = _kde(flat[:, i], xs)
-                if ys is not None:
-                    curves.append(ys)
+            discrete = bool(node.dist in _DISCRETE) if node.dist else False
+            obs = _observed_values(model[vid], model) if node.role == "observed" else None
+            if discrete:
+                got = _discrete_curves(flat, n_inst, obs)
+                if got is None:
+                    continue
+                xs, curves, bins = got
+            else:
+                lo, hi = np.percentile(finite, [0.5, 99.5])
+                if not (hi > lo):
+                    continue
+                xs = np.linspace(lo, hi, _GRID)
+                curves = []
+                for i in range(min(n_inst, _MAX_CURVES)):
+                    ys = _kde(flat[:, i], xs)
+                    if ys is not None:
+                        curves.append(ys)
             if not curves:
                 continue
             peak = max(float(c.max()) for c in curves) or 1.0
@@ -84,15 +130,19 @@ def prior_predictive_expansions(model: Any, ir: Any, draws: int = 200) -> dict[s
                 "role": node.role,
                 "n": n_inst,
                 "capped": n_inst > _MAX_CURVES,
+                "discrete": discrete,
                 "xs": [float(x) for x in xs],
                 "curves": [[float(y / peak) for y in c] for c in curves],
             }
-            if node.role == "observed":
-                obs = _observed_values(model[vid], model)
-                if obs is not None:
-                    o = np.asarray(obs, float).ravel()
-                    member["observed"] = [float(v) for v in o[np.isfinite(o)]]
+            if discrete:
+                member["bins"] = bins
+                member["frequencies"] = [c.tolist() for c in curves]
+            if obs is not None:
+                o = np.asarray(obs, float).ravel()
+                member["observed"] = [float(v) for v in o[np.isfinite(o)]]
             members.append(member)
         if members:
-            out[plate.id] = {"label": plate.label, "members": members}
+            out[plate.id] = {"status": "ready", "label": plate.label, "members": members}
+        else:
+            out[plate.id] = {"status": "unavailable", "reason": "no simulated member to show"}
     return out

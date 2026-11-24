@@ -1,11 +1,43 @@
 .bayesdag {
   width: 100%;
-  overflow: hidden;
+  overflow: auto; /* natural size: a big model scrolls instead of shrinking to illegibility */
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
-.bayesdag svg {
-  max-width: 100%;
+.bayesdag .bd-holder > svg {
+  max-width: none;
   height: auto;
+}
+.bayesdag.bd-fit .bd-holder > svg {
+  width: 100%;
+}
+.bd-toolbar {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  display: flex;
+  gap: 4px;
+  padding: 2px 0 4px;
+}
+.bd-toolbar button {
+  font: 11px system-ui, sans-serif;
+  padding: 1px 7px;
+  border: 1px solid #d0d4da;
+  border-radius: 4px;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+}
+.bd-toolbar button[aria-pressed="true"] {
+  background: #eef2f7;
+}
+/* keyboard focus: a visible ring on the node's box outline */
+.bayesdag .bd-body:focus {
+  outline: none;
+}
+.bayesdag .bd-node.bd-kbd .bd-chrome {
+  stroke: #2563eb;
+  stroke-width: 2.6;
 }
 .bd-placeholder {
   padding: 1rem;
@@ -127,7 +159,12 @@
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 11px;
   white-space: pre-wrap;
-  user-select: all;
+}
+.bd-note {
+  margin: 4px 0 2px;
+  color: #6b7280;
+  font-style: italic;
+  font-size: 11px;
 }
 /* hedged sampling diagnostics: an invitation to look, never a verdict — so amber, not red */
 .bd-diag-rows {
@@ -201,4 +238,72 @@
   font-weight: 400;
   color: #9aa0a6;
   font-size: 10px;
+}
+
+/* structures (blocks) in the card */
+.bd-tag-line,
+.bd-block-sub {
+  color: #4b5563;
+  font-size: 11px;
+  margin: 2px 0 4px;
+}
+.bd-role {
+  font-size: 11px;
+  margin: 1px 0;
+}
+.bd-role span {
+  color: #6b7280;
+  display: inline-block;
+  min-width: 68px;
+}
+.bd-members summary {
+  cursor: pointer;
+  font-size: 11px;
+  color: #374151;
+  margin-top: 4px;
+}
+.bd-member {
+  margin: 4px 0 4px 8px;
+  font-size: 11px;
+}
+.bd-expand-btn,
+.bd-collapse-btn,
+.bd-page-btn {
+  font: 11px system-ui, sans-serif;
+  margin: 6px 6px 0 0;
+  padding: 1px 8px;
+  border: 1px solid #d0d4da;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+.bd-pager {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #6b7280;
+}
+.bd-block-head {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid #eceef1;
+  font-weight: 600;
+  font-size: 11px;
+  color: #374151;
+}
+.bd-fit-panels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.bd-fit-panel-btn {
+  font: 11px system-ui, sans-serif;
+  padding: 1px 8px;
+  border: 1px solid #f0c39a;
+  border-radius: 10px;
+  background: #fff7f0;
+  color: #9a4a12;
+  cursor: pointer;
 }

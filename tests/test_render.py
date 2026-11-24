@@ -41,7 +41,7 @@ def test_svg_is_well_formed_xml(eight_schools_ir):
     # one rect per node (chrome) at minimum, plus the plate
     assert svg.count("<rect") >= len(eight_schools_ir.nodes)
     assert "marker-end" in svg  # edges have arrowheads
-    assert "#c0392b" in svg  # observed node's MLE best-fit family overlay curve
+    assert "#c0392b" not in svg  # no fitted-family overlay curve on new IR
 
 
 @pytest.mark.skipif(not _math, reason="needs the built mathjax bundle")
@@ -113,3 +113,64 @@ def test_dom_slug_keeps_colliding_names_apart():
     for raw in ("a b", "a|b", "θ", "x[0]"):
         slug = _dom_slug(raw)
         assert re.fullmatch(r"[A-Za-z0-9_-]+", slug), f"{raw!r} -> {slug!r} is not DOM-safe"
+
+
+def test_hostile_names_round_trip_through_attributes():
+    """A variable name may contain quotes, angle brackets, separators and non-ASCII; every
+    attribute built from one must stay well-formed XML and carry the name back exactly."""
+    import xml.etree.ElementTree as ET
+
+    import pymc as pm
+
+    from bayesdag.convert import to_ir
+    from bayesdag.layout import layout
+    from bayesdag.render_svg import to_svg
+
+    names = ['a"b', "c<d>&e", "f|g", "θ_ü"]
+    with pm.Model() as m:
+        parent = pm.Normal(names[0], 0, 1)
+        kid = pm.Normal(names[1], parent, 1)
+        pm.Normal(names[2], kid, 1)
+        pm.Normal(names[3], 0, 1)
+    ir = to_ir(m)
+    svg = to_svg(ir, layout(ir))
+    root = ET.fromstring(svg)  # raises on malformed XML
+    got = {el.get("data-node") for el in root.iter() if el.get("data-node") is not None}
+    assert got == set(names)
+    ids = [el.get("id") for el in root.iter() if el.get("id")]
+    assert len(ids) == len(set(ids))
+    srcs = {el.get("data-src") for el in root.iter() if el.get("data-src")}
+    assert names[0] in srcs
+
+
+def test_captions_and_tags_reserve_their_own_rows():
+    """A glyph note / elision badge gets a caption row BELOW the glyph, and a structure tag a
+    strip ABOVE the label — reserved by layout and render alike, so nothing overlaps."""
+    from bayesdag import geometry
+    from bayesdag.ir import Box, NodeIR
+
+    plain = geometry.node_size(80, 16, "density", {"xs": [0, 1], "ys": [0, 1]})
+    n = NodeIR(id="x", role="latent", tag="partial pooling · centered", glyph_note="note")
+    tall = geometry.node_size(80, 16, "density", {"xs": [0, 1], "ys": [0, 1]}, **geometry.flags(n))
+    assert tall[1] == plain[1] + geometry.TAG_H + geometry.CAP_H
+    b = Box(0, 0, tall[0], tall[1])
+    gr = geometry.glyph_rect(b, 16, "density", {"xs": [0, 1], "ys": [0, 1]}, tag=n.tag)
+    _, label_y = geometry.label_origin(b, 80, tag=n.tag)
+    tag_baseline = b.y + geometry.PAD + 6
+    caption_baseline = b.y + b.h - 5
+    assert tag_baseline < label_y  # tag above the label
+    assert gr.y + gr.h < caption_baseline - 6  # caption below the glyph
+
+
+def test_glyph_note_is_drawn_as_a_grey_caption():
+    import pymc as pm
+
+    from bayesdag.convert import to_ir
+    from bayesdag.layout import layout
+    from bayesdag.render_svg import to_svg
+
+    with pm.Model() as m:
+        pm.Gamma("g", alpha=pm.HalfNormal("a", 1), beta=1.0)
+    ir = to_ir(m)
+    svg = to_svg(ir, layout(ir))
+    assert 'class="bd-caption"' in svg and "no fixed curve" in svg and "⚠" not in svg

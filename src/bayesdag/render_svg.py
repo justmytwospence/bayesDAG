@@ -17,6 +17,13 @@ from . import legend as _legend
 from .glyph.kinds import bar_layout as glyph_bar_layout
 from .ir import Box, LayoutResult, ModelIR, NodeIR
 
+
+def _attr(s: object) -> str:
+    """Escape a value for a double-quoted XML attribute. ``escape`` alone leaves ``"`` intact, so
+    a variable named ``a"b`` closed the attribute early and broke (or injected into) the SVG."""
+    return escape(str(s), {'"': "&quot;"})
+
+
 _LEGEND_GAP = 14.0
 _BELL = (
     [0.0, 0.15, 0.3, 0.4, 0.5, 0.6, 0.7, 0.85, 1.0],
@@ -34,6 +41,8 @@ _CHROME = {
     "data": ("#eeeeee", "#666666", 11.0),
     "potential": ("#f5ecdc", "#8a6d3b", 2.5),
     "factor": ("#f5ecdc", "#8a6d3b", 2.5),
+    # a compound node standing for a recognized/annotated structure (display projections only)
+    "block": ("#fbfcfe", "#4b5563", 10.0),
 }
 _GLYPH_COLORS = {
     "prior_analytic": ("#2a8a55", "#2a8a55"),
@@ -45,9 +54,15 @@ _GLYPH_COLORS = {
         "#7a5bd0",
         "#7a5bd0",
     ),  # transfer-function curve (a 4th hue: a computed transform)
+    # exact standardized shape: the prior green's family, in grey-green (no values on its axis)
+    "conditional_standardized": ("#6f8f7a", "#6f8f7a"),
+    "implied_family": ("#5b6b7f", "#5b6b7f"),  # implied by a recognized structure
+    "posterior_quantiles": ("#d2691e", "#d2691e"),
+    "posterior_predictive": ("#3a5f95", "#5a7fb5"),
+    "prior_predictive": ("#3a5f95", "#5a7fb5"),
 }
-# MLE best-fit family curve drawn over an observed histogram (the conventional "fitted curve" red;
-# distinct from data=blue, prior=green, posterior=orange).
+# the legacy (schema 1.0) best-fit family curve over an observed histogram — only ever drawn for
+# IR saved by an older bayesdag; new observed glyphs carry no fitted curve.
 _OVERLAY = "#c0392b"
 # hedged diagnostic mark (same amber as the elision badge: both mean "read the caption", never
 # "this is wrong")
@@ -149,15 +164,24 @@ def _embed_label(
     return s
 
 
-def _node_chrome(n: NodeIR, b: Box) -> str:
+def _node_chrome(n: NodeIR, b: Box, annotated: bool = False) -> str:
     fill, stroke, rx = _CHROME.get(n.role, _CHROME["latent"])
     dash = ' stroke-dasharray="4,3"' if n.role in ("potential", "factor") else ""
     sw = 1.1 if n.role == "deterministic" else 1.4  # the deterministic box reads as secondary
     # class "bd-chrome" lets the widget highlight ONLY the box outline (never the equation/glyph).
-    return (
+    out = (
         f'<rect class="bd-chrome" x="{b.x:.1f}" y="{b.y:.1f}" width="{b.w:.1f}" height="{b.h:.1f}" '
         f'rx="{rx}" ry="{rx}" fill="{fill}" stroke="{stroke}" stroke-width="{sw}"{dash}/>'
     )
+    if n.role == "block":  # a double border: several variables live inside
+        i = 3.0
+        inner_dash = ' stroke-dasharray="1.5,1.5"' if annotated else ""  # declared, not verified
+        out += (
+            f'<rect x="{b.x + i:.1f}" y="{b.y + i:.1f}" width="{b.w - 2 * i:.1f}" '
+            f'height="{b.h - 2 * i:.1f}" rx="{rx - 2}" ry="{rx - 2}" fill="none" '
+            f'stroke="{stroke}" stroke-width="0.7"{inner_dash}/>'
+        )
+    return out
 
 
 def _edge(pts: list[list[float]], src: str, tgt: str) -> str:
@@ -171,7 +195,7 @@ def _edge(pts: list[list[float]], src: str, tgt: str) -> str:
     else:
         d = "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts)
     return (
-        f'<path class="bd-edge" data-src="{escape(src)}" data-tgt="{escape(tgt)}" d="{d}" '
+        f'<path class="bd-edge" data-src="{_attr(src)}" data-tgt="{_attr(tgt)}" d="{d}" '
         'fill="none" stroke="#555" stroke-width="1.3" marker-end="url(#bd-arrow)"/>'
     )
 
@@ -195,13 +219,24 @@ def _plate(b: Box, label: str) -> str:
     )
 
 
-def _panel_curve(xs: list[float], ys: list[float], box: Box, color: str = "#3a6ea5") -> str:
+def _panel_curve(
+    xs: list[float], ys: list[float], box: Box, color: str = "#3a6ea5", step: bool = False
+) -> str:
     x0, x1 = xs[0], xs[-1]
     span = (x1 - x0) or 1.0
-    pts = [
-        (box.x + (x - x0) / span * box.w, box.y + box.h - max(0.0, min(1.0, y)) * box.h)
-        for x, y in zip(xs, ys, strict=False)
-    ]
+    if step:  # integer support: a frequency per value, drawn as flat steps centered on it
+        half = 0.5 * span / max(len(xs) - 1, 1)
+        x0, x1, span = x0 - half, x1 + half, span + 2 * half
+        pts = []
+        for x, y in zip(xs, ys, strict=False):
+            py = box.y + box.h - max(0.0, min(1.0, y)) * box.h
+            pts += [(box.x + (x - half - x0) / span * box.w, py)]
+            pts += [(box.x + (x + half - x0) / span * box.w, py)]
+    else:
+        pts = [
+            (box.x + (x - x0) / span * box.w, box.y + box.h - max(0.0, min(1.0, y)) * box.h)
+            for x, y in zip(xs, ys, strict=False)
+        ]
     d = "M" + " L".join(f"{px:.1f},{py:.1f}" for px, py in pts)
     return f'<path d="{d}" fill="none" stroke="{color}" stroke-width="1" opacity="0.3"/>'
 
@@ -236,10 +271,17 @@ def render_plate_panel(expansion: dict) -> str:
             'fill="#fafafa" stroke="#eeeeee"/>'
         )
         xs = mem["xs"]
-        for c in mem["curves"]:
-            out.append(_panel_curve(xs, c, box))
-        if mem.get("observed"):
+        bins = mem.get("bins")
+        if bins:
+            x0, x1 = bins[0][0] - 0.5, bins[-1][1] + 0.5
+            plot_xs = [x0, *xs, x1]
+        else:
             x0, x1 = xs[0], xs[-1]
+            plot_xs = xs
+        for c in mem["curves"]:
+            plot_c = [c[0], *c, c[-1]] if bins else c
+            out.append(_panel_curve(plot_xs, plot_c, box, step=bool(mem.get("discrete"))))
+        if mem.get("observed"):
             span = (x1 - x0) or 1.0
             for v in mem["observed"]:
                 if x0 <= v <= x1:
@@ -275,6 +317,8 @@ def render_observed_panel(node_id: str, dist: str | None, glyph_data: dict) -> s
     n_str = f" (n={n})" if n else ""
 
     def _fmt(v) -> str:
+        if isinstance(v, str):
+            return v
         return str(int(v)) if float(v).is_integer() else f"{float(v):.3g}"
 
     if heights:  # discrete: one bar per class
@@ -283,22 +327,27 @@ def render_observed_panel(node_id: str, dist: str | None, glyph_data: dict) -> s
         sub = "discrete likelihood — observed class proportions"
         caption = ""
         cats = glyph_data.get("cats") or list(range(len(heights)))
+        bins = glyph_data.get("bins")
+        if bins:
+            cats = [str(a) if a == b else f"{a}–{b}" for a, b in bins]
+            if glyph_data.get("binned"):
+                sub = "discrete likelihood — probability per bin"
         k = len(cats)
         _, centers = glyph_bar_layout(k, plot)  # tick under each bar center (kept in sync)
         idxs = range(k) if k <= 10 else (0, k // 2, k - 1)
         ticks = [((centers[i] - plot.x) / plot.w, cats[i]) for i in idxs]
-    elif overlay and (fit.get("family") or dist):  # continuous + best-fit curve
+    elif overlay and (fit.get("family") or dist):  # legacy IR: continuous + best-fit curve
         kind = "hist_overlay"
         fam = fit.get("family") or dist
-        title = f"{escape(node_id)} — best-fit {escape(fam)}{n_str}"
+        title = f"{escape(node_id)} — best-fit {escape(fam)}{n_str} (legacy)"
         sub = fit.get("params") or ""
-        caption = "shape check: data vs best-fit family — not a goodness-of-fit test"
+        caption = "legacy: a family fitted to the data's marginal, not the model's prediction"
         x0, x1 = float(edges[0]), float(edges[-1])
         ticks = [(0.0, x0), (0.5, 0.5 * (x0 + x1)), (1.0, x1)]
-    else:  # continuous, no fit available
+    else:  # continuous data
         kind = "histogram"
         title = f"{escape(node_id)} — observed data{n_str}"
-        sub = "best-fit overlay n/a (unfittable likelihood)"
+        sub = "attach posterior_predictive draws to compare with the model"
         caption = ""
         x0, x1 = float(edges[0]), float(edges[-1])
         ticks = [(0.0, x0), (0.5, 0.5 * (x0 + x1)), (1.0, x1)]
@@ -411,17 +460,137 @@ def render_joint_panel(aux) -> str:
             f'<text x="{plot.x - 4:.1f}" y="{plot.y + frac * plot.h + 3:.1f}" text-anchor="end" '
             f'font-size="8" fill="#777">{val:.3g}</text>'
         )
-    # POINTS, not draws: a vector child contributes one point per element per draw, so calling
-    # these "draws" would inflate the divergence count the reader already saw on the strip.
-    n_div, n_total = data.get("n_divergent", 0), data.get("n_total", 0)
+    # TRANSITIONS: a vector child plots one point per element per draw, but the count is of
+    # draws, so it matches the model-level divergence count the reader already saw.
+    n_div, n_total = data.get("n_divergent"), data.get("n_total", 0)
+    cnt = (
+        f"{n_div} of {n_total} draws divergent (red)"
+        if n_div is not None
+        else "divergences not recorded for this run"
+    )
+    if data.get("thinned"):
+        cnt += " · non-divergent draws thinned"
     out.append(
-        f'<text x="{pad:.0f}" y="{cap_y - 12:.1f}" font-size="9" fill="#9aa0a6">'
-        f"{n_div} of {n_total} plotted points come from divergent draws (red)</text>"
+        f'<text x="{pad:.0f}" y="{cap_y - 12:.1f}" font-size="9" fill="#9aa0a6">{cnt}</text>'
     )
     out.append(
         f'<text x="{pad:.0f}" y="{cap_y:.1f}" font-size="9" fill="#9aa0a6">'
         "divergences clustering in the neck suggest reparameterizing (non-centered)</text>"
     )
+    out.append("</svg>")
+    return "".join(out)
+
+
+def render_marginals_panel(node_id: str, m: dict) -> str:
+    """Labelled per-element posterior intervals in ORIGINAL coordinate order (never ranked): a
+    median dot, a thick 50% and a thin 90% interval per row, on one axis shared by every page,
+    with a zero line when 0 is in range. ``m`` is ``glyph_data.marginal_rows`` output."""
+    rows = m.get("rows") or []
+    if not rows:
+        return ""
+    lo, hi = float(m["lo"]), float(m["hi"])
+    span = (hi - lo) or 1.0
+    pad, title_h, row_h, label_w, pw = 12.0, 20.0, 14.0, 70.0, 230.0
+    plot_x = pad + label_w
+    top = pad + title_h
+    h = top + row_h * len(rows) + 30.0
+    w = plot_x + pw + pad
+
+    def sx(v):
+        return plot_x + (v - lo) / span * pw
+
+    title = f"{escape(node_id)} — posterior per element"
+    out = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w:.0f}" height="{h:.0f}" '
+        f'viewBox="0 0 {w:.0f} {h:.0f}" font-family="system-ui, sans-serif">',
+        f'<rect width="{w:.0f}" height="{h:.0f}" rx="8" fill="#ffffff" stroke="#c7c7cc"/>',
+        f'<text x="{pad:.0f}" y="{pad + 12:.0f}" font-size="12" font-weight="600" '
+        f'fill="#333">{title}</text>',
+    ]
+    if lo < 0 < hi:
+        x0 = sx(0.0)
+        out.append(
+            f'<line x1="{x0:.1f}" y1="{top:.1f}" x2="{x0:.1f}" y2="{top + row_h * len(rows):.1f}" '
+            'stroke="#9aa0a6" stroke-width="0.6" stroke-dasharray="2,2"/>'
+        )
+    color = "#d2691e"
+    for i, r in enumerate(rows):
+        cy = top + (i + 0.5) * row_h
+        lab = r["label"] if len(r["label"]) <= 12 else r["label"][:11] + "…"
+        out.append(
+            f'<text x="{plot_x - 6:.1f}" y="{cy + 3:.1f}" text-anchor="end" font-size="9" '
+            f'fill="#555">{escape(lab)}</text>'
+            f'<line x1="{sx(r["q05"]):.1f}" y1="{cy:.1f}" x2="{sx(r["q95"]):.1f}" y2="{cy:.1f}" '
+            f'stroke="{color}" stroke-width="1"/>'
+            f'<line x1="{sx(r["q25"]):.1f}" y1="{cy:.1f}" x2="{sx(r["q75"]):.1f}" y2="{cy:.1f}" '
+            f'stroke="{color}" stroke-width="3"/>'
+            f'<circle cx="{sx(r["q50"]):.1f}" cy="{cy:.1f}" r="2.2" fill="#fff" '
+            f'stroke="{color}" stroke-width="1.2"/>'
+        )
+    axis_y = top + row_h * len(rows) + 10
+    for frac, val in ((0.0, lo), (1.0, hi)):
+        out.append(
+            f'<text x="{plot_x + frac * pw:.1f}" y="{axis_y:.1f}" '
+            f'text-anchor="{"start" if frac == 0 else "end"}" font-size="8" '
+            f'fill="#777">{val:.3g}</text>'
+        )
+    page, pages, n = m.get("page", 0), m.get("pages", 1), m.get("n", len(rows))
+    cap = f"median, 50% and 90% intervals · coordinate order · {n} elements"
+    if pages > 1:
+        cap += f" · page {page + 1} of {pages}"
+    out.append(
+        f'<text x="{pad:.0f}" y="{axis_y + 12:.1f}" font-size="9" fill="#9aa0a6">{cap}</text>'
+    )
+    out.append("</svg>")
+    return "".join(out)
+
+
+def render_block_panel(b) -> str:
+    """A structure's summary as standalone SVG (the static twin of the widget's block card):
+    title, provenance, roles and the hedged notes. Text only — a block is structure, not data."""
+    lines: list[tuple[str, str]] = [
+        (
+            "sub",
+            ("annotated by the user" if b.provenance == "annotated" else "read off the graph")
+            + (f" · {b.workflow.replace('_', ' ')}" if b.workflow else "")
+            + (f" · rule {b.rule}" if b.rule else ""),
+        )
+    ]
+    for role, names in b.roles.items():
+        lines.append(("row", f"{role.replace('_', ' ')}: {', '.join(names)}"))
+    if b.members:
+        lines.append(("row", f"inside: {', '.join(b.members)}"))
+    for note in b.notes:
+        lines.append(("note", note))
+    if b.references:
+        lines.append(("note", "see " + "; ".join(b.references)))
+    pad, lh, w = 12.0, 14.0, 360.0
+    per = int((w - 2 * pad) / 5.4)
+    wrapped: list[tuple[str, str]] = []
+    for kind, text in lines:
+        while len(text) > per:
+            cut = text.rfind(" ", 0, per)
+            cut = cut if cut > 0 else per
+            wrapped.append((kind, text[:cut]))
+            text = "  " + text[cut:].lstrip()
+        wrapped.append((kind, text))
+    h = pad * 2 + 18 + lh * len(wrapped)
+    out = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w:.0f}" height="{h:.0f}" '
+        f'viewBox="0 0 {w:.0f} {h:.0f}" font-family="system-ui, sans-serif">',
+        f'<rect width="{w:.0f}" height="{h:.0f}" rx="8" fill="#ffffff" stroke="#c7c7cc"/>',
+        f'<text x="{pad:.0f}" y="{pad + 12:.0f}" font-size="12" font-weight="600" '
+        f'fill="#333">{escape(b.title)}</text>',
+    ]
+    color = {"sub": "#6b7280", "row": "#333", "note": "#555"}
+    y = pad + 18 + lh - 3
+    for kind, text in wrapped:
+        style = ' font-style="italic"' if kind == "note" else ""
+        out.append(
+            f'<text x="{pad:.0f}" y="{y:.1f}" font-size="10" fill="{color[kind]}"{style}>'
+            f"{escape(text)}</text>"
+        )
+        y += lh
     out.append("</svg>")
     return "".join(out)
 
@@ -449,9 +618,25 @@ def render_node_panel(n) -> str:
     stroke, fill = _GLYPH_COLORS.get(n.glyph.source, ("#2a8a55", "#2a8a55"))
     title = escape(n.id) + (f" ~ {escape(n.dist)}" if n.dist else "")
     caption = escape(_SOURCE_LABELS.get(n.glyph.source, n.glyph.source))
-    pooled = (n.glyph_data or {}).get("pooled")
-    if pooled:  # one density built from ALL elements' draws — not any single element's marginal
+    gd = n.glyph_data or {}
+    pooled = gd.get("pooled")
+    if pooled:  # legacy IR: one density built from ALL elements' draws
         caption += f" · pooled over {int(pooled)} elements"
+    if n.glyph.kind == "multi":
+        caption += f" · one curve per element (n = {gd.get('n')})"
+    if n.glyph.kind == "forest":
+        shown, total = gd.get("shown"), gd.get("n")
+        caption += f" · {total} elements sorted by median, 50%/90% intervals"
+        if shown and total and shown < total:
+            caption += f" (every {total // shown}th rank shown)"
+    if n.glyph.kind == "ppc":
+        caption += " · bars = data, orange = the model's replicates"
+    bins = gd.get("bins")
+    if bins and gd.get("binned"):
+        caption += " · probability per bin"
+    tails = gd.get("tails")
+    if tails and (tails.get("left", 0) or tails.get("right", 0)):
+        caption += f" · omitted tails: {tails['left']:.2%} left, {tails['right']:.2%} right"
     spikes = (n.glyph_data or {}).get("spikes") or []
     ps = [sp["p"] for sp in spikes if isinstance(sp, dict) and sp.get("p") is not None]
     if ps:  # the bars are deliberately exaggerated to be visible — give the real numbers
@@ -466,6 +651,14 @@ def render_node_panel(n) -> str:
         'fill="#fafafa" stroke="#eeeeee"/>',
         glyph.render(n.glyph.kind, n.glyph_data, plot, stroke=stroke, fill=fill, overlay=_OVERLAY),
     ]
+    if bins and gd.get("binned"):
+        labels = [f"{a}–{b}" if a != b else str(a) for a, b in bins]
+        for i, anchor in ((0, "start"), (len(labels) - 1, "end")):
+            x = plot.x if i == 0 else plot.x + plot.w
+            out.append(
+                f'<text x="{x:.1f}" y="{plot.y + plot.h + 9:.1f}" '
+                f'text-anchor="{anchor}" font-size="8" fill="#777">{escape(labels[i])}</text>'
+            )
     if coord_labels:
         ch = plot.h / len(coord_labels)
         for i, s in enumerate(coord_labels):
@@ -501,7 +694,30 @@ def _legend_swatch(kind: str, b: Box) -> str:
         if src == "deterministic_fn":
             scurve = {"xs": [0.0, 0.25, 0.5, 0.75, 1.0], "ys": [0.05, 0.2, 0.5, 0.8, 0.95]}
             return glyph.render("curve", scurve, b, stroke=stroke, fill=fill)
-        kindname = "schematic" if src == "prior_family_only" else "density"
+        if src == "posterior_quantiles":
+            q = {
+                "q05": [0.1, 0.2, 0.35, 0.5],
+                "q25": [0.25, 0.35, 0.45, 0.6],
+                "q50": [0.35, 0.45, 0.55, 0.7],
+                "q75": [0.45, 0.55, 0.65, 0.8],
+                "q95": [0.6, 0.7, 0.8, 0.95],
+                "lo": 0.0,
+                "hi": 1.0,
+            }
+            return glyph.render("forest", q, b, stroke=stroke, fill=fill)
+        if src in ("posterior_predictive", "prior_predictive"):
+            data = {
+                "edges": [0, 1, 2, 3],
+                "counts": [0.6, 1.0, 0.45],
+                "xs": [0, 1, 2, 3],
+                "ys": [0.5, 0.9, 0.6, 0.2],
+            }
+            return glyph.render("ppc", data, b, fill=fill, stroke=stroke)
+        kindname = (
+            "schematic"
+            if src in ("prior_family_only", "conditional_standardized", "implied_family")
+            else "density"
+        )
         return glyph.render(kindname, {"xs": _BELL[0], "ys": _BELL[1]}, b, stroke=stroke, fill=fill)
     if kind == "plate":
         return (
@@ -513,6 +729,15 @@ def _legend_swatch(kind: str, b: Box) -> str:
         return (
             f'<text x="{b.x + b.w / 2:.1f}" y="{b.y + b.h - 1:.1f}" text-anchor="middle" '
             f'font-size="13" fill="#333">{escape(s)}</text>'
+        )
+    if kind == "tag":
+        return (
+            f'<text x="{b.x:.1f}" y="{b.y + b.h - 3:.1f}" font-size="7" fill="#4b5563">tag</text>'
+        )
+    if kind == "annotated":
+        return (
+            f'<rect x="{b.x:.1f}" y="{b.y:.1f}" width="{b.w:.1f}" height="{b.h:.1f}" rx="3" '
+            'fill="#fbfcfe" stroke="#4b5563" stroke-dasharray="1.5,1.5"/>'
         )
     if kind == "elision":
         return f'<text x="{b.x:.1f}" y="{b.y + b.h - 1:.1f}" font-size="11" fill="#333">[⋯]</text>'
@@ -564,7 +789,7 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, legend: bool = True) -> str:
         b = layout.plate_boxes.get(p.id)
         if b:
             body.append(
-                f'<g class="bd-plate" data-plate="{escape(p.id)}">' + _plate(b, p.label) + "</g>"
+                f'<g class="bd-plate" data-plate="{_attr(p.id)}">' + _plate(b, p.label) + "</g>"
             )
     # Two passes so a later node's (opaque) chrome box can never paint over an earlier node's
     # label/glyph: ALL chrome first, then ALL labels+glyphs on top. Each pass tags its group with
@@ -573,13 +798,15 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, legend: bool = True) -> str:
     # renderers consume this verbatim.
     # the LayoutResult is authoritative; `n.box` is only a convenience mirror of it
     drawn = [(n, b) for n in ir.nodes if (b := (layout.node_boxes.get(n.id) or n.box)) is not None]
+    annotated = {b.id for b in ir.blocks if b.provenance == "annotated"}
     for n, b in drawn:  # chrome (boxes) behind everything else node-ish
-        body.append(f'<g class="bd-node" data-node="{escape(n.id)}">' + _node_chrome(n, b) + "</g>")
+        chrome = _node_chrome(n, b, annotated=n.block in annotated)
+        body.append(f'<g class="bd-node" data-node="{_attr(n.id)}">' + chrome + "</g>")
     font_defs: dict[str, str] = {}  # content-hashed glyph id -> path data (shared across labels)
     for n, b in drawn:  # labels + glyphs above all chrome
         if n.label_svg:
             lw, lh = geometry.label_px_size(n.label_svg)
-            ox, oy = geometry.label_origin(b, lw)
+            ox, oy = geometry.label_origin(b, lw, tag=n.tag)
             parts = [
                 _embed_label(
                     n.label_svg,
@@ -598,7 +825,7 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, legend: bool = True) -> str:
             ]
         if n.glyph and n.glyph_data:
             _, lh = geometry.label_px_size(n.label_svg)
-            gr = geometry.glyph_rect(b, lh, n.glyph.kind, n.glyph_data)
+            gr = geometry.glyph_rect(b, lh, n.glyph.kind, n.glyph_data, tag=n.tag)
             if gr:
                 stroke, fill = _GLYPH_COLORS.get(n.glyph.source, ("#2a8a55", "#2a8a55"))
                 parts.append(glyph.render(n.glyph.kind, n.glyph_data, gr, stroke=stroke, fill=fill))
@@ -610,15 +837,24 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, legend: bool = True) -> str:
                 f'<circle class="bd-diag" cx="{b.x + b.w - 7:.1f}" cy="{b.y + 7:.1f}" r="3.2" '
                 f'fill="{_DIAG}" fill-opacity="0.85"/>'
             )
-        if getattr(n, "elision_reason", None):  # honesty badge: undrawable construct
-            reason = (
-                n.elision_reason if len(n.elision_reason) <= 30 else n.elision_reason[:29] + "…"
-            )
+        if n.tag:  # a recognized-structure tag, in its own strip above the label
+            text = geometry.fit_text(n.tag, b.w, geometry.TAG_PX_PER_CHAR)
             parts.append(
-                f'<text x="{b.x + 7:.1f}" y="{b.y + b.h - 5:.1f}" font-size="8" fill="#8a6d3b" '
-                f'font-style="italic">⚠ {escape(reason)}</text>'
+                f'<text class="bd-tag" x="{b.x + 7:.1f}" y="{b.y + geometry.PAD + 6:.1f}" '
+                f'font-size="8" fill="#4b5563">{escape(text)}</text>'
             )
-        body.append(f'<g class="bd-node" data-node="{escape(n.id)}">' + "".join(parts) + "</g>")
+        cap = geometry.caption_text(n)
+        if cap:  # the caption row: an elision badge (amber, a warning) or a glyph note (grey)
+            text = geometry.fit_text(cap, b.w, geometry.CAPTION_PX_PER_CHAR)
+            color = "#8a6d3b" if n.elision_reason else "#6b7280"
+            parts.append(
+                f'<text class="bd-caption" x="{b.x + 7:.1f}" y="{b.y + b.h - 5:.1f}" '
+                f'font-size="8" fill="{color}" font-style="italic">{escape(text)}</text>'
+            )
+        # the body group is the node's ONE interaction target (the chrome group is paint only)
+        body.append(
+            f'<g class="bd-node bd-body" data-node="{_attr(n.id)}">' + "".join(parts) + "</g>"
+        )
     if font_defs:  # one shared <defs> for all hoisted MathJax glyphs (sorted: deterministic bytes)
         body.insert(
             1,
@@ -641,6 +877,34 @@ def to_svg(ir: ModelIR, layout: LayoutResult, *, legend: bool = True) -> str:
 
     header = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{total_w:.1f}" height="{total_h:.1f}" '
-        f'viewBox="0 0 {total_w:.1f} {total_h:.1f}" font-family="system-ui, sans-serif">'
+        f'viewBox="0 0 {total_w:.1f} {total_h:.1f}" font-family="system-ui, sans-serif" '
+        'role="img">'
     )
-    return header + "".join(body) + legend_svg + "</svg>"
+    return header + _a11y(ir) + "".join(body) + legend_svg + "</svg>"
+
+
+def _a11y(ir: ModelIR) -> str:
+    """An accessible name and a text summary of the graph (screen readers, search, alt text)."""
+    name = getattr(ir.meta, "model_name", None) or "model"
+    roles: dict[str, int] = {}
+    for n in ir.nodes:
+        roles[n.role] = roles.get(n.role, 0) + 1
+    parts = [f"{k} {r}" for r, k in sorted(roles.items())]
+    desc = (
+        f"{len(ir.nodes)} variables ({', '.join(parts)}), {len(ir.edges)} dependencies, "
+        f"{len(ir.plates)} plates"
+    )
+    tags = sorted({n.tag for n in ir.nodes if n.tag})
+    if tags:
+        desc += "; recognized structures: " + ", ".join(tags)
+    for n in ir.nodes:
+        if n.observed_sources:
+            desc += f"; {n.id}: Observed values from: {', '.join(n.observed_sources)}"
+        data = n.glyph_data or {}
+        if data.get("binned") and data.get("bins"):
+            bins = data["bins"]
+            desc += f"; {n.id}: probability per integer bin, {bins[0][0]}–{bins[-1][1]}"
+            tails = data.get("tails")
+            if tails and (tails.get("left", 0) or tails.get("right", 0)):
+                desc += f"; omitted tails: {tails['left']:.2%} left, {tails['right']:.2%} right"
+    return f"<title>bayesdag diagram of {escape(name)}</title><desc>{escape(desc)}</desc>"

@@ -2,7 +2,7 @@
 
 Generated from the ``bayesdag.ir`` dataclasses so the contract stays in sync with the code.
 ``validate(data)`` checks an IR dict; ``write_schema_file`` publishes it to
-``schema/graph-v1.0.json`` (the language-neutral contract other tools can consume).
+``schema/graph-v<version>.json`` (the language-neutral contract other tools can consume).
 """
 
 from __future__ import annotations
@@ -15,9 +15,13 @@ from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
 from . import ir
 
-SCHEMA_ID = "https://bayesdag.dev/schema/graph-v1.0.json"
+SCHEMA_ID = f"https://bayesdag.dev/schema/graph-v{ir.SCHEMA_VERSION}.json"
 SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
-_SCHEMA_FILE = Path(__file__).parent / "schema" / "graph-v1.0.json"
+_SCHEMA_DIR = Path(__file__).parent / "schema"
+_SCHEMA_FILE = _SCHEMA_DIR / f"graph-v{ir.SCHEMA_VERSION}.json"
+# Every published version stays in the wheel: an artifact written by an older bayesdag must stay
+# checkable against the contract it was written under.
+PUBLISHED = ("1.0", "1.1", ir.SCHEMA_VERSION)
 
 
 def _type_schema(hint: Any, defs: dict[str, Any]) -> dict[str, Any]:
@@ -86,6 +90,83 @@ def validate(data: dict[str, Any]) -> None:
     import jsonschema
 
     jsonschema.validate(instance=data, schema=build_schema())
+
+
+def _tokens(n: ir.NodeIR) -> set[str] | None:
+    """The tokens an edge may land on for this node, or None when the node carries no token
+    information at all (a hand-built minimal IR) — then there is nothing to check against."""
+    toks = {p.token_id for p in n.params}
+    stack = [n.label_tree] if n.label_tree is not None else []
+    while stack:
+        t = stack.pop()
+        toks.add(t.token_id)
+        stack += t.children
+    return toks or None
+
+
+def check(model_ir: ir.ModelIR) -> None:
+    """Semantic validation the JSON Schema cannot express: references resolve.
+
+    Unique node ids and ``(source, target)`` pairs; known edge endpoints and target tokens;
+    known observation sources, plate members and parents with no parent cycle;
+    known block and aux-view references.
+    Raises ``ValueError`` listing every problem found."""
+    problems: list[str] = []
+    ids = [n.id for n in model_ir.nodes]
+    known = set(ids)
+    dup = sorted({i for i in ids if ids.count(i) > 1})
+    if dup:
+        problems.append(f"duplicate node ids {dup}")
+    pairs = [(e.source, e.target) for e in model_ir.edges]
+    dpairs = sorted({p for p in pairs if pairs.count(p) > 1})
+    if dpairs:
+        problems.append(f"duplicate edges {dpairs}")
+    by_id = {n.id: n for n in model_ir.nodes}
+    for n in model_ir.nodes:
+        missing = [s for s in n.observed_sources if s not in known]
+        if missing:
+            problems.append(f"node {n.id}: unknown observation sources {missing}")
+    for e in model_ir.edges:
+        for end in (e.source, e.target):
+            if end not in known:
+                problems.append(f"edge {e.source}->{e.target}: unknown node {end!r}")
+        tgt = by_id.get(e.target)
+        toks = _tokens(tgt) if tgt is not None else None
+        for t in [e.target_token_id, *e.target_token_ids]:
+            if t and toks is not None and t not in toks:
+                problems.append(f"edge {e.source}->{e.target}: unknown token {t!r}")
+    plate_ids = [p.id for p in model_ir.plates]
+    if len(plate_ids) != len(set(plate_ids)):
+        problems.append("duplicate plate ids")
+    parent_of = {p.id: p.parent for p in model_ir.plates}
+    for p in model_ir.plates:
+        missing = [m for m in p.members if m not in known]
+        if missing:
+            problems.append(f"plate {p.id}: unknown members {missing}")
+        if p.parent is not None and p.parent not in parent_of:
+            problems.append(f"plate {p.id}: unknown parent {p.parent!r}")
+        seen, q = {p.id}, p.parent
+        while q is not None:
+            if q in seen:
+                problems.append(f"plate {p.id}: parent cycle")
+                break
+            seen.add(q)
+            q = parent_of.get(q)
+    contracted = {n.block for n in model_ir.nodes if n.role == "block" and n.block}
+    for b in model_ir.blocks:
+        if b.id in contracted:
+            continue  # a display projection: its members live inside the compound node
+        refs = list(b.members) + ([b.anchor] if b.anchor else [])
+        refs += [x for xs in b.roles.values() for x in xs]
+        missing = sorted({r for r in refs if r not in known})
+        if missing:
+            problems.append(f"block {b.id}: unknown nodes {missing}")
+    for a in model_ir.aux_views:
+        missing = [v for v in [*a.vars, *(a.edge or [])] if v not in known]
+        if missing:
+            problems.append(f"aux view {a.kind}: unknown nodes {missing}")
+    if problems:
+        raise ValueError("bayesdag: invalid IR — " + "; ".join(problems))
 
 
 def write_schema_file(path: Path | None = None) -> Path:

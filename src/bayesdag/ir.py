@@ -21,12 +21,15 @@ import types
 from dataclasses import dataclass, field, is_dataclass
 from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.2"
+SCHEMA_MAJOR = 1
 
 # Structural identity of a node (fixed). NOTE: ``observed`` below is a *separate*,
 # mutable flag (current conditioning state) — the workflow toggle re-shades the observed
 # set to move between prior / prior-predictive / posterior views without changing roles.
-Role = Literal["latent", "observed", "deterministic", "data", "potential", "factor"]
+Role = Literal["latent", "observed", "deterministic", "data", "potential", "factor", "block"]
+# ``block`` exists ONLY in a presentation projection (``bayesdag.blocks.overview``): a recognized or
+# annotated structure contracted into one box. It is never a model variable and never an idata key.
 
 # How a glyph's shape was obtained (orthogonal to the glyph ``kind``).
 GlyphSource = Literal[
@@ -36,6 +39,12 @@ GlyphSource = Literal[
     "posterior_bars",  # posterior of a DISCRETE variable -> per-class proportions, not a KDE
     "observed_hist",  # observed data -> histogram (auto-binned), not a KDE
     "deterministic_fn",  # canonical, parameter-free shape of a Deterministic's transfer function
+    # exact shape of the family with location/scale left to parents (never the marginal prior)
+    "conditional_standardized",
+    "implied_family",  # exact family implied by a recognized reparameterization (a block)
+    "posterior_predictive",  # observed data + draws from idata.posterior_predictive
+    "prior_predictive",  # observed data + draws from idata.prior_predictive
+    "posterior_quantiles",  # per-element posterior quantiles (a forest of intervals)
 ]
 
 
@@ -122,17 +131,33 @@ class NodeIR:
     # sampling diagnostics joined by id (see bayesdag.diagnostics); None when there is no idata.
     # Hedged flags only — this never carries a verdict about the model.
     diag: dict[str, Any] | None = None
+    # why a node that is otherwise representable carries no curve ("shape depends on alpha (a
+    # parent)", "elements differ"). A caption, not a warning badge: nothing is wrong with the model.
+    glyph_note: str | None = None
+    # the recognized-structure tag drawn on this node ("partial pooling · centered"), if any
+    tag: str | None = None
+    # the BlockIR id this node stands for (display projections only; role == "block")
+    block: str | None = None
+    # "index" for an integer pm.Data used only to gather (it can be folded into its consumers)
+    usage: str | None = None
     # filled by render/layout stages:
     label_svg: str | None = None
     box: Box | None = None
     port_anchors: dict[str, Box] = field(default_factory=dict)  # token_id -> bbox in node-local px
+    ndim: int | None = None  # tensor rank, independent of named dims; None means unknown
+    observed_sources: list[str] = field(default_factory=list)  # bound inputs, not parents
 
 
 @dataclass
 class EdgeIR:
     source: str
     target: str
-    target_token_id: str | None = None  # which param token; None => center-anchor fallback
+    # the ONE token the arrow lands on; None => boundary anchor (no slot, or several slots)
+    target_token_id: str | None = None
+    # every slot/token this parent feeds, in slot order (a parent may feed loc AND scale)
+    target_token_ids: list[str] = field(default_factory=list)
+    # display projections only: the canonical (source, target) edges this display edge stands for
+    via: list[list[str]] = field(default_factory=list)
 
 
 @dataclass
@@ -142,6 +167,34 @@ class PlateIR:
     members: list[str] = field(default_factory=list)
     parent: str | None = None  # enclosing plate id (nested plates)
     box: Box | None = None
+    dims: list[str | None] = field(default_factory=list)  # dim names (None = unnamed axis)
+    lengths: list[int] = field(default_factory=list)
+    # "named" when grouped by declared dims, "shape" when inferred from an unnamed shape. Either
+    # way a plate means "indexed by" — never a claim of exchangeability or statistical nesting.
+    source: str | None = None
+
+
+@dataclass
+class BlockIR:
+    """A compound model structure: recognized from the graph (``provenance="verified"``) or
+    declared by the user (``"annotated"``). Presentation metadata over the canonical graph — it
+    never adds variables or dependencies."""
+
+    id: str
+    kind: str  # hierarchy | reparam | shrinkage | regression | measured | measurement | custom
+    title: str  # the tag text
+    provenance: Literal["verified", "annotated"] = "verified"
+    variant: str | None = None  # centered | noncentered | regularized | ...
+    anchor: str | None = None  # node that carries the tag when not contracted
+    members: list[str] = field(default_factory=list)  # owned nodes ([] = tag-only)
+    roles: dict[str, list[str]] = field(default_factory=dict)
+    implied: str | None = None  # TeX of the implied family line
+    rule: str | None = None  # versioned rule id, e.g. "noncentered/1"
+    workflow: str | None = None  # "joint" | "fixed_summary"
+    notes: list[str] = field(default_factory=list)
+    references: list[str] = field(default_factory=list)
+    collapsible: bool = True
+    data: dict[str, Any] | None = None
 
 
 @dataclass
@@ -203,6 +256,7 @@ class ModelIR:
     edges: list[EdgeIR] = field(default_factory=list)
     plates: list[PlateIR] = field(default_factory=list)
     aux_views: list[AuxViewIR] = field(default_factory=list)
+    blocks: list[BlockIR] = field(default_factory=list)
     meta: Meta = field(default_factory=Meta)
 
     # ---- convenience accessors -------------------------------------------------
@@ -213,9 +267,43 @@ class ModelIR:
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
 
+    def block(self, block_id: str) -> BlockIR | None:
+        return next((b for b in self.blocks if b.id == block_id), None)
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ModelIR:
-        return _from_dict(cls, data)
+        """Read any 1.x IR dict. A 1.0 artifact is upgraded: its singular edge token fills the
+        new token list, and a ``prior_family_only`` schematic (which 1.0 drew as one generic bell
+        whatever the family) is dropped with a note rather than shown as if it were exact.
+        Older artifacts have unknown rank and no observation bindings by default; their edges
+        are left in place."""
+        version = str((data.get("meta") or {}).get("schema_version") or SCHEMA_VERSION)
+        try:
+            major = int(version.split(".")[0])
+        except ValueError:
+            major = -1
+        if major != SCHEMA_MAJOR:
+            raise ValueError(
+                f"bayesdag IR schema {version!r} is not supported (this bayesdag reads "
+                f"{SCHEMA_MAJOR}.x)"
+            )
+        out = _from_dict(cls, data)
+        if version == "1.0":
+            for e in out.edges:
+                if e.target_token_id and not e.target_token_ids:
+                    e.target_token_ids = [e.target_token_id]
+            for n in out.nodes:
+                if (
+                    n.glyph is not None
+                    and n.glyph.source == "prior_family_only"
+                    and n.glyph.kind == "schematic"
+                    and not (n.glyph_data or {}).get("exact")
+                    and n.elision_reason is None
+                ):
+                    n.glyph, n.glyph_data = None, None
+                    n.glyph_note = "legacy schematic (unverified shape) omitted"
+        out.meta.schema_version = SCHEMA_VERSION
+        return out
 
     def to_json(self, **kw: Any) -> str:
         import json

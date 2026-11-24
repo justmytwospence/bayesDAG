@@ -53,14 +53,31 @@ _DRAW = [
         "curve",
     ),
     (
-        "softmax",
-        lambda: pm.Deterministic("d", pm.math.softmax(pm.Normal("e", 0, 1, shape=3))),
-        "bars",
+        "matmul X @ b",
+        lambda: pm.Deterministic("d", np.ones((4, 3)) @ pm.Normal("b", 0, 1, shape=3)),
+        "curve",
+    ),
+    (
+        "pt.dot(X, b) + a",
+        lambda: pm.Deterministic(
+            "d", pm.Normal("a", 0, 1) + pt.dot(np.ones((4, 3)), pm.Normal("b", 0, 1, shape=3))
+        ),
+        "curve",
+    ),
+    (
+        "concatenate([0, q]) + data",
+        lambda: pm.Deterministic(
+            "d", pt.concatenate([pt.zeros(1), pm.Normal("q", 0, 1, shape=2)]) * np.arange(3.0)
+        ),
+        "curve",
     ),
 ]
 
 # Builders whose deterministic "d" is NOT provably depictable -> equation-only (glyph is None).
 _SKIP = [
+    # softmax outputs one point on the simplex whose coordinates depend on the inputs: there are
+    # no honest bar heights (it gets a caption instead — see test_softmax_is_a_caption)
+    ("softmax", lambda: pm.Deterministic("d", pm.math.softmax(pm.Normal("e", 0, 1, shape=3)))),
     (
         "bilinear tau*eta",
         lambda: pm.Deterministic("d", pm.HalfNormal("t", 1) * pm.Normal("e", 0, 1)),
@@ -87,6 +104,20 @@ _SKIP = [
         lambda: pm.Deterministic("d", pm.Normal("a", 0, 1, shape=3)[np.array([0, 1, 2, 0])]),
     ),
     (
+        "nonlinear dot operand X @ exp(b)",
+        lambda: pm.Deterministic(
+            "d", np.ones((4, 3)) @ pm.math.exp(pm.Normal("b", 0, 1, shape=3)) + 1.0
+        ),
+    ),
+    (
+        "random index a[k] * data",
+        lambda: pm.Deterministic(
+            "d",
+            pm.Normal("a", 0, 1, shape=3)[pm.Categorical("k", np.ones(3) / 3, shape=4)]
+            * np.arange(4.0),
+        ),
+    ),
+    (
         "non-const exponent x**k",
         lambda: pm.Deterministic("d", pm.HalfNormal("x", 1) ** pm.Normal("k", 0, 1)),
     ),
@@ -102,7 +133,17 @@ def test_provably_depictable_draws(label, builder, kind):
 
 @pytest.mark.parametrize("label,builder", _SKIP, ids=[c[0] for c in _SKIP])
 def test_unprovable_skips_to_equation_only(label, builder):
-    assert _glyph(builder) is None, label  # zero false positives: never a misleading curve
+    g = _glyph(builder)
+    # zero false positives: never a misleading transfer curve. (`tau*eta` with a standard-normal
+    # eta IS provably a Normal given tau — a recognized non-centered structure draws THAT.)
+    assert g is None or g.source == "implied_family", label
+
+
+def test_softmax_is_a_caption():
+    with pm.Model() as m:
+        pm.Deterministic("d", pm.math.softmax(pm.Normal("e", 0, 1, shape=3)))
+    n = to_ir(m).node("d")
+    assert n.glyph is None and n.glyph_note == "a probability vector over 3 categories"
 
 
 def test_curve_is_parameter_free_and_deterministic():

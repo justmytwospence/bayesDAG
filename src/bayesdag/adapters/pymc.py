@@ -1,9 +1,9 @@
 """``from_pymc(model, idata=None) -> ModelIR``.
 
 All PyMC-isms live here (the rest of bayesdag never imports pymc). We reuse PyMC's own
-``ModelGraph`` for the authoritative topology (it already handles observed-edge reversal
-and plate grouping) and add the one thing it lacks: **slot-aware** parameter extraction,
-so an edge can point at the specific parameter token in the child's equation.
+``ModelGraph`` for variable selection, computational parents, and plate grouping. Observation
+bindings are metadata, not reversed edges. Slot-aware parameter extraction lets an edge point
+at the specific parameter token in the child's equation.
 
 Built against pymc 6.x; relies only on stable surfaces (`model_graph.ModelGraph`,
 `model.{free_RVs,observed_RVs,deterministics,data_vars,potentials,named_vars,
@@ -17,7 +17,7 @@ from typing import Any
 
 from .. import labels
 from ..ir import EdgeIR, Meta, ModelIR, NodeIR, OverlayRef, ParamIR, PlateIR
-from .glyph_data import glyph_for
+from .glyph_data import GlyphNote, glyph_for
 from .pytensor_latex import render_value
 
 _SKIP_PARAMS = {"self", "size", "rng", "dtype", "name", "kwargs", "args"}
@@ -82,15 +82,43 @@ def _direct_named_parents(
     return out
 
 
+def _dist_params(var: Any) -> list[Any] | None:
+    """Only the op knows which inputs are parameters. None means the slots are unknown."""
+    try:
+        return list(var.owner.op.dist_params(var.owner))
+    except Exception:
+        return None
+
+
+def _observed_relationships(
+    var: Any, value: Any, named: dict[int, str], parents: set[str]
+) -> tuple[list[str], set[str]]:
+    """Nearest named inputs bind the observed values, independently of generative edges."""
+    from pytensor.graph.traversal import ancestors
+
+    sources = sorted(_direct_named_parents(value, named, exclude=var.name))
+    if not sources or not parents:
+        return sources, parents
+    dparams = _dist_params(var)
+    if dparams is None:  # no proof that an upstream input is only used for sizing
+        return sources, parents
+    parameter_parents = {p for param in dparams for p in _direct_named_parents(param, named)}
+    if parents <= parameter_parents:
+        return sources, parents
+    # A bound expression can also supply the RV's size. Its upstream inputs may surface
+    # directly via the size graph even if the binding itself stops at a nearer named input.
+    observation_ancestors = {named[id(v)] for v in ancestors([value]) if id(v) in named}
+    return sources, parents - (observation_ancestors - parameter_parents)
+
+
 def _rv_dist_and_params(var: Any, named: dict[int, str]) -> tuple[str | None, list[ParamIR]]:
     node = var.owner
     op = node.op
     pn = getattr(op, "_print_name", None)
     dist = pn[0] if pn else type(op).__name__.removesuffix("RV")
-    try:
-        dparams = list(op.dist_params(node))
-    except Exception:
-        dparams = list(node.inputs[2:])  # (rng, size, *params)
+    dparams = _dist_params(var)
+    if dparams is None:
+        dparams = list(node.inputs[2:])  # best effort for the label only, not edge direction
     names = _resolved_param_names(dist, op, len(dparams))
     params: list[ParamIR] = []
     for i, (nm, val) in enumerate(zip(names, dparams, strict=True)):  # names sized to dparams
@@ -175,7 +203,76 @@ def _safe_render_value(val, named, **kw) -> tuple[str, set]:
         return r"\ldots", set()
 
 
-def from_pymc(model: Any, idata: Any = None) -> ModelIR:
+def _index_only_data(model: Any, role_of: dict[int, str]) -> dict[str, str]:
+    """``{name: "index"}`` for every integer ``pm.Data`` whose EVERY use in the model is as an
+    index into a gather/slice — a lookup table (``county_idx``) rather than a quantity the model
+    computes with. Anything else (arithmetic use, a float) is left alone."""
+    try:
+        from pytensor.graph.traversal import ancestors
+    except Exception:  # pragma: no cover
+        return {}
+    data = {
+        id(v): nm
+        for nm, v in model.named_vars.items()
+        if role_of.get(id(v)) == "data" and str(getattr(v, "dtype", "")).startswith(("int", "uint"))
+    }
+    if not data:
+        return {}
+    outputs = [v for v in model.named_vars.values() if role_of.get(id(v)) not in (None, "data")]
+    uses: dict[int, list[bool]] = {k: [] for k in data}
+    seen: set[int] = set()
+    try:
+        for v in ancestors(outputs):
+            node = getattr(v, "owner", None)
+            if node is None or id(node) in seen:
+                continue
+            seen.add(id(node))
+            gather = type(node.op).__name__ in (
+                "AdvancedSubtensor",
+                "AdvancedSubtensor1",
+                "Subtensor",
+            )
+            for i, inp in enumerate(node.inputs):
+                if id(inp) in uses:
+                    uses[id(inp)].append(gather and i > 0)
+    except Exception:
+        return {}
+    return {data[k]: "index" for k, u in uses.items() if u and all(u)}
+
+
+def _nest_plates(plates: list[PlateIR]) -> None:
+    """Nest a multi-dim plate inside the plate over its LEADING dims when one exists: ``protein x
+    batch`` sits inside ``protein`` and is labelled by its trailing dim. This is plate notation's
+    Cartesian replication ("indexed by protein, then batch") — not a claim of statistical nesting.
+    Only named dims nest (an unnamed shape carries no identity to match on)."""
+    by_dims = {tuple(p.dims): p for p in plates if p.source == "named"}
+    for p in plates:
+        if p.source != "named" or len(p.dims) < 2:
+            continue
+        for k in range(len(p.dims) - 1, 0, -1):  # the longest leading prefix wins
+            outer = by_dims.get(tuple(p.dims[:k]))
+            if outer is not None and outer is not p:
+                p.parent = outer.id
+                p.label = " x ".join(
+                    f"{nm} ({ln})" for nm, ln in zip(p.dims[k:], p.lengths[k:], strict=False)
+                )
+                break
+
+
+def _plate_id(names: tuple, lengths: tuple, used: set[str]) -> str:
+    """A readable, collision-free plate id. An unnamed axis contributes its length (``len3``), so
+    two dimless vectors of different lengths no longer share ``plate_None``; a rare collision
+    between different signatures (``("a_b",)`` vs ``("a", "b")``) gets a deterministic suffix."""
+    parts = [str(nm) if nm else f"len{ln}" for nm, ln in zip(names, lengths, strict=False)]
+    base = "plate_" + "_".join(parts)
+    pid, k = base, 2
+    while pid in used:
+        pid, k = f"{base}~{k}", k + 1
+    used.add(pid)
+    return pid
+
+
+def from_pymc(model: Any, idata: Any = None, *, blocks: bool = True) -> ModelIR:
     from pymc.model_graph import ModelGraph
 
     g = ModelGraph(model)
@@ -196,43 +293,77 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
     n2d = dict(model.named_vars_to_dims)
     transforms = model.rvs_to_transforms
 
-    compute = g.make_compute_graph()
-    var_names = list(compute)
+    var_names = g.vars_to_plot()
+    visible = {id(model[name]): name for name in var_names}
+    compute: dict[str, set[str]] = {}
+    index_usage = _index_only_data(model, role_of)
 
-    rv_param_map: dict[str, dict[str, str]] = {}  # child -> {parent_name: token_id}
+    # child -> {parent_name: [token_id, ...]} — every slot a parent feeds, in slot order
+    rv_param_map: dict[str, dict[str, list[str]]] = {}
     det_tokens: dict[str, set[str]] = {}  # deterministic child -> leaf names wrapped in its expr
     nodes: list[NodeIR] = []
     for name in var_names:
         var = model[name]
         role = role_of.get(id(var), "latent")
         observed = role == "observed"
+        parents = g.get_parent_names(var)
+        sources: list[str] = []
+        if observed:
+            sources, parents = _observed_relationships(
+                var, model.rvs_to_values[var], visible, parents
+            )
+        if role in ("latent", "observed") and getattr(var, "owner", None) is not None:
+            # ModelGraph prunes Shape, so recover direct named dependencies from actual
+            # parameter slots (never the observation, size, or label-only fallback).
+            dparams = _dist_params(var)
+            if dparams is not None:
+                parents = parents | {
+                    parent
+                    for param in dparams
+                    for parent in _direct_named_parents(param, visible, exclude=name)
+                }
+        compute[name] = parents
         dist: str | None = None
         params: list[ParamIR] = []
         label_tex, label_tree = labels.assemble_bare(name)
         if role in ("latent", "observed") and getattr(var, "owner", None) is not None:
             dist, params = _rv_dist_and_params(var, named)
-            pm: dict[str, str] = {}
+            pm: dict[str, list[str]] = {}
             for pr in params:
                 for parent in pr.parents:
-                    pm.setdefault(parent, pr.token_id)
+                    toks = pm.setdefault(parent, [])
+                    if pr.token_id not in toks:
+                        toks.append(pr.token_id)
             rv_param_map[name] = pm
             label_tex, label_tree = labels.assemble_stochastic(
                 name, dist, [(pr.token_id, pr.value_tex or "") for pr in params]
             )
         elif role == "deterministic" and getattr(var, "owner", None) is not None:
             expr_tex, used = _safe_render_value(var, named, wrap_leaves=True, _root=True)
-            # nested unknown ops (f(f(...))) = auto-generated matrix/plumbing (e.g. LKJ corr/stds,
-            # OrderedLogistic class probs). They render as an illegible f-mess -> elide honestly.
-            if r"f\!\left(f\!\left" in expr_tex:
+            # unknown ops wrapped around more unknown ops or element assignment = auto-generated
+            # matrix plumbing (LKJ corr/stds, OrderedLogistic class probs): an illegible mess ->
+            # elide honestly.
+            if r"f\!\left(" in expr_tex and (
+                r"f\!\left(f\!\left" in expr_tex or r"\operatorname{set}" in expr_tex
+            ):
                 expr_tex, used = r"[\,\cdots\,]", set()
             det_tokens[name] = used
             label_tex, label_tree = labels.assemble_deterministic(name, expr_tex, sorted(used))
+        elif role == "potential" and getattr(var, "owner", None) is not None:
+            # a log-density FACTOR: show its expression (same visitor, budget and elision as a
+            # deterministic), so a likelihood written as Potentials is readable in the diagram
+            expr_tex, used = _safe_render_value(var, named, wrap_leaves=True, _root=True)
+            det_tokens[name] = used
+            label_tex, label_tree = labels.assemble_potential(name, expr_tex, sorted(used))
         dims = list(n2d.get(name, ()))
         node_coords = {d: coords[d] for d in dims if d in coords} or None
         tr = transforms.get(var) if hasattr(transforms, "get") else None
         tname = getattr(tr, "name", None) if tr is not None else None
         unconstrained = f"{name}_{tname}__" if tname else None
         glyph_spec, glyph_data, elision = _safe_glyph(var, role, dist, model, idata, named)
+        glyph_note = None
+        if isinstance(elision, GlyphNote):  # a caption on a representable node, not a badge
+            glyph_note, elision = str(elision), None
         # A deterministic whose equation was elided to illegible matrix plumbing ([⋯]) shouldn't carry a
         # transfer glyph either (the function isn't a meaningful modeling transform — e.g. LKJ corr/stds).
         # Match ONLY the plumbing marker \cdots; \ldots is a legitimate long-vector/budget abbreviation.
@@ -242,6 +373,7 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
             NodeIR(
                 id=name,
                 role=role,
+                usage=index_usage.get(name),
                 observed=observed,
                 dist=dist,
                 params=params,
@@ -256,6 +388,9 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
                 overlays=overlays_for(name, role, dims, idata),
                 representable=elision is None,
                 elision_reason=elision,
+                glyph_note=glyph_note,
+                ndim=getattr(var, "ndim", None),
+                observed_sources=sources,
             )
         )
 
@@ -264,39 +399,79 @@ def from_pymc(model: Any, idata: Any = None) -> ModelIR:
         pmap = rv_param_map.get(child, {})
         used = det_tokens.get(child, set())
         for parent in sorted(parents):
-            token = pmap.get(parent) or (parent if parent in used else None)
-            edges.append(EdgeIR(source=parent, target=child, target_token_id=token))
+            tokens = list(pmap.get(parent) or ([parent] if parent in used else []))
+            # An arrow can land on ONE token. A parent feeding several slots (`Normal(m, m/10)`)
+            # anchors at the node boundary instead of pretending it feeds only the first slot;
+            # the full slot list still travels with the edge.
+            token = tokens[0] if len(tokens) == 1 else None
+            edges.append(
+                EdgeIR(source=parent, target=child, target_token_id=token, target_token_ids=tokens)
+            )
 
     plates: list[PlateIR] = []
     try:
         raw_plates = list(g.get_plates())  # pymc evals each var's shape here
     except Exception:
         raw_plates = None
+    groups: list[tuple[tuple, tuple, list[str]]] = []  # (dim names, lengths, members)
     if raw_plates is not None:
         for plate in raw_plates:
             di = plate.dim_info
             if not di.names:  # the empty-dims group is just ungrouped scalars, not a plate
                 continue
-            label = " x ".join(
-                f"{nm} ({ln})" if nm else f"{ln}"
-                for nm, ln in zip(di.names, di.lengths, strict=False)
-            )
-            pid = "plate_" + "_".join(str(nm) for nm in di.names)
-            plates.append(
-                PlateIR(id=pid, label=label, members=[ni.var.name for ni in plate.variables])
+            groups.append(
+                (
+                    tuple(di.names),
+                    tuple(int(x) for x in di.lengths),
+                    [ni.var.name for ni in plate.variables],
+                )
             )
     else:
         # A non-samplable RV (Flat/HalfFlat/ICAR, …) broke pymc's shape eval. Derive plates
         # eval-free from the named dims + coords we already hold, grouping by dim signature.
-        groups: dict[tuple, list[str]] = {}
+        by_dims: dict[tuple, list[str]] = {}
         for nm in var_names:
             dims = tuple(d for d in n2d.get(nm, ()) if d)
             if dims and all(d in coords for d in dims):
-                groups.setdefault(dims, []).append(nm)
-        for dims, members in groups.items():
-            label = " x ".join(f"{d} ({len(coords[d])})" for d in dims)
-            pid = "plate_" + "_".join(str(d) for d in dims)
-            plates.append(PlateIR(id=pid, label=label, members=members))
+                by_dims.setdefault(dims, []).append(nm)
+        for dims, members in by_dims.items():
+            groups.append((dims, tuple(len(coords[d]) for d in dims), members))
+    used_ids: set[str] = set()
+    for names, lengths, members in groups:
+        label = " x ".join(
+            f"{nm} ({ln})" if nm else f"{ln}" for nm, ln in zip(names, lengths, strict=False)
+        )
+        pid = _plate_id(names, lengths, used_ids)
+        plates.append(
+            PlateIR(
+                id=pid,
+                label=label,
+                members=members,
+                dims=list(names),
+                lengths=list(lengths),
+                source="named" if all(names) else "shape",
+            )
+        )
+    _nest_plates(plates)
 
     meta = Meta.stamp(source_ppl="pymc", model_name=getattr(model, "name", None) or None)
-    return ModelIR(nodes=nodes, edges=edges, plates=plates, meta=meta)
+    ir = ModelIR(nodes=nodes, edges=edges, plates=plates, meta=meta)
+    if blocks:
+        _detect_blocks(model, ir, named)
+    return ir
+
+
+def _detect_blocks(model: Any, ir: ModelIR, named: dict[int, str]) -> None:
+    """Recognized structures (see ``adapters/blocks.py``) plus the IR-level centered
+    hierarchies, resolved into one tag per anchor. Guarded: a detector failure costs the tags,
+    never the diagram."""
+    try:
+        from .. import blocks as ir_blocks
+        from .blocks import detect
+
+        found = detect(model, ir, named) + ir_blocks.centered(ir)
+        ir_blocks.resolve(ir, found)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).debug("block detection failed", exc_info=True)

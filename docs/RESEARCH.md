@@ -83,7 +83,8 @@ The design constraint (user's) was **zero false positives, argued from first pri
 - **Leaf set = the `named` model vars** (RVs + deterministics + data), mirroring `pytensor_latex.render_value` — so a
   linear predictor referencing *other* deterministics (mrp `p`) resolves to a line, not over-descended.
 - **Determinism/parity:** curves are parameter-free (fixed grid + closed form), never `.eval()`-ing a parent-bearing
-  tensor — identical on every render (the same contract as the `_canonical_bell` conditional-latent schematic).
+  tensor — identical on every render. (The `_canonical_bell` conditional-latent schematic that this line once cited was
+  removed in 2026-09: one bell for every family was itself a shape the model did not say.)
 - **Edge anchoring:** a glyph-bearing deterministic exits its outgoing edge from the node box (below the glyph), like
   a distribution-glyph node; an equation-only deterministic keeps the LHS-token exit. Geometry reserves the strip by
   glyph **presence**, not role.
@@ -131,3 +132,94 @@ that changed code are recorded here with the ones that were deliberately refused
   replay it byte-identically from the static renderer. Most-wanted feature in that ecosystem (semptools
   and tidySEM both exist largely because semPlot lacks it), and bayesdag's one-layout-pass/two-emitters
   design is most of the way there already.
+
+## Decision log — audit: honest glyphs and recognized structures (2026-09)
+
+An audit from the perspective of Bayesian workflow (Gelman et al. 2020; Gabry et al. 2019,
+*Visualization in Bayesian workflow*) found places where the diagram stated things the model does
+not say, and no vocabulary for the compound structures a Bayesian reads a model by. Three product
+decisions were confirmed by the owner: **overview by default**, a **user annotation API**, and
+**exact shapes only**.
+
+- **Exact shapes only.** A conditional latent used to get one generic bell whatever its family — a
+  Gamma, a HalfStudentT and a Uniform all looked the same. Now: when parents set only location and
+  scale, the family's standardized curve IS the shape (exact); when a parent sets a shape parameter
+  (a Gamma's alpha, a LogNormal's sigma), no curve is drawn and a caption names the slot. A
+  representative member (Gamma with alpha = 2) was considered and rejected: a picture of a shape
+  the model does not have. The same rule removed three other invented marks: softmax's equal bars,
+  BART's fixed step heights, and the AR "order" stems of height 0.7.
+- **No fitted-family overlay on observed data.** The MLE curve fitted the family to the data's
+  MARGINAL, but the likelihood is conditional: the marginal of `N(mu_i, sigma)` regression data is a
+  mixture, so "a Normal fits poorly" said nothing about the model. The honest comparison is the
+  predictive check, and it is now drawn from the caller's own `posterior_predictive` /
+  `prior_predictive` draws (Gabry et al. 2019). Legacy IR keeps rendering, captioned as legacy.
+- **Vectors are never pooled.** One KDE over all of `theta[school]`'s draws is no school's
+  posterior and hides exactly the shrinkage a hierarchy is about. ≤ 8 elements: one curve each;
+  more: a forest of per-element 50/90% intervals sorted by median (an unlabelled shape summary);
+  the card lists labelled intervals in coordinate order — never ranked by apparent significance
+  (bayesplot's `mcmc_intervals` is the reference presentation).
+- **Recognized structures ("blocks").** Rules are structural whitelists on the PyTensor graph with
+  stated proof obligations; nothing is recognized by name, TeX or samples, and a false negative is
+  always preferred to a false claim.
+  - *Non-centered:* `D = L + S*z` with `z` a symmetric standard variable nothing else consumes is
+    EXACTLY `D ~ Family(L, |S|)` (Papaspiliopoulos, Roberts & Sköld 2007; the equivalence VIP
+    exploits, Gorinova et al. 2020). `exp`/`invlogit` wrappers give LogNormal/LogitNormal — whose
+    shape depends on the (random) scale, so the exact-shape rule draws no curve for them.
+  - *Centered:* a plated latent with a location/scale parent over strictly coarser dims (Gelman &
+    Hill 2007). A shared truncation bound is not pooling.
+  - *Shrinkage:* the scale must factor into one global and one local positive scale, optionally
+    times the Piironen & Vehtari (2017) slab `c^2 lambda^2 / (c^2 + tau^2 lambda^2)`, matched on the
+    op tree modulo commutativity and sqr/pow. "Horseshoe" is reserved for half-Cauchy locals
+    (Carvalho, Polson & Scott 2010); half-t(nu) locals are named as the generalization they are.
+    Ridge (one shared scale) and spike-and-slab (a Bernoulli indicator) are rejected by construction.
+    A plain horseshoe's glyph is its exact marginal given the global scale, integrated numerically,
+    with the pole at 0 clipped and captioned. The slab bounds the conditional SCALE, not the
+    coefficient, and the card says so. No inclusion probabilities or "effective number of
+    proteins" are invented; a model-defined effective-size deterministic stays visible as itself.
+  - *Regression:* an observed likelihood whose location is, through one recognized link, affine
+    with a data × parameter term. The LogNormal note — `exp(mu)` is the conditional median, the mean
+    is `exp(mu + sigma^2 / 2)` — is there because that confusion is common.
+  - *Measured latent:* a latent read by a noisy observation and used elsewhere (Stan User's Guide,
+    measurement error). Anything richer — a likelihood written as Potentials, a two-stage workflow —
+    is declared with `BlockSpec` and drawn as annotated: the user's statement, never verified.
+- **Overview by default.** Blocks that own variables (a non-centered `z`, raw coefficients) contract
+  into one box carrying the implied distribution and the member equations; population-level
+  hyperparameters stay visible as boundary inputs. Contraction must be path-convex and keep the
+  quotient acyclic, and every crossing edge keeps the canonical edges it stands for (`EdgeIR.via`).
+  The projection is presentation only: exporters, `to_json` and `selected_node` see the canonical IR.
+- **Parameterization hints are structural AND diagnostic.** A centered hierarchy's card suggests
+  (hedged) a non-centered form only when the run diverged, and a non-centered one's the converse —
+  the right parameterization depends on how informative the data are about each group (Betancourt
+  & Girolami 2015; the Stan reparameterization chapter). Stan's pedantic mode is the precedent for a
+  structural lint that stays advisory.
+- **REFUSED / deferred:** a non-centered "collapse" transform that rewrites the model (the overview
+  shows the implied form without pretending the model was written that way); block hulls in the full
+  graph (ELK cannot express plate-crossing groups honestly); significance ranking of forest rows;
+  Playwright/shadow-DOM (the JS queries only inside its own element; node:test + jsdom cover the
+  controller); inferring statistical nesting from dims (plates mean "indexed by" — a
+  `(protein, batch)` array nests under `protein` as plate notation, nothing more).
+
+## Decision log — fitted-structure panels (2026-09)
+
+Each recognized structure now offers the pictures its literature uses, once a posterior is
+attached: the Efron–Morris shrinkage plot (Efron & Morris 1977; Gelman & Hill 2007, ch. 12), the
+population distribution with a new group's posterior predictive, Gelman & Pardoe's (2006) pooling
+factor, the radon "lines per group" figure (complete / no / partial pooling), varying intercepts
+vs slopes, the fitted effect on the outcome scale, the horseshoe's shrinkage factors κ and local
+scale vs coefficient (Piironen & Vehtari 2017), and readings vs inferred truth.
+
+- **Raw estimates are exact bookkeeping, not a second model.** A group's raw estimate is its data
+  mean minus the rest of the predictor evaluated at posterior means; because the regression rule
+  proved the predictor affine in its leaves, that equals the rest's posterior mean exactly.
+- **Only like-for-like comparisons.** Raw group summaries are drawn only on the predictor's own
+  scale: an identity link, or log for a LogNormal. Under a logit or log link the panel refuses
+  with its reason rather than comparing group proportions to a linear-predictor effect.
+- **Average predictive comparisons, not an invented mean observation.** Effect curves and
+  per-group lines vary ONE covariate over every observed row and average (Gelman & Pardoe 2007).
+  This also works when the predictor carries unnamed per-row constants (a fixed matrix of
+  first-stage summaries), where "hold everything else at its mean" has nothing to hold.
+- **κ is labelled for what it is:** exact for an orthogonal design, the standard approximation
+  otherwise, with the effective number of coefficients Σ(1 − κ_j) as a summary; heteroskedastic
+  likelihoods use each row's own σ_i.
+- **No selection by significance, no inclusion probabilities,** and the intercept–slope panel's
+  correlation of posterior means is captioned as descriptive (the model may estimate none).

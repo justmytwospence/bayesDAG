@@ -33,15 +33,18 @@ except importlib.metadata.PackageNotFoundError:  # running from a source checkou
 
 # These sit below __version__ deliberately, and `view` shadows the submodule attribute of the
 # same name, so binding order matters (the import machinery sets the module attr first).
-from .convert import subgraph, to_ir
+from .blocks import BlockSpec
+from .convert import drop_index_data, subgraph, to_ir
 from .ir import ModelIR
 from .render_svg import to_svg
 from .view import ModelGraphView, view
 
 __all__ = [
+    "BlockSpec",
     "ModelGraphView",
     "ModelIR",
     "__version__",
+    "drop_index_data",
     "subgraph",
     "to_ir",
     "to_svg",

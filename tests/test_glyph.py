@@ -33,9 +33,9 @@ def test_zero_reference_marker():
 
 def test_conditional_latent_is_schematic_not_a_random_draw():
     """The prior-vs-latent distinction: a ROOT prior (all params fixed) gets an analytic shape; a
-    CONDITIONAL latent (any param is a parent RV) must fall to the family-only schematic rather than
-    being silently sampled into a misleading, non-deterministic green density (the old bug, where
-    ``.eval()`` drew a random value through the parents)."""
+    CONDITIONAL latent (any param is a parent RV) must never be silently sampled into a misleading,
+    non-deterministic density (the old bug, where ``.eval()`` drew a random value through the
+    parents). A Normal whose loc/scale come from parents has an EXACT standardized shape."""
     import pymc as pm
 
     from bayesdag.convert import to_ir
@@ -49,7 +49,8 @@ def test_conditional_latent_is_schematic_not_a_random_draw():
 
     g = {n.id: n.glyph for n in to_ir(build()).nodes}
     assert g["mu"].source == "prior_analytic" and g["sigma"].source == "prior_analytic"
-    assert g["x"].source == "prior_family_only" and g["x"].kind == "schematic"
+    assert g["x"].source == "conditional_standardized" and g["x"].kind == "schematic"
+    assert to_ir(build()).node("x").glyph_data["exact"] is True
     # the schematic is a fixed, parameter-FREE shape: it must be identical regardless of the parent
     # scale (proving it's canonical, never a value sampled through the parents at render time).
     assert to_ir(build(1.0)).node("x").glyph_data == to_ir(build(100.0)).node("x").glyph_data
@@ -58,8 +59,9 @@ def test_conditional_latent_is_schematic_not_a_random_draw():
 def test_varying_vector_prior_does_not_plot_element_zero_as_the_node():
     """An iid vector prior broadcasts ONE density across its elements, so a single analytic curve
     is honest. A varying vector prior gives each element its own density — plotting element 0 and
-    badging it `prior_analytic` would state something false about the rest, so it degrades to the
-    family schematic. A Categorical is exempt: its vector param IS the pmf."""
+    badging it `prior_analytic` would state something false about the rest. Elements that differ
+    only in location/scale still share an exact standardized shape. A Categorical is exempt: its
+    vector param IS the pmf."""
     import numpy as np
     import pymc as pm
 
@@ -72,45 +74,98 @@ def test_varying_vector_prior_does_not_plot_element_zero_as_the_node():
 
     g = {n.id: n.glyph for n in to_ir(m).nodes}
     assert g["iid"].source == "prior_analytic" and g["iid"].kind == "density"
-    assert g["varying"].source == "prior_family_only" and g["varying"].kind == "schematic"
+    assert g["varying"].source == "conditional_standardized" and g["varying"].kind == "schematic"
     assert g["choice"].source == "prior_analytic" and g["choice"].kind == "bars"
 
 
-def test_discrete_posterior_is_bars_and_vector_posterior_says_it_is_pooled():
-    """Two honesty fixes on the posterior path: a discrete variable's posterior is a pmf over
-    integers (a gaussian KDE would put mass on values it cannot take), and a vector parameter's
-    KDE pools every element's draws into one curve — which is not any element's marginal, so the
-    panel has to say so."""
+def _post(**arrays):
+    import xarray as xr
+
+    return xr.DataTree.from_dict(
+        {
+            "posterior": xr.Dataset(
+                {
+                    k: (("chain", "draw", *[f"{k}_{i}" for i in range(v.ndim - 2)]), v)
+                    for k, v in arrays.items()
+                }
+            )
+        }
+    )
+
+
+def test_discrete_posterior_is_bars_and_vectors_are_never_pooled():
+    """A discrete variable's posterior is a pmf over integers (a gaussian KDE would put mass on
+    values it cannot take). A vector's posterior is never ONE pooled KDE — that curve would be no
+    element's posterior: a few elements get a curve each, many a forest of intervals."""
+    import numpy as np
+
+    from bayesdag.adapters.glyph_data import posterior_glyph
+
+    rng = np.random.default_rng(0)
+    k = posterior_glyph("k", "Poisson", _post(k=rng.poisson(3.0, size=(2, 200))))
+    assert k[0].kind == "bars" and k[0].source == "posterior_bars"
+    assert all(float(c).is_integer() for c in k[1]["cats"])
+
+    def kind_for(n):
+        spec, data = posterior_glyph("t", "Normal", _post(t=rng.normal(size=(2, 200, n))))
+        return spec.kind, data
+
+    assert kind_for(1)[0] == "density"
+    kind, data = kind_for(8)
+    assert kind == "multi" and len(data["curves"]) == 8
+    kind, data = kind_for(50)
+    assert kind == "forest" and len(data["q50"]) == 50
+    assert data["q50"] == sorted(data["q50"])  # sorted by median
+    kind, data = kind_for(1000)
+    assert kind == "forest" and data["n"] == 1000 and data["shown"] == 400
+
+
+def test_wide_discrete_draws_are_binned_on_integers_not_smoothed():
+    import numpy as np
+
+    from bayesdag.adapters.glyph_data import _discrete_bars
+
+    wide = _discrete_bars(np.arange(0, 1000, 7))
+    assert wide["binned"] and len(wide["cats"]) <= 30
+    assert all(float(c).is_integer() for c in wide["cats"])
+    assert _discrete_bars(np.array([0.5, 1.0])) is None  # non-integers are not rounded silently
+
+
+def test_vector_panels_say_what_they_show():
     import numpy as np
     import pymc as pm
-    import xarray as xr
 
     from bayesdag.convert import to_ir
     from bayesdag.render_svg import render_node_panel
 
     rng = np.random.default_rng(0)
+    with pm.Model(coords={"g": range(20)}) as m:
+        pm.Normal("theta", 0.0, 1.0, dims="g")
+    ir = to_ir(m, idata=_post(theta=rng.normal(size=(2, 100, 20))))
+    panel = render_node_panel(ir.node("theta"))
+    assert "20 elements sorted by median" in panel
+
+
+def test_marginal_rows_keep_coordinate_order_and_page():
+    import numpy as np
+    import xarray as xr
+
+    from bayesdag.adapters.glyph_data import marginal_rows
+
+    rng = np.random.default_rng(0)
+    vals = rng.normal(size=(2, 100, 30)) + np.arange(30)[::-1]  # medians DEcreasing
     idata = xr.DataTree.from_dict(
         {
             "posterior": xr.Dataset(
-                {
-                    "k": (("chain", "draw"), rng.poisson(3.0, size=(2, 200))),
-                    "theta": (("chain", "draw", "g"), rng.normal(size=(2, 200, 4))),
-                }
+                {"b": (("chain", "draw", "p"), vals)}, coords={"p": [f"P{i}" for i in range(30)]}
             )
         }
     )
-    with pm.Model(coords={"g": range(4)}) as m:
-        pm.Poisson("k", 3.0)
-        pm.Normal("theta", 0.0, 1.0, dims="g")
-
-    ir = to_ir(m, idata=idata)
-    k, theta = ir.node("k"), ir.node("theta")
-    assert k.glyph.kind == "bars" and k.glyph.source == "posterior_bars"
-    assert all(float(c).is_integer() for c in k.glyph_data["cats"])
-    assert theta.glyph.kind == "density" and theta.glyph.source == "posterior_kde"
-    assert theta.glyph_data["pooled"] == 4
-    assert "pooled over 4 elements" in render_node_panel(theta)
-    assert "pooled" not in render_node_panel(k)
+    p0 = marginal_rows("b", idata, page=0)
+    assert p0["pages"] == 2 and len(p0["rows"]) == 24
+    assert [r["label"] for r in p0["rows"][:3]] == ["P0", "P1", "P2"]  # coordinate order, not rank
+    p1 = marginal_rows("b", idata, page=1)
+    assert len(p1["rows"]) == 6 and p1["lo"] == p0["lo"]  # one shared axis across pages
 
 
 def test_censored_panel_reports_the_real_mass_behind_the_exaggerated_spike():
@@ -179,9 +234,11 @@ def test_glyph_sources(eight_schools_ir):
     assert g["mu"].source == "prior_analytic" and g["mu"].kind == "density"
     assert g["tau"].source == "prior_analytic"
     assert g["eta"].source == "prior_analytic"  # iid vector prior resolves to a single shape
-    # continuous observed likelihood -> data histogram + MLE best-fit family overlay
-    assert g["y_obs"].source == "observed_hist" and g["y_obs"].kind == "hist_overlay"
-    assert g["theta"] is None  # deterministic -> no shape glyph in M0
+    # continuous observed likelihood -> the data histogram, no fitted curve (a family fitted to
+    # the marginal of regression data says nothing about the likelihood)
+    assert g["y_obs"].source == "observed_hist" and g["y_obs"].kind == "histogram"
+    # a recognized non-centered hierarchy: theta | mu, tau ~ Normal, drawn as that exact shape
+    assert g["theta"].source == "implied_family"
 
 
 def test_halfnormal_support_is_nonnegative(eight_schools_ir):
@@ -197,16 +254,59 @@ def test_density_and_histogram_render(eight_schools_ir):
     assert "<rect" in h
 
 
-def test_observed_overlay_shared_scale(eight_schools_ir):
-    gd = eight_schools_ir.node("y_obs").glyph_data
-    assert "overlay" in gd and gd["overlay"]["xs"] and gd["overlay"]["ys"]
-    # the best-fit curve spans exactly the histogram's x-range...
-    assert gd["overlay"]["xs"][0] == gd["edges"][0]
-    assert gd["overlay"]["xs"][-1] == gd["edges"][-1]
-    # ...and both sit on ONE shared vertical scale: each peaks <=1, the taller one hits ~1
-    assert max(gd["counts"]) <= 1.0 + 1e-9
-    assert max(gd["overlay"]["ys"]) <= 1.0 + 1e-9
-    assert abs(max(max(gd["counts"]), max(gd["overlay"]["ys"])) - 1.0) < 1e-9
+def test_predictive_check_uses_the_models_own_replicates(eight_schools_ir):
+    """With predictive draws in the idata, an observed node shows its data against the model's
+    replicates on one shared scale — the check a fitted-family overlay pretended to be."""
+    import numpy as np
+    import xarray as xr
+
+    from bayesdag.adapters.glyph_data import predictive_glyph
+
+    rng = np.random.default_rng(0)
+    y = np.array([28.0, 8, -3, 7, -1, 1, 18, 12])
+    idata = xr.DataTree.from_dict(
+        {
+            "observed_data": xr.Dataset({"y_obs": (("school",), y)}),
+            "posterior_predictive": xr.Dataset(
+                {"y_obs": (("chain", "draw", "school"), rng.normal(8, 12, size=(2, 50, 8)))}
+            ),
+        }
+    )
+    spec, data = predictive_glyph("y_obs", "Normal", idata)
+    assert spec.kind == "ppc" and spec.source == "posterior_predictive"
+    assert max(max(data["counts"]), max(data["ys"])) <= 1.0 + 1e-9
+    assert 1 <= len(data["draws"]) <= 20
+    # a shape mismatch between data and replicates is refused, not coerced
+    bad = xr.DataTree.from_dict(
+        {
+            "observed_data": xr.Dataset({"y_obs": (("school",), y[:5])}),
+            "posterior_predictive": xr.Dataset(
+                {"y_obs": (("chain", "draw", "school"), rng.normal(size=(2, 50, 8)))}
+            ),
+        }
+    )
+    assert predictive_glyph("y_obs", "Normal", bad) is None
+
+
+def test_discrete_predictive_check_has_per_value_whiskers():
+    import numpy as np
+    import xarray as xr
+
+    from bayesdag.adapters.glyph_data import predictive_glyph
+
+    rng = np.random.default_rng(0)
+    idata = xr.DataTree.from_dict(
+        {
+            "observed_data": xr.Dataset({"k": (("i",), rng.poisson(3, 40))}),
+            "prior_predictive": xr.Dataset(
+                {"k": (("chain", "draw", "i"), rng.poisson(3, size=(1, 60, 40)))}
+            ),
+        }
+    )
+    spec, data = predictive_glyph("k", "Poisson", idata)
+    assert spec.source == "prior_predictive"
+    assert len(data["pred_lo"]) == len(data["cats"]) == len(data["heights"])
+    assert "<circle" in glyph.render("ppc", data, Box(0, 0, 80, 40))
 
 
 def test_discrete_observed_renders_as_class_bars():
@@ -233,8 +333,14 @@ def test_bars_render_is_slot_centered():
     assert xs[0] > 0.0
 
 
-def test_hist_overlay_renders_bars_and_curve(eight_schools_ir):
-    out = glyph.render("hist_overlay", eight_schools_ir.node("y_obs").glyph_data, Box(0, 0, 60, 30))
+def test_legacy_hist_overlay_still_renders():
+    """Schema-1.0 IR may carry a fitted overlay; it keeps rendering (captioned as legacy)."""
+    legacy = {
+        "edges": [0.0, 1.0, 2.0],
+        "counts": [0.5, 1.0],
+        "overlay": {"xs": [0.0, 1.0, 2.0], "ys": [0.3, 1.0, 0.4]},
+    }
+    out = glyph.render("hist_overlay", legacy, Box(0, 0, 60, 30))
     assert "<rect" in out  # data bars
     assert "<path" in out  # best-fit family curve
 
@@ -341,3 +447,66 @@ def test_cutpoints_glyph_renders_bars_and_ticks():
     )
     assert out.count("<rect") == 4  # one bar per category
     assert out.count("<line") >= 3  # one tick per cutpoint
+
+
+def _cond(build):
+    import pymc as pm
+
+    from bayesdag.convert import to_ir
+
+    with pm.Model() as m:
+        build()
+    return to_ir(m).node("x")
+
+
+def test_exact_shapes_for_location_scale_conditionals():
+    """A parent in a location/scale slot leaves the family's shape exact; the curve must be THAT
+    family's standardized shape, not one bell for everything."""
+    import numpy as np
+    import pymc as pm
+    import scipy.stats as st
+
+    n = _cond(lambda: pm.HalfStudentT("x", nu=2, sigma=pm.HalfNormal("s", 1)))
+    d = n.glyph_data
+    assert (
+        n.glyph.source == "conditional_standardized"
+        and d["exact"]
+        and d["family"] == ("HalfStudentT")
+    )
+    # compare against the analytic half-t(2) on the same (rescaled) grid
+    hi = st.t(df=2).ppf(0.995)
+    xs = np.asarray(d["xs"]) * hi
+    ref = st.t(df=2).pdf(xs)
+    assert np.allclose(np.asarray(d["ys"]), ref / ref.max(), atol=1e-6)
+
+    u = _cond(lambda: pm.Uniform("x", lower=pm.Normal("a", 0, 1), upper=5.0))
+    assert u.glyph_data["exact"] and np.allclose(u.glyph_data["ys"], 1.0)
+
+    lo = _cond(lambda: pm.LogNormal("x", mu=pm.Normal("m", 0, 1), sigma=0.5))
+    assert lo.glyph.source == "conditional_standardized"
+
+
+def test_parent_governed_shape_gets_no_curve_and_names_the_slot():
+    import pymc as pm
+
+    for build, slot in [
+        # op-level slot names (Gamma's op calls alpha "shape", StudentT's nu "df")
+        (lambda: pm.Gamma("x", alpha=pm.HalfNormal("a", 1), beta=1.0), "shape"),
+        (lambda: pm.Beta("x", alpha=pm.HalfNormal("a", 1), beta=2.0), "alpha"),
+        (lambda: pm.LogNormal("x", mu=0.0, sigma=pm.HalfNormal("s", 1)), "sigma"),
+        (lambda: pm.StudentT("x", nu=pm.Gamma("n", 2, 0.1), mu=0, sigma=1), "df"),
+    ]:
+        n = _cond(build)
+        assert n.glyph is None and n.representable, slot
+        assert n.glyph_note == f"no fixed curve: {slot} comes from a parent", n.glyph_note
+    p = _cond(lambda: pm.Poisson("x", mu=pm.HalfNormal("m", 1)))
+    assert p.glyph is None and "comes from a parent" in p.glyph_note
+
+
+def test_standardized_shape_is_independent_of_parent_values():
+    import pymc as pm
+
+    def gd(scale):
+        return _cond(lambda: pm.HalfStudentT("x", nu=3, sigma=pm.HalfNormal("s", scale))).glyph_data
+
+    assert gd(1.0) == gd(50.0)

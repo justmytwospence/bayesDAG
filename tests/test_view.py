@@ -33,7 +33,8 @@ def test_widget_ships_identical_graph_svg(eight_schools_model):
     w = v.widget()
     assert "bd-legend" not in w.spec["svg"]  # no legend in the widget
     assert "bd-legend" in v.to_svg()  # ...but yes in the static SVG
-    assert w.spec["svg"] == to_svg(v.ir, v.layout, legend=False)  # identical graph bytes
+    # identical graph bytes, for the projection on screen (the overview by default)
+    assert w.spec["svg"] == to_svg(v.display_ir, v.layout, legend=False)
 
 
 def test_widget_legend_opt_in(eight_schools_model):
@@ -78,7 +79,7 @@ def test_display_degrades_to_static_when_the_widget_fails(monkeypatch, eight_sch
 
 def test_widget_spec_has_nodes_adjacency_and_tags(eight_schools_model):
     pytest.importorskip("anywidget")
-    spec = bayesdag.view(eight_schools_model).widget().spec
+    spec = bayesdag.view(eight_schools_model, detail="full").widget().spec
     assert "svg" in spec and "nodes" in spec
     assert set(spec["nodes"]) == {"mu", "tau", "eta", "theta", "y_obs"}
     assert "theta" in spec["nodes"]["tau"]["blanket"]  # Markov blanket adjacency
@@ -117,7 +118,16 @@ def test_spec_carries_every_key_the_js_reads(eight_schools_model):
     pytest.importorskip("anywidget")
     spec = bayesdag.view(eight_schools_model, widget_legend=False).widget().spec
 
-    assert set(spec) >= {"svg", "nodes", "plates", "aux", "expandable"}
+    assert set(spec) >= {
+        "svg",
+        "nodes",
+        "plates",
+        "aux",
+        "expandable",
+        "blocks",
+        "detail",
+        "has_overview",
+    }
 
     # per-node detail: tooltip, pinned card, constructor line, and the highlight/trace sets
     required = {
@@ -127,6 +137,9 @@ def test_spec_carries_every_key_the_js_reads(eight_schools_model):
         "dims",
         "params",
         "transform",
+        "glyph_note",
+        "tag",
+        "block",
         "parents",
         "children",
         "blanket",
@@ -139,11 +152,28 @@ def test_spec_carries_every_key_the_js_reads(eight_schools_model):
         missing = required - set(node)
         assert not missing, f"{nid} is missing {sorted(missing)} that js/index.js reads"
         for p in node["params"]:
-            assert set(p) >= {"name", "value"}  # paramsText()/constructorText()
+            assert set(p) >= {"name", "value"}  # paramsText()/familyText()
+        assert "pm." not in str(node)  # no fabricated constructor code anywhere
 
-    # plate panels are looked up as plates[pid].panel
+    # structures: the block card reads these
+    for bid, b in spec["blocks"].items():
+        missing = {
+            "title",
+            "provenance",
+            "workflow",
+            "roles",
+            "notes",
+            "references",
+            "members",
+            "contracted",
+            "display_id",
+            "expanded",
+            "anchor",
+        } - set(b)
+        assert not missing, f"block {bid} is missing {sorted(missing)}"
+    # plate panels are looked up as plates[pid].panel, or plates[pid].reason when unavailable
     for pid, plate in spec["plates"].items():
-        assert "panel" in plate, f"plate {pid} has no panel key"
+        assert "panel" in plate or "reason" in plate, f"plate {pid} has neither panel nor reason"
 
     # the SVG hooks the JS queries for: selectors and the data-* attributes it keys off
     svg = spec["svg"]
@@ -292,3 +322,40 @@ def test_spec_label_svgs_carry_no_raw_token_ids(eight_schools_model):
         label = node.get("label_svg")
         if label:
             assert 'id="tok-' not in label, f"{nid} still ships raw token ids to the widget"
+
+
+def test_potentials_switch_forward_simulation_off(monkeypatch):
+    """`pm.Potential` reweights the joint but forward sampling ignores it: a prior-predictive
+    panel would show draws from a DIFFERENT model. Never simulate; say why."""
+    pytest.importorskip("anywidget")
+    import pymc as pm
+
+    import bayesdag.adapters.ppc as ppc_mod
+
+    calls = []
+    monkeypatch.setattr(pm, "sample_prior_predictive", lambda *a, **k: calls.append(1))
+    with pm.Model(coords={"g": range(3)}) as m:
+        x = pm.Normal("x", 0, 1, dims="g")
+        pm.Potential("pen", -(x**2).sum())
+    v = bayesdag.view(m)
+    spec = v.widget().spec
+    assert spec["expandable"] == [] and "Potential" in spec["ppc_note"]
+    out = ppc_mod.prior_predictive_expansions(m, v.ir)
+    assert calls == []
+    assert all(p["status"] == "unavailable" for p in out.values())
+    assert v.expand_plates()["plate_g"]["reason"].startswith("forward simulation ignores")
+
+
+def test_discrete_plate_members_are_frequencies_not_kdes():
+    import numpy as np
+    import pymc as pm
+
+    from bayesdag.adapters.ppc import prior_predictive_expansions
+
+    with pm.Model(coords={"g": range(4)}) as m:
+        lam = pm.HalfNormal("lam", 3)
+        pm.Poisson("k", lam, dims="g", observed=np.array([1, 0, 3, 2]))
+    ir = bayesdag.to_ir(m)
+    (plate,) = prior_predictive_expansions(m, ir, draws=100).values()
+    mem = next(x for x in plate["members"] if x["id"] == "k")
+    assert mem["discrete"] and all(float(x).is_integer() for x in mem["xs"])

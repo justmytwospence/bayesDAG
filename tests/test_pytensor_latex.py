@@ -83,3 +83,121 @@ def test_oversized_graph_degrades_instead_of_exploding():
     tex, _leaves = render_value(big, named, wrap_leaves=True, _root=True)
     assert len(tex) < 4000
     assert r"\ldots" in tex or r"\cdots" in tex or "f" in tex
+
+
+def _tex(build):
+    """Render a deterministic built by ``build(a, b, c)`` from three named scalar leaves."""
+    with pm.Model() as m:
+        a, b, c = (pm.Normal(n, 0, 1) for n in "abc")
+        d = pm.Deterministic("d", build(a, b, c))
+    named = {id(v): n for n, v in m.named_vars.items()}
+    return render_value(d, named, wrap_leaves=False, _root=True)[0]
+
+
+@pytest.mark.parametrize(
+    "build,expected",
+    [
+        (lambda a, b, c: a * (b + c), r"a\,\left(b + c\right)"),
+        (lambda a, b, c: a - (b + c), r"a - \left(b + c\right)"),
+        (lambda a, b, c: a - (b - c), r"a - \left(b - c\right)"),
+        (lambda a, b, c: -(a + b), r"-\left(a + b\right)"),
+        (lambda a, b, c: (a + b) ** 2, r"\left(a + b\right)^{2}"),
+        (lambda a, b, c: (a * b) ** c, r"\left(a\,b\right)^{c}"),
+        (lambda a, b, c: a * b + c, r"a\,b + c"),  # no spurious parens
+        (lambda a, b, c: a + b * c, r"a + b\,c"),
+        (lambda a, b, c: a * -b, r"a\,\left(-b\right)"),
+    ],
+)
+def test_precedence_is_preserved(build, expected):
+    """`a*(b+c)` used to render as `a\\,b + c` — a different number. Every operand whose
+    precedence is lower than its context must be parenthesized."""
+    assert _tex(build) == expected
+
+
+def test_value_changing_casts_are_visible():
+    assert _tex(lambda a, b, c: pt.cast(a, "int64")) == r"\operatorname{int}\!\left(a\right)"
+    assert _tex(lambda a, b, c: pt.cast(a > b, "float64")) == "a > b"  # bool -> float widens
+    assert _tex(lambda a, b, c: pt.cast(a, "float32")) == "a"  # float -> float is invisible
+
+
+def test_reductions_name_their_operation():
+    with pm.Model() as m:
+        x = pm.Normal("x", 0, 1, shape=3)
+        ds = {
+            "sum": pm.Deterministic("s", x.sum()),
+            "prod": pm.Deterministic("p", x.prod()),
+            "max": pm.Deterministic("mx", x.max()),
+        }
+    named = {id(v): n for n, v in m.named_vars.items()}
+    out = {k: render_value(v, named, wrap_leaves=False, _root=True)[0] for k, v in ds.items()}
+    assert r"\sum" in out["sum"]
+    assert r"\prod" in out["prod"] and r"\sum" not in out["prod"]
+    assert r"\max" in out["max"] and r"\sum" not in out["max"]
+
+
+def test_repeated_leaf_is_token_wrapped_once():
+    """Two `\\cssId{tok-a}` in one label would give the composed SVG duplicate element ids; the
+    dependency itself must survive in `used`."""
+    with pm.Model() as m:
+        a = pm.Normal("a", 0, 1)
+        d = pm.Deterministic("d", a + a * a)
+    named = {id(v): n for n, v in m.named_vars.items()}
+    tex, used = render_value(d, named, wrap_leaves=True, _root=True)
+    assert tex.count(r"\cssId{tok-a}") == 1
+    assert used == {"a"}
+
+
+def _det(build, coords=None):
+    with pm.Model(coords=coords or {}) as m:
+        d = pm.Deterministic("d", build())
+    named = {id(v): n for n, v in m.named_vars.items()}
+    return render_value(d, named, wrap_leaves=True, _root=True)
+
+
+def test_matrix_products_read_as_juxtaposition():
+    X = np.ones((4, 3))
+    for build in (
+        lambda: pm.Data("X", X) @ pm.Normal("b", 0, 1, shape=3),
+        lambda: pt.dot(pm.Data("X", X), pm.Normal("b", 0, 1, shape=3)),
+    ):
+        tex, used = _det(build)
+        assert used == {"X", "b"} and "f\\!" not in tex
+        assert r"{X}\,\cssId{tok-b}{b}" in tex
+
+
+def test_a_constant_design_matrix_is_named_by_its_shape():
+    tex, _ = _det(
+        lambda: pt.as_tensor(np.arange(12.0).reshape(4, 3)) @ pm.Normal("b", 0, 1, shape=3)
+    )
+    assert r"\mathbf{C}_{4\times 3}" in tex
+
+
+def test_gathers_show_their_index_token():
+    idx = np.array([0, 1, 1, 2])
+
+    def build():
+        a = pm.Normal("a", 0, 1, shape=3)
+        return a[pm.Data("county_idx", idx)]
+
+    tex, used = _det(build)
+    assert used == {"a", "county_idx"}
+    assert r"\cssId{tok-county_idx}{\mathrm{county\_idx}}" in tex and "[" in tex
+    tex, _ = _det(lambda: pm.Normal("a", 0, 1, shape=3)[idx])  # a constant index array
+    assert r"[\cdot]" in tex
+
+
+def test_slices_joins_sorts_and_assignment():
+    tex, _ = _det(lambda: pm.Normal("a", 0, 1, shape=(3, 4))[:, 2])
+    assert "[{:}" in tex and "2]" in tex
+    tex, _ = _det(lambda: pt.concatenate([pt.zeros(1), pm.Normal("q", 0, 1, shape=2)]))
+    assert tex.count(";") == 1 and r"\left[" in tex
+    tex, _ = _det(lambda: pt.sort(pm.Normal("a", 0, 1, shape=3)))
+    assert r"\operatorname{sort}" in tex
+    tex, used = _det(
+        lambda: pt.set_subtensor(pt.zeros(4)[np.array([1, 3])], pm.Normal("y", 0, 1, shape=2))
+    )
+    assert r"\operatorname{set}" in tex and used == {"y"}
+    tex, _ = _det(lambda: pt.sqr(pm.Normal("a", 0, 1) + 1.0))
+    assert r"\right)^{2}" in tex
+    tex, _ = _det(lambda: pm.Normal("a", 0, 1, shape=3).mean())
+    assert r"\operatorname{mean}" in tex

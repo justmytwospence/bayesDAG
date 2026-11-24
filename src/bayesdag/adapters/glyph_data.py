@@ -14,6 +14,7 @@ from __future__ import annotations
 import numpy as np
 
 from ..ir import GlyphSpec
+from ._ptutil import GlyphNote, uniform
 
 _GRID = 64
 _MAX_STAT_POINTS = 50_000
@@ -36,30 +37,116 @@ def _scalars(p) -> list:
 
 def _uniform_params(p) -> bool:
     """True when every param array holds a single value (or a constant broadcast of one), so one
-    scalar per slot describes the WHOLE node.
+    scalar per slot describes the WHOLE node — see ``_ptutil.uniform``."""
+    return uniform(p)
 
-    A genuinely varying vector prior — ``pm.Normal("b", mu=[0, 5], sigma=[1, 10])`` — gives each
-    element a different density, and no single curve is "the node's prior". Reading element 0 and
-    badging it ``prior_analytic`` would state something false about the other elements, so the
-    caller falls back to the family schematic instead."""
+
+# Standardized fill per ``dist_params`` slot, in op order. A number is the canonical value of a
+# LOCATION or SCALE slot (0 / 1): a parent there only moves or stretches the curve, so the shape is
+# still exact. ``S`` marks a SHAPE slot (a df, an alpha, a log-scale sigma, …): if a parent governs
+# it, no single curve is honest. Families not listed have no proven location-scale structure, and
+# every discrete family's parameters change its shape.
+S = None
+_STD_FILL: dict[str, list] = {
+    "Normal": [0.0, 1.0],
+    "HalfNormal": [0.0, 1.0],
+    "Cauchy": [0.0, 1.0],
+    "HalfCauchy": [1.0],
+    "Laplace": [0.0, 1.0],
+    "Logistic": [0.0, 1.0],
+    "Gumbel": [0.0, 1.0],
+    "Moyal": [0.0, 1.0],
+    "ZeroSumNormal": [1.0, S],  # [sigma, n] — n is structural and always numeric
+    "Uniform": [0.0, 1.0],
+    "Exponential": [1.0],  # op exposes the scale
+    "AsymmetricLaplace": [1.0, S, 0.0],  # [b (scale), kappa, mu]
+    "StudentT": [S, 0.0, 1.0],
+    "HalfStudentT": [S, 1.0],
+    "SkewNormal": [0.0, 1.0, S],
+    "ExGaussian": [0.0, S, S],  # the shape is nu/sigma: both must be known
+    "VonMises": [0.0, S],
+    "Gamma": [S, 1.0],
+    "InverseGamma": [S, 1.0],
+    "Weibull": [S, 1.0],
+    "Pareto": [S, 1.0],
+    "Rice": [S, 1.0],  # [b = nu/sigma, sigma]
+    "Wald": [S, S, 0.0],  # the shape is mu/lam; alpha shifts
+    "LogNormal": [0.0, S],  # exp(mu) is a scale; sigma is the shape
+}
+_S = S
+del S
+
+
+def _conditional_shape(var, dist: str | None, vals: list | None = None):
+    """The glyph for a latent with no single set of numbers: some slot is governed by a parent,
+    or (``vals`` given) its numeric slots vary across elements.
+
+    Exact when every such slot is a pure location/scale slot of its family and every shape slot
+    is a known, elementwise-uniform number: then the standardized curve IS the node's shape up to
+    where it sits and how wide it is. Otherwise no curve — and a caption naming the slots whose
+    parents decide the shape. Never a generic stand-in bell."""
+    from . import _ptutil
+
+    if vals is None:
+        vals = _ptutil.slot_values(var)
+    names = _slot_names(var, dist, len(vals))
+    fill = _STD_FILL.get(dist or "")
+    if fill is None or len(fill) != len(vals):
+        governed = [n for n, v in zip(names, vals, strict=False) if v is None and n]
+        return None, None, GlyphNote(_shape_note(governed))
+    shape_unknown = [
+        names[i] for i, (f, v) in enumerate(zip(fill, vals, strict=True)) if f is _S and v is None
+    ]
+    if shape_unknown:
+        return None, None, GlyphNote(_shape_note(shape_unknown))
+    shape_vals = [v for f, v in zip(fill, vals, strict=True) if f is _S]
+    if not uniform(shape_vals):
+        return None, None, GlyphNote("elements differ in shape")
+    data = _conditional_shape_from_values(dist, vals)
+    if data is None:
+        return None, None, GlyphNote(_shape_note([]))
+    return GlyphSpec(kind="schematic", source="conditional_standardized"), data, None
+
+
+def _conditional_shape_from_values(dist: str, vals: list) -> dict | None:
+    """The standardized curve of ``dist`` given per-slot values (None = set by a parent). Shape
+    slots must be known; location/scale slots take their canonical 0/1. None when unknowable."""
+    fill = _STD_FILL.get(dist or "")
+    if fill is None or len(fill) != len(vals):
+        return None
+    if any(f is _S and v is None for f, v in zip(fill, vals, strict=True)):
+        return None
+    params = [
+        (np.asarray(v).reshape(-1)[0] if f is _S else f) for f, v in zip(fill, vals, strict=True)
+    ]
+    frozen = _scipy_frozen(dist, params)
+    data = _density_from_frozen(frozen) if frozen is not None else _custom_density(dist, params)
+    if data is None:
+        return None
+    xs = np.asarray(data["xs"], float)
+    span = float(xs[-1] - xs[0]) or 1.0
+    # the axis carries no values (location/scale are the parents'), so it is rescaled to [0, 1]
+    # and the zero marker stays off
+    data["xs"] = [float((x - xs[0]) / span) for x in xs]
+    data.update({"family": dist, "exact": True})
+    return data
+
+
+def _slot_names(var, dist, n) -> list[str]:
     try:
-        for x in p or []:
-            a = np.asarray(x).reshape(-1)
-            if a.size > 1 and not np.all(a == a.flat[0]):
-                return False
+        from .pymc import _resolved_param_names
+
+        return [x or "" for x in _resolved_param_names(dist, var.owner.op, n)]
     except Exception:
-        return False
-    return True
+        return [""] * n
 
 
-def _canonical_bell() -> dict:
-    """A fixed, parameter-free bell on [0, 1] for the family-only *schematic* — a conditional latent
-    whose true shape depends on parent draws. We show this illustrative shape (rendered grey + dashed)
-    rather than sampling a misleading one through the parents. On [0, 1] it never straddles x=0, so the
-    zero-reference marker correctly stays off an axis that carries no real values."""
-    xs = [i / 40.0 for i in range(41)]
-    ys = [float(np.exp(-0.5 * ((x - 0.5) / 0.16) ** 2)) for x in xs]
-    return {"xs": xs, "ys": ys}
+def _shape_note(slots: list[str]) -> str:
+    if not slots:
+        return "no fixed curve: its shape depends on parents"
+    if len(slots) == 1:
+        return f"no fixed curve: {slots[0]} comes from a parent"
+    return f"no fixed curve: {', '.join(slots)} come from parents"
 
 
 def _scipy_frozen(dist: str, p: list):
@@ -145,20 +232,41 @@ def _pmf(dist: str, p: list, max_cats: int = 40) -> dict | None:
     """Analytic pmf for a discrete prior with numeric params -> ``{cats, heights}`` (bar glyph)."""
     try:
         if dist == "Categorical":  # the prob vector IS the pmf
-            probs = np.asarray(p[0], float).ravel()
+            probs = np.asarray(p[0], float)
+            if probs.ndim > 1:  # a batch of categoricals: one picture only if all are identical
+                rows = probs.reshape(-1, probs.shape[-1])
+                if not np.all(rows == rows[0]):
+                    return None
+                probs = rows[0]
+            probs = probs.ravel()
             cats, heights = list(range(probs.size)), probs
         else:
             fr = _discrete_frozen(dist, p)
             if fr is None:
                 return None
             lo, hi = int(fr.ppf(0.001)), int(fr.ppf(0.999))
-            hi = min(hi, lo + max_cats - 1)
-            cats = list(range(lo, hi + 1))
-            heights = np.asarray(fr.pmf(np.array(cats)), float)
+            bins = _integer_bins(lo, hi, max_cats)
+            cats = [a for a, _ in bins]
+            heights = np.array(
+                [
+                    fr.pmf(a)
+                    if a == b
+                    else (
+                        fr.cdf(b) - fr.cdf(a - 1) if fr.cdf(b) <= 0.5 else fr.sf(a - 1) - fr.sf(b)
+                    )
+                    for a, b in bins
+                ]
+            )
+            tails = {"left": float(fr.cdf(lo - 1)), "right": float(fr.sf(hi))}
         if heights.size == 0 or not np.all(np.isfinite(heights)) or heights.max() <= 0:
             return None
         m = float(heights.max()) or 1.0
-        return {"cats": [int(c) for c in cats], "heights": [float(h / m) for h in heights]}
+        result = {"cats": [int(c) for c in cats], "heights": [float(h / m) for h in heights]}
+        if dist != "Categorical":
+            result.update(bins=bins, masses=heights.tolist(), tails=tails)
+            if any(a != b for a, b in bins):
+                result["binned"] = True
+        return result
     except Exception:
         return None
 
@@ -247,8 +355,8 @@ def _histogram(values, max_bins: int = 30) -> dict | None:
         return None
 
 
-# Discrete likelihoods: a continuous best-fit overlay is meaningless (a best-fit Bernoulli is
-# degenerate), so observed nodes with these families fall back to the plain histogram.
+# Families whose values are integers: their data and draws are drawn as per-value frequencies,
+# never as a KDE (which would put mass between integers).
 _DISCRETE = {
     "Bernoulli",
     "Binomial",
@@ -263,145 +371,53 @@ _DISCRETE = {
 }
 
 
-# PyMC family name -> (scipy class, fixed-param kwargs for `.fit`). Support-constrained families
-# are fit with the location pinned (floc=0) — and Beta on the unit interval — so the MLE respects
-# the family's domain. Mirrors the continuous coverage of `_scipy_frozen` above.
-def _fitters():
-    import scipy.stats as st
-
-    return {
-        "Normal": (st.norm, {}),
-        "StudentT": (st.t, {}),
-        "Cauchy": (st.cauchy, {}),
-        "Laplace": (st.laplace, {}),
-        "Uniform": (st.uniform, {}),
-        "Exponential": (st.expon, {"floc": 0.0}),
-        "HalfNormal": (st.halfnorm, {"floc": 0.0}),
-        "HalfCauchy": (st.halfcauchy, {"floc": 0.0}),
-        "LogNormal": (st.lognorm, {"floc": 0.0}),
-        "Gamma": (st.gamma, {"floc": 0.0}),
-        "InverseGamma": (st.invgamma, {"floc": 0.0}),
-        "Weibull": (st.weibull_min, {"floc": 0.0}),
-        "Beta": (st.beta, {"floc": 0.0, "fscale": 1.0}),
-        "Logistic": (st.logistic, {}),
-        "Gumbel": (st.gumbel_r, {}),
-        "Moyal": (st.moyal, {}),
-        "SkewNormal": (st.skewnorm, {}),
-        "Pareto": (st.pareto, {"floc": 0.0}),
-        "ChiSquared": (st.chi2, {"floc": 0.0}),
-    }
+def _integer_bins(lo: int, hi: int, max_bins: int) -> list[tuple[int, int]]:
+    """Partition an inclusive integer span without allocating for every integer."""
+    if hi < lo or max_bins < 1:
+        raise ValueError("invalid integer range or bin limit")
+    width = hi - lo + 1
+    step = (width + max_bins - 1) // max_bins
+    return [(start, min(start + step - 1, hi)) for start in range(lo, hi + 1, step)]
 
 
-def _fit_frozen(dist: str, v):
-    """MLE-fit the continuous family ``dist`` to data ``v``; return a scipy frozen dist or None.
-
-    This is the *best the chosen family can do* on the data — it isolates whether the FAMILY is a
-    reasonable shape, independent of the model's priors. Any non-convergence / domain error yields
-    ``None`` (caller falls back to the plain histogram)."""
-    try:
-        fam = _fitters().get(dist)
-        if fam is None:
-            return None
-        cls, kw = fam
-        params = cls.fit(v, **kw)  # (shapes..., loc, scale)
-        return cls(*params)
-    except Exception:
-        return None
-
-
-def _fit_label(frozen) -> str:
-    """Short, family-agnostic summary of the fit for the card title (empty if no finite moments)."""
-    try:
-        mean, sd = float(frozen.mean()), float(frozen.std())
-        if np.isfinite(mean) and np.isfinite(sd):
-            return f"mean={mean:.3g}, sd={sd:.3g}"
-    except Exception:
-        pass
-    return ""
-
-
-def _observed_overlay(vals, dist: str | None, max_bins: int = 30) -> dict | None:
-    """Empirical density histogram + MLE best-fit family curve on ONE SHARED vertical scale.
-
-    The histogram is area-normalized (``density=True``) and the best-fit pdf is sampled over the
-    same x-span, then BOTH are divided by a single max so they are directly comparable (a naive
-    overlay of two independently peak-normalized curves would not line up). Returns None when no
-    continuous fit is possible (discrete family / unmapped / degenerate data) so the caller can
-    fall back to the plain max-normalized histogram."""
-    v = np.asarray(vals, float).ravel()
-    v = v[np.isfinite(v)]
-    if v.size < 2 or np.allclose(v, v[0]):
-        return None
-    if not dist or dist in _DISCRETE:
-        return None
-    frozen = _fit_frozen(dist, _thin(v))  # MLE on a thinned view; the histogram keeps full data
-    if frozen is None:
-        return None
-    try:
-        dens, edges = np.histogram(v, bins=_binned(v, max_bins), density=True)
-        xs = np.linspace(float(edges[0]), float(edges[-1]), _GRID)
-        ys = np.asarray(frozen.pdf(xs), float)
-    except Exception:
-        return None
-    if not np.all(np.isfinite(ys)):
-        return None
-    m = max(float(dens.max()) if dens.size else 0.0, float(ys.max()) if ys.size else 0.0) or 1.0
-    return {
-        "edges": [float(e) for e in edges],
-        "counts": [float(d / m) for d in dens],
-        "overlay": {"xs": [float(x) for x in xs], "ys": [float(y / m) for y in ys]},
-        "fit": {"family": dist, "n": int(v.size), "params": _fit_label(frozen)},
-    }
+def _bin_frequencies(values: np.ndarray, bins: list[tuple[int, int]]) -> np.ndarray:
+    ends = np.asarray([b for _, b in bins])
+    return np.bincount(np.searchsorted(ends, values), minlength=len(bins)) / values.size
 
 
 def _discrete_bars(values, max_cats: int = 30) -> dict | None:
-    """Observed proportions for an integer/categorical likelihood (Bernoulli/Binomial/Poisson/...)
-    as ONE bar per class — the honest representation of a pmf. Avoids the continuous auto-histogram,
-    which scatters binary data into edge-pinned bins with empty gaps between. Returns None when the
-    value range is too wide to be categorical (caller falls back to a continuous histogram)."""
+    """Per-value frequencies for integer data or draws — one bar per value (empty interior values
+    kept, so a pmf's gaps stay visible). A range wider than ``max_cats`` is grouped into at most
+    ``max_cats`` integer-aligned bins and marked ``binned``. Non-integer values are not silently
+    rounded: they return None."""
     try:
         v = np.asarray(values, float).ravel()
-        v = v[np.isfinite(v)]
-        if v.size == 0:
+        if v.size == 0 or not np.all(np.isfinite(v)) or not np.all(v == np.round(v)):
             return None
-        vi = np.rint(v).astype(int)
-        lo, hi = int(vi.min()), int(vi.max())
-        cats = list(range(lo, hi + 1))  # keep empty interior classes so a pmf's gaps stay visible
-        if len(cats) > max_cats:
-            return None
-        counts = np.array([float(np.count_nonzero(vi == c)) for c in cats])
-        m = float(counts.max()) or 1.0
-        return {"cats": cats, "heights": [float(c / m) for c in counts], "n": int(v.size)}
+        bins = _integer_bins(int(v.min()), int(v.max()), max_cats)
+        frequencies = _bin_frequencies(v, bins)
+        m = float(frequencies.max())
+        result = {
+            "cats": [a for a, _ in bins],
+            "bins": bins,
+            "frequencies": frequencies.tolist(),
+            "heights": (frequencies / m).tolist(),
+            "n": int(v.size),
+        }
+        if any(a != b for a, b in bins):
+            result["binned"] = True
+        return result
     except Exception:
         return None
 
 
 def _numeric_params(var) -> list | None:
     """The node's distribution parameters as numpy arrays — but ONLY for a root prior, i.e. one
-    whose every parameter is a fixed constant. Returns None for a conditional latent (any parameter
-    governed by a parent RV): there ``.eval()`` would silently draw a random sample rather than read
-    a value, yielding a different (misleading) shape on every render. None routes such a node to the
-    family-only schematic — restoring the prior (analytic) vs latent (schematic) distinction and
-    keeping the glyph deterministic (static == widget == itself across builds)."""
-    from .constructs import _depends_on_rv  # lazy: avoids the glyph_data<->constructs import cycle
+    whose every parameter is a fixed constant. None for a conditional latent (any parameter
+    governed by a parent RV): there ``.eval()`` would silently draw a random sample."""
+    from . import _ptutil
 
-    node = var.owner
-    op = node.op
-    try:
-        dparams = list(op.dist_params(node))
-    except Exception:
-        dparams = list(node.inputs[2:])
-    out = []
-    for dp in dparams:
-        if _depends_on_rv(
-            dp
-        ):  # parent RV governs this slot -> not a root prior; never a random draw
-            return None
-        try:
-            out.append(np.asarray(dp.eval()))
-        except Exception:
-            return None
-    return out
+    return _ptutil.numeric_params(var)
 
 
 def _observed_values(var, model):
@@ -418,9 +434,8 @@ def _observed_values(var, model):
 
 
 def _element_count(samples) -> int:
-    """How many elements of a vector/matrix parameter are pooled into one glyph. Posterior
-    arrays are ``(chain, draw, *element dims)``, so everything past the first two axes is a
-    distinct element of the variable."""
+    """How many elements a posterior array carries: arrays are ``(chain, draw, *element dims)``,
+    so everything past the first two axes is a distinct element of the variable."""
     try:
         shape = np.asarray(samples).shape
         return int(np.prod(shape[2:])) if len(shape) > 2 else 1
@@ -428,42 +443,265 @@ def _element_count(samples) -> int:
         return 1
 
 
-def _posterior_samples(name: str, idata):
+def _group_draws(idata, group: str, name: str):
+    """``idata[group][name]`` as a DataArray transposed to ``(chain, draw, ...)``, or None."""
     if idata is None:
         return None
     try:
-        if name in getattr(idata, "posterior", {}):
-            return np.asarray(idata.posterior[name].values)
+        ds = getattr(idata, group, None)
+        if ds is None or name not in ds:
+            return None
+        da = ds[name]
+        if "chain" in da.dims and "draw" in da.dims:
+            return da.transpose("chain", "draw", ...)
+        return None
     except Exception:
         return None
-    return None
+
+
+def _posterior_samples(name: str, idata):
+    da = _group_draws(idata, "posterior", name)
+    return None if da is None else np.asarray(da.values)
+
+
+def element_labels(da) -> list[str]:
+    """One readable label per element of a ``(chain, draw, *dims)`` DataArray, in storage
+    order: ``S3`` for one dim, ``(P1, b2)`` for several (tuple labels for multi-dim coords)."""
+    import itertools
+
+    dims = [d for d in da.dims if d not in ("chain", "draw")]
+    if not dims:
+        return []
+    axes = [
+        [str(c) for c in (da.coords[d].values if d in da.coords else range(da.sizes[d]))]
+        for d in dims
+    ]
+    if len(axes) == 1:
+        return axes[0]
+    return ["(" + ", ".join(t) + ")" for t in itertools.product(*axes)]
+
+
+MULTI_MAX = 8  # up to this many elements: one overlaid curve each
+FOREST_MAX_ROWS = 400  # beyond this, a forest shows evenly spaced ranks (and says so)
+
+
+def _multi(flat: np.ndarray) -> dict | None:
+    """Per-element KDEs on one shared grid, jointly peak-normalized (so heights compare)."""
+    finite = flat[np.isfinite(flat)]
+    if finite.size < 2:
+        return None
+    lo, hi = np.percentile(finite, [0.5, 99.5])
+    if not hi > lo:
+        return None
+    xs = np.linspace(lo, hi, _GRID)
+    from scipy.stats import gaussian_kde
+
+    curves = []
+    for j in range(flat.shape[1]):
+        col = flat[:, j]
+        col = _thin(col[np.isfinite(col)])
+        if col.size < 2 or np.allclose(col, col[0]):
+            return None
+        curves.append(gaussian_kde(col)(xs))
+    m = max(float(c.max()) for c in curves) or 1.0
+    return {
+        "xs": [float(x) for x in xs],
+        "curves": [[float(y / m) for y in c] for c in curves],
+        "n": int(flat.shape[1]),
+    }
+
+
+def _forest(flat: np.ndarray) -> dict | None:
+    """Per-element 5/25/50/75/95% quantiles, sorted by median (an unlabelled shape summary of the
+    whole vector — the labelled, coordinate-ordered version lives in the card)."""
+    with np.errstate(all="ignore"):
+        q = np.nanpercentile(flat, [5, 25, 50, 75, 95], axis=0)  # (5, k)
+    if not np.all(np.isfinite(q)):
+        return None
+    order = np.argsort(q[2], kind="stable")
+    k = q.shape[1]
+    shown = order
+    if k > FOREST_MAX_ROWS:  # evenly spaced ranks keep the payload bounded
+        shown = order[np.unique(np.linspace(0, k - 1, FOREST_MAX_ROWS).round().astype(int))]
+    lo, hi = float(q[0].min()), float(q[4].max())
+    if not hi > lo:
+        return None
+    out = {f"q{p:02d}": [float(q[i, j]) for j in shown] for i, p in enumerate((5, 25, 50, 75, 95))}
+    out.update({"lo": lo, "hi": hi, "n": int(k), "shown": len(shown)})
+    return out
 
 
 def posterior_glyph(name: str, dist: str | None, idata) -> tuple[GlyphSpec, dict] | None:
     """The posterior glyph for a variable, or None if this idata has no draws for it.
 
     Deliberately takes only a NAME — no ``pm.Model``, no PyTensor variable — because the node id
-    is by construction the constrained idata variable name (invariant 6). That is what lets
-    ``ModelGraphView.update(idata=...)`` re-derive the data-bearing layer for a diagram that has
-    already been laid out, without going back to the model."""
-    samples = _posterior_samples(name, idata)
-    if samples is None:
+    is by construction the constrained idata variable name (invariant 6).
+
+    A vector is never pooled into one curve (that curve would be no element's posterior — the
+    shrinkage picture a hierarchy is about would vanish): up to ``MULTI_MAX`` elements get one
+    curve each, more get a forest of per-element intervals."""
+    da = _group_draws(idata, "posterior", name)
+    if da is None:
         return None
-    # A discrete posterior is a pmf over integers. A gaussian KDE would smear mass onto values
-    # the variable cannot take and hide the gaps between the ones it can.
-    if dist and dist in _DISCRETE:
-        bars = _discrete_bars(samples)
-        if bars is not None:
-            return GlyphSpec(kind="bars", source="posterior_bars"), bars
-    data = _density_from_samples(samples)
+    samples = np.asarray(da.values)
+    k = _element_count(samples)
+    flat = samples.reshape(samples.shape[0] * samples.shape[1], -1).astype(float)
+    discrete = bool(dist and dist in _DISCRETE)
+    if k == 1:
+        if discrete:
+            # a discrete posterior is a pmf over integers: a KDE would smear mass between them
+            bars = _discrete_bars(samples)
+            return (GlyphSpec(kind="bars", source="posterior_bars"), bars) if bars else None
+        data = _density_from_samples(samples)
+        return (GlyphSpec(kind="density", source="posterior_kde"), data) if data else None
+    if k <= MULTI_MAX and not discrete:
+        data = _multi(flat)
+        if data is not None:
+            return GlyphSpec(kind="multi", source="posterior_kde"), data
+    data = _forest(flat)
     if data is None:
         return None
-    k = _element_count(samples)
-    if k > 1:
-        # every element's draws went into ONE density, so this is the pooled marginal, not any
-        # single element's — say so rather than implying a per-element posterior
-        data["pooled"] = k
-    return GlyphSpec(kind="density", source="posterior_kde"), data
+    return GlyphSpec(kind="forest", source="posterior_quantiles"), data
+
+
+def marginal_rows(name: str, idata, page: int = 0, per_page: int = 24) -> dict | None:
+    """Labelled per-element posterior intervals in ORIGINAL coordinate order (never ranked), one
+    page at a time: ``{rows: [{label, q05, q25, q50, q75, q95}], page, pages, n, lo, hi}``. The
+    axis is shared across ALL pages, so rows on different pages compare."""
+    da = _group_draws(idata, "posterior", name)
+    if da is None:
+        return None
+    samples = np.asarray(da.values, float)
+    flat = samples.reshape(samples.shape[0] * samples.shape[1], -1)
+    with np.errstate(all="ignore"):
+        q = np.nanpercentile(flat, [5, 25, 50, 75, 95], axis=0)
+    if not np.all(np.isfinite(q)):
+        return None
+    labels = element_labels(da) or [name]
+    k = q.shape[1]
+    pages = max(1, int(np.ceil(k / per_page)))
+    page = max(0, min(int(page), pages - 1))
+    idx = range(page * per_page, min(k, (page + 1) * per_page))
+    rows = [
+        {"label": labels[j] if j < len(labels) else str(j)}
+        | {f"q{p:02d}": float(q[i, j]) for i, p in enumerate((5, 25, 50, 75, 95))}
+        for j in idx
+    ]
+    return {
+        "rows": rows,
+        "page": page,
+        "pages": pages,
+        "n": int(k),
+        "lo": float(q[0].min()),
+        "hi": float(q[4].max()),
+    }
+
+
+def predictive_glyph(name: str, dist: str | None, idata) -> tuple[GlyphSpec, dict] | None:
+    """A predictive check for an observed node from draws the caller supplied: the observed data
+    against ``posterior_predictive`` (preferred) or ``prior_predictive``, on one axis. The data
+    are matched element-for-element with the replicates; any mismatch yields None."""
+    obs_da = None
+    try:
+        ds = getattr(idata, "observed_data", None)
+        if ds is not None and name in ds:
+            obs_da = ds[name]
+    except Exception:
+        obs_da = None
+    if obs_da is None:
+        return None
+    for group, source in (
+        ("posterior_predictive", "posterior_predictive"),
+        ("prior_predictive", "prior_predictive"),
+    ):
+        pred = _group_draws(idata, group, name)
+        if pred is None:
+            continue
+        pv = np.asarray(pred.values, float)
+        ov = np.asarray(obs_da.values, float)
+        if pv.shape[2:] != ov.shape:
+            return None
+        flat = pv.reshape(pv.shape[0] * pv.shape[1], -1)  # (S, N)
+        o = ov.ravel()
+        data = _ppc_discrete(o, flat) if dist and dist in _DISCRETE else _ppc_continuous(o, flat)
+        if data is None:
+            return None
+        data["group"] = group
+        return GlyphSpec(kind="ppc", source=source), data
+    return None
+
+
+_PPC_DRAWS = 20
+
+
+def _ppc_continuous(o: np.ndarray, flat: np.ndarray) -> dict | None:
+    from scipy.stats import gaussian_kde
+
+    o = o[np.isfinite(o)]
+    allv = flat[np.isfinite(flat)]
+    if o.size < 2 or allv.size < 2:
+        return None
+    lo = float(min(np.percentile(allv, 0.5), o.min()))
+    hi = float(max(np.percentile(allv, 99.5), o.max()))
+    if not hi > lo:
+        return None
+    xs = np.linspace(lo, hi, _GRID)
+    try:
+        dens, edges = np.histogram(o, bins=_binned(o, 30), range=None, density=True)
+        pooled = gaussian_kde(_thin(allv))(xs)
+        idx = np.unique(
+            np.linspace(0, flat.shape[0] - 1, min(_PPC_DRAWS, flat.shape[0])).astype(int)
+        )
+        draws = []
+        for i in idx:
+            row = flat[i][np.isfinite(flat[i])]
+            if row.size >= 2 and not np.allclose(row, row[0]):
+                draws.append(gaussian_kde(row)(xs))
+    except Exception:
+        return None
+    m = max([float(dens.max()), float(pooled.max())] + [float(d.max()) for d in draws]) or 1.0
+    return {
+        "edges": [float(e) for e in edges],
+        "counts": [float(c / m) for c in dens],
+        "xs": [float(x) for x in xs],
+        "ys": [float(y / m) for y in pooled],
+        "draws": [[float(y / m) for y in d] for d in draws],
+        "n": int(o.size),
+    }
+
+
+def _ppc_discrete(o: np.ndarray, flat: np.ndarray) -> dict | None:
+    o = np.asarray(o, float).ravel()
+    flat = np.asarray(flat, float)
+    if (
+        not o.size
+        or flat.ndim != 2
+        or not flat.size
+        or not np.all(np.isfinite(o))
+        or not np.all(np.isfinite(flat))
+        or not np.all(o == np.round(o))
+        or not np.all(flat == np.round(flat))
+    ):
+        return None
+    bins = _integer_bins(int(min(o.min(), flat.min())), int(max(o.max(), flat.max())), 40)
+    obs = _bin_frequencies(o, bins)
+    per_draw = np.stack([_bin_frequencies(row, bins) for row in flat])
+    med = np.median(per_draw, axis=0)
+    q05, q95 = np.percentile(per_draw, [5, 95], axis=0)
+    m = float(max(obs.max(), q95.max())) or 1.0
+    return {
+        "cats": [a for a, _ in bins],
+        "bins": bins,
+        "binned": any(a != b for a, b in bins),
+        "frequencies": obs.tolist(),
+        "pred_frequencies": per_draw.tolist(),
+        "tails": {"left": 0.0, "right": 0.0},
+        "heights": [float(h / m) for h in obs],
+        "pred_mid": [float(h / m) for h in med],
+        "pred_lo": [float(h / m) for h in q05],
+        "pred_hi": [float(h / m) for h in q95],
+        "n": int(o.size),
+    }
 
 
 def glyph_for(
@@ -495,10 +733,9 @@ def glyph_for(
             bars = _discrete_bars(vals)
             if bars is not None:
                 return GlyphSpec(kind="bars", source="observed_hist"), bars, None
-        # continuous: best-fit family curve overlaid on the data histogram; else plain histogram
-        overlay = _observed_overlay(vals, dist)
-        if overlay is not None:
-            return GlyphSpec(kind="hist_overlay", source="observed_hist"), overlay, None
+        # continuous: the data histogram. No fitted curve: a family fitted to the MARGINAL of
+        # regression data says nothing about the likelihood (the marginal of N(mu_i, sigma) is a
+        # mixture). The model's own predictions belong here instead — see predictive_glyph.
         data = _histogram(vals)
         if data is not None:
             return GlyphSpec(kind="histogram", source="observed_hist"), data, None
@@ -514,6 +751,12 @@ def glyph_for(
             return spec, data, elision
 
         params = _numeric_params(var)
+        if dist == "Categorical" and params is not None:
+            probs = np.asarray(params[0])
+            if probs.ndim > 1 and not np.all(
+                probs.reshape(-1, probs.shape[-1]) == probs.reshape(-1, probs.shape[-1])[0]
+            ):
+                return None, None, GlyphNote("elements differ")
         # A varying vector prior gives each element its OWN density, so no single curve is the
         # node's prior — those fall through to the schematic. Categorical is exempt: its vector
         # param IS the pmf, not a per-element parameterization.
@@ -531,8 +774,19 @@ def glyph_for(
             data = _custom_density(dist, params)
             if data is not None:
                 return GlyphSpec(kind="density", source="prior_analytic"), data, None
-        # params depend on parents (hierarchical) or unmapped dist -> a parameter-free family/schematic
-        # shape (grey + dashed); never a value sampled through the parents.
-        return GlyphSpec(kind="schematic", source="prior_family_only"), _canonical_bell(), None
+        if params is not None:
+            # every slot is numeric, yet no single analytic curve applies: a varying vector
+            # prior gives each element its own density
+            if not _uniform_params(params):
+                # elements differ in location/scale only -> the standardized shape is still
+                # exact for every element; differing SHAPE -> no single curve
+                return _conditional_shape(var, dist, list(params))
+            if dist == "DiracDelta" and params:
+                v = float(np.asarray(params[0]).reshape(-1)[0])
+                return None, None, GlyphNote(f"a point mass at {v:.4g}")
+            return None, None, GlyphNote(f"no analytic {dist} shape is drawn")
+        # a parent governs some slot: the family's exact standardized shape when location/scale
+        # are all that depend on parents, else no curve and a caption — never a sampled value
+        return _conditional_shape(var, dist)
 
     return None, None, None  # data / potential (deterministics dispatch above) -> no shape glyph

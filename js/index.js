@@ -18,18 +18,17 @@ function paramsText(node) {
   return node.params.map((p) => `${p.name}=${p.value ?? "?"}`).join(", ");
 }
 
-function constructorText(id, node) {
+// The op-level parameter line: `Normal(loc = μ, scale = τ)`. Deliberately NOT a `pm.Normal(...)`
+// call: op-level slots are reparametrized and reordered relative to PyMC's public constructor
+// (HalfNormal's op takes `(loc, scale)`), so printing them as code would show something that is
+// not valid PyMC.
+function familyText(node) {
   if (!node.dist) return "";
-  // a param whose value carries LaTeX markup (or is long) can't be shown as plain Python — elide it
-  const args = (node.params || [])
-    .map((p) => {
-      const v = (p.value ?? "").trim();
-      if (!v) return "";
-      return /[\\{}^]/.test(v) || v.length > 18 ? "…" : v;
-    })
-    .filter(Boolean);
-  const dims = node.dims && node.dims.length ? `, dims=${JSON.stringify(node.dims)}` : "";
-  return `pm.${node.dist}("${id}", ${args.join(", ")}${dims})`;
+  const args = (node.params || []).map((p) => {
+    const v = (p.value ?? "").trim();
+    return `${p.name} = ${!v || /[\\{}^]/.test(v) || v.length > 18 ? "…" : v}`;
+  });
+  return `${node.dist}(${args.join(", ")})`;
 }
 
 export default {
@@ -52,21 +51,72 @@ export default {
     panel.style.display = "none";
     el.appendChild(panel);
 
+    let revision = (model.get("spec") || {}).fit_revision ?? 0;
+    let requestNumber = 0;
+    let pending = null;
+    let panelKind = null;
+
+    function requestPanel(request) {
+      pending = { ...request, fit_revision: revision, request_number: ++requestNumber };
+      model.set("panel_request", pending);
+      model.save_changes();
+    }
+
     function draw() {
       const spec = model.get("spec") || {};
+      const nextRevision = spec.fit_revision ?? 0;
+      if (nextRevision !== revision) {
+        revision = nextRevision;
+        pending = null;
+        if (panelKind === "posterior") {
+          panel.style.display = "none";
+          panelKind = null;
+        }
+      }
       const nodes = spec.nodes || {};
       for (const c of Array.from(el.childNodes)) {
         if (c !== tooltip && c !== card && c !== panel) el.removeChild(c);
       }
+      const toolbar = document.createElement("div");
+      toolbar.className = "bd-toolbar";
+      const fitBtn = document.createElement("button");
+      fitBtn.type = "button";
+      fitBtn.textContent = "fit ↔ 1:1";
+      fitBtn.title = "toggle between natural size (scroll) and fit-to-width";
+      fitBtn.setAttribute("aria-pressed", String(el.classList.contains("bd-fit")));
+      fitBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        el.classList.toggle("bd-fit");
+        fitBtn.setAttribute("aria-pressed", String(el.classList.contains("bd-fit")));
+      });
+      toolbar.appendChild(fitBtn);
+      if (spec.has_overview) {
+        // Python re-projects and lays out; the JS only flips the trait
+        const detailBtn = document.createElement("button");
+        detailBtn.type = "button";
+        const full = spec.detail === "full";
+        detailBtn.textContent = full ? "show overview" : "show all variables";
+        detailBtn.title = "overview: recognized structures as single boxes · full: every variable";
+        detailBtn.setAttribute("aria-pressed", String(full));
+        detailBtn.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          model.set("detail", full ? "overview" : "full");
+          model.save_changes();
+        });
+        toolbar.appendChild(detailBtn);
+      }
       const holder = document.createElement("div");
+      holder.className = "bd-holder";
       holder.innerHTML = spec.svg || '<div class="bd-placeholder">bayesdag &mdash; no spec</div>';
       // model-level sampling note (divergences), above the figure — Python writes the wording
-      if (spec.diagnostics) {
+      for (const note of [spec.diagnostics, spec.ppc_note]) {
+        if (!note) continue;
         const strip = document.createElement("div");
         strip.className = "bd-diag-strip";
-        strip.textContent = spec.diagnostics;
+        strip.textContent = note;
         holder.insertBefore(strip, holder.firstChild);
       }
+      el.insertBefore(toolbar, tooltip);
       el.insertBefore(holder, tooltip);
       const svg = holder.querySelector("svg");
       if (!svg) return;
@@ -90,7 +140,7 @@ export default {
           e.classList.toggle("bd-dim", e.dataset.src !== id && e.dataset.tgt !== id);
         });
       }
-      // pin (click): directional causal trace — upstream (ancestors) vs downstream
+      // pin (click): directional lineage trace — upstream (ancestors) vs downstream
       // (descendants), so the full lineage reads as a flow instead of one flat dim/undim split.
       function trace(id) {
         const n = nodes[id] || {};
@@ -127,16 +177,95 @@ export default {
         const dims = n.dims && n.dims.length ? `<div class="bd-dim-line">dims: ${esc(n.dims.join(" × "))}</div>` : "";
         tooltip.innerHTML = `<b>${esc(id)}</b> · ${esc(n.role)}${math}${dims}`;
         const r = el.getBoundingClientRect();
-        tooltip.style.left = ev.clientX - r.left + 12 + "px";
-        tooltip.style.top = ev.clientY - r.top + 12 + "px";
+        // the container scrolls (natural size), and the tooltip lives in its scrolled content
+        tooltip.style.left = ev.clientX - r.left + el.scrollLeft + 12 + "px";
+        tooltip.style.top = ev.clientY - r.top + el.scrollTop + 12 + "px";
         tooltip.style.display = "block";
+      }
+      function blockRows(bid, withTitle) {
+        const b = (spec.blocks || {})[bid];
+        if (!b) return [];
+        const rows = [];
+        if (withTitle) rows.push(`<div class="bd-block-head">${esc(b.title)}</div>`);
+        const prov = b.provenance === "annotated" ? "annotated by the user" : "read off the graph";
+        rows.push(`<div class="bd-block-sub">${esc(prov)}${b.workflow ? " · " + esc(b.workflow.replace("_", " ")) : ""}</div>`);
+        for (const [role, names] of Object.entries(b.roles || {})) {
+          rows.push(`<div class="bd-role"><span>${esc(role.replace("_", " "))}</span> ${esc(names.join(", "))}</div>`);
+        }
+        (b.notes || []).forEach((t) => rows.push(`<div class="bd-note">${esc(t)}</div>`));
+        if (b.references && b.references.length) {
+          rows.push(`<div class="bd-note">see ${esc(b.references.join("; "))}</div>`);
+        }
+        if (b.members && b.members.length) {
+          const inner = b.members
+            .map((m) => {
+              const mn = nodes[m] || {};
+              return `<div class="bd-member"><b>${esc(m)}</b>${mn.label_svg ? `<div class="bd-math">${mn.label_svg}</div>` : ""}</div>`;
+            })
+            .join("");
+          rows.push(`<details class="bd-members"><summary>inside (${b.members.length})</summary>${inner}</details>`);
+        }
+        // the classic fitted pictures of this structure; Python computes one when asked
+        if (b.panels && b.panels.length) {
+          const btns = b.panels
+            .map((p) => `<button class="bd-fit-panel-btn" data-block="${esc(bid)}" data-kind="${esc(p.kind)}">${esc(p.label)}</button>`)
+            .join("");
+          rows.push(`<div class="bd-fit-panels">${btns}</div>`);
+        }
+        if (b.contracted) rows.push(`<button class="bd-expand-btn" data-block="${esc(bid)}">expand</button>`);
+        else if (b.expanded) rows.push(`<button class="bd-collapse-btn" data-block="${esc(bid)}">collapse</button>`);
+        return rows;
+      }
+      function setExpanded(bid, on) {
+        const cur = new Set(model.get("expanded_blocks") || []);
+        if (on) cur.add(bid);
+        else cur.delete(bid);
+        model.set("expanded_blocks", Array.from(cur).sort());
+        model.save_changes();
+      }
+      function wireCard(id) {
+        card.querySelectorAll(".bd-expand-btn").forEach((btn) =>
+          btn.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            setExpanded(btn.dataset.block, true);
+          })
+        );
+        card.querySelectorAll(".bd-collapse-btn").forEach((btn) =>
+          btn.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            setExpanded(btn.dataset.block, false);
+          })
+        );
+        card.querySelectorAll(".bd-fit-panel-btn").forEach((btn) =>
+          btn.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            panel.innerHTML =
+              `<div class="bd-panel-head">${esc(btn.textContent)}<span>click empty space to close</span></div>` +
+              '<div class="bd-placeholder">computing from the fit&hellip;</div>';
+            panel.style.display = "block";
+            panelKind = "posterior";
+            requestPanel({ kind: btn.dataset.kind, block_id: btn.dataset.block });
+          })
+        );
+        card.querySelectorAll(".bd-page-btn").forEach((btn) =>
+          btn.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            // ask Python for the page; the answer arrives on panel_response
+            requestPanel({ kind: "marginals", node_id: btn.dataset.node, page: Number(btn.dataset.page) });
+          })
+        );
       }
       function showCard(id) {
         const n = nodes[id];
         if (!n) return;
-        const rows = [`<div class="bd-card-title">${esc(id)} <span>${esc(n.role)}</span></div>`];
+        const isBlock = n.role === "block";
+        const b = isBlock ? (spec.blocks || {})[n.block] || {} : null;
+        const title = isBlock ? b.title || id : id;
+        const rows = [`<div class="bd-card-title">${esc(title)} <span>${esc(isBlock ? "structure" : n.role)}</span></div>`];
+        if (n.tag && !isBlock) rows.push(`<div class="bd-tag-line">${esc(n.tag)}</div>`);
         if (n.label_svg) rows.push(`<div class="bd-math">${n.label_svg}</div>`);
         if (n.dist) rows.push(`<div>distribution: <b>${esc(n.dist)}</b></div>`);
+        if (n.observed_sources && n.observed_sources.length) rows.push(`<div>Observed values from: ${esc(n.observed_sources.join(", "))}</div>`);
         if (n.dims && n.dims.length) rows.push(`<div>dims: ${esc(n.dims.join(" × "))}</div>`);
         if (n.transform) rows.push(`<div>transform: ${esc(n.transform)}</div>`);
         if (n.diag && n.diag.length) {
@@ -144,10 +273,30 @@ export default {
             `<div class="bd-diag-rows">${n.diag.map((d) => `<div>${esc(d)}</div>`).join("")}</div>`
           );
         }
-        const ctor = constructorText(id, n);
-        if (ctor) rows.push(`<pre class="bd-ctor">${esc(ctor)}</pre>`);
+        const fam = familyText(n);
+        if (fam) rows.push(`<div class="bd-ctor">${esc(fam)}</div>`);
+        if (n.glyph_note) rows.push(`<div class="bd-note">${esc(n.glyph_note)}</div>`);
         // observed nodes: the Python-rendered histogram + best-fit-family overlay (data vs theory)
         if (n.panel) rows.push(`<div class="bd-overlay">${n.panel}</div>`);
+        // labelled per-element posterior intervals (coordinate order), rendered by Python
+        if (n.marginals && n.marginals.svg) {
+          const m = n.marginals;
+          let pager = "";
+          if (m.pages > 1) {
+            const of = esc(n.marginals_of || id);
+            pager =
+              `<div class="bd-pager">` +
+              (m.page > 0 ? `<button class="bd-page-btn" data-node="${of}" data-page="${m.page - 1}">‹ prev</button>` : "") +
+              `<span>page ${m.page + 1} / ${m.pages}</span>` +
+              (m.page + 1 < m.pages ? `<button class="bd-page-btn" data-node="${of}" data-page="${m.page + 1}">next ›</button>` : "") +
+              `</div>`;
+          }
+          rows.push(`<div class="bd-overlay bd-marginals">${m.svg}${pager}</div>`);
+        }
+        if (isBlock) rows.push(...blockRows(n.block));
+        else if (n.in_block) rows.push(...blockRows(n.in_block, true));
+        // tag-only structures (a centered hierarchy, a regression) live on their anchor's card
+        (n.blocks_here || []).forEach((bid) => rows.push(...blockRows(bid, true)));
         // posterior-geometry panels offered by this node (the funnel joint)
         const auxes = (spec.aux || {})[id] || [];
         auxes.forEach((a, i) => {
@@ -164,8 +313,11 @@ export default {
               `<div class="bd-panel-head">${esc(a.label)}<span>click empty space to close</span></div>` +
               a.panel;
             panel.style.display = "block";
+            panelKind = "posterior";
+            pending = null;
           });
         });
+        wireCard(id);
         card.style.display = "block";
       }
 
@@ -189,24 +341,53 @@ export default {
         });
         nodeEl.addEventListener("click", (ev) => {
           ev.stopPropagation();
-          pinned = id;
-          model.set("selected_node", id);
-          model.save_changes();
-          trace(id);
-          tooltip.style.display = "none";
-          panel.style.display = "none";
-          showCard(id);
+          pin(id);
         });
+        // keyboard: the body group is the node's one tab stop (the chrome group is paint only)
+        if (nodeEl.classList.contains("bd-body")) {
+          nodeEl.setAttribute("tabindex", "0");
+          nodeEl.setAttribute("role", "button");
+          nodeEl.setAttribute("aria-label", `${id} (${(nodes[id] || {}).role || "node"})`);
+          const mates = nodeEls.filter((x) => x.dataset.node === id);
+          nodeEl.addEventListener("focus", () => mates.forEach((x) => x.classList.add("bd-kbd")));
+          nodeEl.addEventListener("blur", () => mates.forEach((x) => x.classList.remove("bd-kbd")));
+          nodeEl.addEventListener("keydown", (ev) => {
+            if (ev.key === "Enter" || ev.key === " ") {
+              ev.preventDefault();
+              pin(id);
+            }
+          });
+        }
       });
 
+      function pin(id) {
+        pending = null;
+        panelKind = null;
+        pinned = id;
+        // a compound node is a STRUCTURE, not a variable: it goes to selected_block, and
+        // selected_node (which neighbouring cells feed to ArviZ) is cleared
+        const isBlock = (nodes[id] || {}).role === "block";
+        model.set("selected_node", isBlock ? "" : id);
+        model.set("selected_block", isBlock ? (nodes[id] || {}).block || "" : "");
+        model.save_changes();
+        trace(id);
+        tooltip.style.display = "none";
+        panel.style.display = "none";
+        showCard(id);
+      }
+
       function openPlate(pid) {
+        pending = null;
+        panelKind = "plate";
         const p = (spec.plates || {})[pid];
         card.style.display = "none";
         panel.innerHTML =
           `<div class="bd-panel-head">${esc(pid)}<span>click empty space to close</span></div>` +
           (p && p.panel
             ? p.panel
-            : '<div class="bd-placeholder">simulating the prior predictive&hellip;</div>');
+            : p && p.reason
+              ? `<div class="bd-placeholder">${esc(p.reason)}</div>`
+              : '<div class="bd-placeholder">simulating the prior predictive&hellip;</div>');
         panel.style.display = "block";
       }
 
@@ -229,9 +410,12 @@ export default {
         });
       });
 
-      svg.addEventListener("click", () => {
+      function unpin() {
+        pending = null;
+        panelKind = null;
         pinned = null;
         model.set("selected_node", "");
+        model.set("selected_block", "");
         model.save_changes();
         clearHl();
         card.style.display = "none";
@@ -240,31 +424,78 @@ export default {
           model.set("expanded_plate", "");
           model.save_changes();
         }
-      });
+      }
+      svg.addEventListener("click", unpin);
+      el.onkeydown = (ev) => {
+        if (ev.key === "Escape") unpin();
+      };
 
       // A spec push (view.update(...)) redraws from scratch, and `pinned` lives in this closure.
       // Without this the user's selection silently drops on every update — which is exactly when
       // they are watching one node. Restore it from the synced trait; classes/innerHTML only.
-      const wasPinned = model.get("selected_node");
-      if (wasPinned && nodes[wasPinned]) {
+      let wasPinned = model.get("selected_node");
+      const selBlock = model.get("selected_block");
+      if (!wasPinned && selBlock) {
+        // the block may be contracted (its compound node) or expanded (its anchor)
+        const b = (spec.blocks || {})[selBlock] || {};
+        wasPinned = b.display_id || b.anchor || "";
+      }
+      if (wasPinned && nodes[wasPinned] && !nodes[wasPinned].hidden) {
         pinned = wasPinned;
         trace(wasPinned);
         showCard(wasPinned);
       }
       // a push carrying the plate panel the user is waiting on replaces the placeholder in place
       const openPid = model.get("expanded_plate");
-      if (openPid && (spec.plates || {})[openPid] && panel.style.display === "block") {
+      if (openPid && (spec.plates || {})[openPid] && panelKind === "plate" && panel.style.display === "block") {
         openPlate(openPid);
       }
     }
 
+    function onPanel() {
+      // a page of a Python-rendered panel arrived: swap it into the open card
+      const resp = model.get("panel_response") || {};
+      if (!pending || !resp.request || resp.fit_revision !== revision ||
+          resp.request.fit_revision !== revision || resp.request.request_number !== pending.request_number) return;
+      pending = null;
+      if (resp.request && resp.request.kind !== "marginals" && resp.request.block_id) {
+        // a fitted-structure panel: Python drew it (or says why it cannot be drawn)
+        const head = panel.querySelector(".bd-panel-head");
+        panel.innerHTML = (head ? head.outerHTML : "") + (resp.svg || `<div class="bd-placeholder">${esc(resp.reason || "unavailable")}</div>`);
+        panel.style.display = "block";
+        return;
+      }
+      const slot = card.querySelector(".bd-marginals");
+      if (!slot || !resp.request || resp.request.kind !== "marginals") return;
+      const node = resp.request.node_id;
+      const page = Number(resp.request.page || 0);
+      const spec = model.get("spec") || {};
+      const holder = Object.values(spec.nodes || {}).find((x) => x.marginals_of === node) || {};
+      const pages = (holder.marginals || {}).pages || 1;
+      const pager =
+        `<div class="bd-pager">` +
+        (page > 0 ? `<button class="bd-page-btn" data-node="${esc(node)}" data-page="${page - 1}">‹ prev</button>` : "") +
+        `<span>page ${page + 1} / ${pages}</span>` +
+        (page + 1 < pages ? `<button class="bd-page-btn" data-node="${esc(node)}" data-page="${page + 1}">next ›</button>` : "") +
+        `</div>`;
+      slot.innerHTML = resp.status === "ready" ? resp.svg + pager : `<div class="bd-placeholder">${esc(resp.reason || "unavailable")}</div>`;
+      slot.querySelectorAll(".bd-page-btn").forEach((btn) =>
+        btn.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          requestPanel({ kind: "marginals", node_id: btn.dataset.node, page: Number(btn.dataset.page) });
+        })
+      );
+    }
+
     draw();
     model.on("change:spec", draw);
+    model.on("change:panel_response", onPanel);
     // anywidget calls this when the view goes away (cell re-run, notebook close). Without it the
     // model keeps a reference to `draw` — and to this `el` — for every view ever rendered, so a
     // re-executed cell redraws through all its predecessors' dead DOM.
     return () => {
       model.off("change:spec", draw);
+      model.off("change:panel_response", onPanel);
     };
   },
 };
