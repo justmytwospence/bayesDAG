@@ -85,8 +85,18 @@ def _slug(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "-", s).strip("-").lower() or "block"
 
 
-def _coarser(a, b) -> bool:
-    return set(a) < set(b) or (not a and bool(b))
+def _shared_parent(parent: NodeIR, child: NodeIR) -> bool:
+    """Prove sharing from rank and named dimensions; an unnamed array is not a scalar."""
+    pdims, cdims = parent.dims, child.dims
+    prank = parent.ndim if parent.ndim is not None else (len(pdims) if pdims else None)
+    crank = child.ndim if child.ndim is not None else (len(cdims) if cdims else None)
+    if crank is None or crank == 0 or len(cdims) != crank or None in cdims:
+        return False
+    if prank == 0:
+        return not pdims
+    if prank is None or len(pdims) != prank or None in pdims:
+        return False
+    return len(set(pdims)) == len(pdims) and set(pdims) < set(cdims)
 
 
 def centered(ir: ModelIR) -> list[BlockIR]:
@@ -110,7 +120,7 @@ def centered(ir: ModelIR) -> list[BlockIR]:
                 pn = by_id.get(par)
                 if pn is None or pn.role not in ("latent", "deterministic"):
                     continue
-                if None in pn.dims or not _coarser(pn.dims, n.dims):
+                if not _shared_parent(pn, n):
                     continue
                 bucket = loc if p.name in _LOC_SLOTS else scale if p.name in _SCALE_SLOTS else None
                 if bucket is not None and par not in bucket:

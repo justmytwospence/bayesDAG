@@ -111,7 +111,7 @@ oracle tests in `test_constructs.py` / `test_glyph.py`; the third is the structu
 
 ## Recognized structures (blocks)
 - [x] partial pooling · non-centered (Normal, Student-t aux; exp → LogNormal, invlogit → LogitNormal, `A @ z` → MvNormal) — contracts in the overview
-- [x] partial pooling · centered (IR-level, any PPL) — tag
+- [x] partial pooling · centered (IR-level, any PPL) — tag only when rank and named dimensions establish sharing
 - [x] global–local shrinkage: horseshoe, regularized horseshoe (slab matched structurally), half-t locals named, co-data center/modifier roles — contracts; exact horseshoe marginal glyph
 - [x] regressions: linear, robust, log-normal, logistic, binomial, probit, Poisson — tag, `· with group effects`
 - [x] measured latent (errors-in-variables) — tag

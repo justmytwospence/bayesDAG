@@ -186,6 +186,38 @@ def test_negative_shrinkage_lookalikes():
     assert not any("regularized" in t for *_, t in plain)  # no slab: never "regularized"
 
 
+def test_unnamed_vector_parent_is_not_shared():
+    from bayesdag import diagnostics
+
+    with pm.Model(coords={"g": range(4)}) as m:
+        mu = pm.Normal("mu", 0, 1, shape=4)
+        pm.Normal("x", mu, 1, dims="g")
+    ir = to_ir(m)
+    assert ir.node("mu").ndim == 1
+    assert not any(b.rule == "centered/1" and b.anchor == "x" for b in ir.blocks)
+    assert diagnostics.funnel_candidates(ir) == []
+
+
+def test_shared_parent_requires_rank_or_named_axes():
+    from bayesdag.ir import NodeIR
+
+    child = NodeIR("child", "latent", dims=["group", "item"], ndim=2)
+    assert not blocks._shared_parent(NodeIR("unknown", "latent"), child)
+    assert blocks._shared_parent(NodeIR("scalar", "latent", ndim=0), child)
+    assert blocks._shared_parent(NodeIR("groups", "latent", dims=["group"]), child)
+    assert not blocks._shared_parent(NodeIR("unnamed", "latent", ndim=1), child)
+    assert not blocks._shared_parent(NodeIR("all", "latent", dims=["group", "item"]), child)
+
+
+def test_shared_scalar_parent_is_a_hierarchy():
+    with pm.Model(coords={"g": range(4)}) as m:
+        mu = pm.Normal("mu", 0, 1)
+        pm.Normal("x", mu, 1, dims="g")
+    ir = to_ir(m)
+    assert ir.node("mu").ndim == 0
+    assert any(b.rule == "centered/1" and b.anchor == "x" for b in ir.blocks)
+
+
 def test_same_plate_and_noise_parents_are_not_hierarchies():
     with pm.Model(coords={"g": range(4)}) as m:
         mu = pm.Normal("mu", 0, 1, dims="g")

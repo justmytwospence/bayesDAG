@@ -94,7 +94,7 @@ Constructs that can't be drawn honestly get an "elided" badge naming the reason,
 | structure | recognized when (structurally, never by name) | drawn as |
 |---|---|---|
 | **partial pooling · non-centered** | a `Deterministic` `D = L + S·z` (or `exp(·)`, `invlogit(·)`, `A @ z`) with `z` a standard Normal/Student-t that nothing else uses, and a learned scale | one box: `D ~ Family(L, S)`, `z`'s and `D`'s equations, and the implied curve when its shape is fixed |
-| **partial pooling · centered** | a plated latent whose location or scale parent is shared across its elements (coarser dims) | a tag on the node |
+| **partial pooling · centered** | a plated latent whose location or scale parent is provably shared across its elements (scalar or coarser named dims) | a tag on the node |
 | **horseshoe / regularized horseshoe** | a coefficient's scale factors into one global and one local positive scale, optionally times the slab `c²λ²/(c²+τ²λ²)`; half-t locals are named as such (`· half-t(2) locals`), other locals give "global–local shrinkage" | one box: `β ~ N(center, τλ̃)` and the slab relation; the exact marginal for a plain horseshoe |
 | **… regression** (linear, logistic, probit, Poisson, log-normal, …) | an observed likelihood whose location, through one recognized link, is affine with a data × parameter term | a tag; `· with group effects` when a hierarchy enters the predictor |
 | **measured latent** | a latent read by a noisy observation and used elsewhere | a tag |
