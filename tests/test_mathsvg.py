@@ -109,6 +109,77 @@ def test_renders_in_a_notebook_kernel_without_deadlocking():
         loop.close()
 
 
+@pytest.mark.parametrize("first", ["math", "elk"])
+def test_default_engines_share_worker_and_context(first):
+    """Both initialization orders, multiple instances and concurrent callers share V8.
+
+    Run in a fresh interpreter so neither the module singleton nor another test can warm the
+    context. Successful process exit also exercises normal interpreter shutdown.
+    """
+    import subprocess
+    import sys
+    import textwrap
+
+    code = textwrap.dedent(r"""
+        import concurrent.futures
+        import sys
+        import threading
+        import py_mini_racer
+        from bayesdag import mathsvg
+        from bayesdag.layout.elk_backend import ElkEngine, get_engine
+
+        real_mini_racer = py_mini_racer.MiniRacer
+        contexts = []
+        def record_context(*args, **kwargs):
+            ctx = real_mini_racer(*args, **kwargs)
+            contexts.append((ctx, threading.get_ident()))
+            return ctx
+        py_mini_racer.MiniRacer = record_context
+
+        renderers = [mathsvg.get_renderer(), mathsvg.MathRenderer()]
+        engines = [get_engine(), ElkEngine()]
+        graph = {
+            'id': 'root', 'layoutOptions': {'elk.algorithm': 'layered'},
+            'children': [{'id': 'a', 'width': 30, 'height': 20},
+                         {'id': 'b', 'width': 30, 'height': 20}],
+            'edges': [{'id': 'ab', 'sources': ['a'], 'targets': ['b']}],
+        }
+        def render(i, suffix=0):
+            svg, boxes = renderers[i].render_with_bboxes(
+                r'\cssId{tok-alpha}{\alpha} + \beta' + f' + {suffix}')
+            assert '<svg' in svg and '<path' in svg and 'alpha' in boxes
+            assert boxes['alpha'][2] > 0 and boxes['alpha'][3] > 0
+        def layout(i):
+            result = engines[i].layout_graph(graph)
+            assert {child['id'] for child in result['children']} == {'a', 'b'}
+            assert all('x' in child and 'y' in child for child in result['children'])
+            assert result['edges'][0]['sections']
+
+        operations = {'math': lambda: render(0), 'elk': lambda: layout(0)}
+        first = sys.argv[1]
+        operations[first]()
+        operations['elk' if first == 'math' else 'math']()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as callers:
+            futures = [callers.submit(render, i, i + 1) for i in range(2)]
+            futures += [callers.submit(layout, i) for i in range(2)]
+            for future in futures:
+                future.result()
+        assert len(contexts) == 1, f'expected one V8 context, got {len(contexts)}'
+        workers = [obj._worker() for obj in [*renderers, *engines]]
+        assert all(worker is workers[0] for worker in workers)
+        assert workers[0].submit(threading.get_ident).result() == contexts[0][1]
+        print('OK', flush=True)
+    """)
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", code, first], capture_output=True, text=True, timeout=60
+        )
+    except subprocess.TimeoutExpired as exc:
+        pytest.fail(f"V8 startup, calls or shutdown hung: {exc}", pytrace=False)
+    assert result.returncode == 0, f"stdout={result.stdout!r}\nstderr={result.stderr}"
+    assert result.stdout.strip() == "OK"
+
+
 def test_concurrent_v8_cold_start_and_shutdown():
     """Concurrent cold starts can abort inside V8's allocator, and on Python 3.13
     leaving both live isolates to finalization can hang after the work has finished.
@@ -135,7 +206,12 @@ def test_concurrent_v8_cold_start_and_shutdown():
         "    start.wait()\n"
         "    try:\n"
         "        eng = elk_backend.get_engine()\n"
-        "        eng._worker().submit(eng._context).result()\n"
+        "        graph = {'id': 'root', 'layoutOptions': {'elk.algorithm': 'layered'},\n"
+        "                 'children': [{'id': 'a', 'width': 20, 'height': 20},\n"
+        "                              {'id': 'b', 'width': 20, 'height': 20}],\n"
+        "                 'edges': [{'id': 'ab', 'sources': ['a'], 'targets': ['b']}]}\n"
+        "        result = eng.layout_graph(graph)\n"
+        "        assert result['edges'][0]['sections']\n"
         "    except Exception as exc: err.append(('elk', repr(exc)))\n"
         "ts = [threading.Thread(target=m), threading.Thread(target=e)]\n"
         "for t in ts: t.start()\n"

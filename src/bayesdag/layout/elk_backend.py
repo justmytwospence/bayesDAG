@@ -90,9 +90,7 @@ class ElkEngine:
         sd = _static_dir()
         self._api_path = api_path or (sd / "elk-api.js")
         self._worker_path = worker_path or (sd / "elk-worker.min.js")
-        self._ctx = None
-        self._executor = None
-        self._lock = threading.Lock()
+        self._runtime = _v8.shared if api_path is None and worker_path is None else _v8.Runtime()
 
     @property
     def available(self) -> bool:
@@ -102,43 +100,30 @@ class ElkEngine:
             return False
         return self._api_path.exists() and self._worker_path.exists()
 
-    def _worker(self):
-        # All mini-racer work runs on ONE dedicated thread. mini-racer binds its event loop to
-        # the thread that creates the context; if that's a thread with a live asyncio loop (a
-        # marimo cell), `promise.get()` either asserts or deadlocks. A single private thread that
-        # never runs an asyncio loop lets mini-racer own its loop and `.get()` block safely.
-        with self._lock:
-            if self._executor is None:
-                import concurrent.futures
-
-                self._executor = concurrent.futures.ThreadPoolExecutor(
-                    max_workers=1, thread_name_prefix="bayesdag-elk"
-                )
-            return self._executor
+    _worker = staticmethod(_v8.worker)
 
     def _context(self):  # must run on the worker thread (see _worker)
-        if self._ctx is None:
-            ctx = _v8.new_isolate()  # shared lock: never build two isolates at once
-            ctx.eval("var global=globalThis, self=globalThis, window=globalThis;")
-            # mini-racer setTimeout(fn,0) hits a non-promise Atomics.waitAsync path -> coerce 0->1ms
-            ctx.eval(
-                "var __bd_st=globalThis.setTimeout;"
-                "globalThis.setTimeout=function(f,d){return __bd_st(f,(d&&d>0)?d:1);};"
-            )
-            ctx.eval(_WORKER_SHIM)
-            ctx.eval(
-                "globalThis.__elkWorkerSrc = "
-                + json.dumps(self._worker_path.read_text(encoding="utf-8"))
-            )
-            ctx.eval(
-                "var module={exports:{}},exports=module.exports,require=function(){return {};};\n"
-                + self._api_path.read_text(encoding="utf-8")
-                + "\nglobalThis.__ELK = (module.exports.default||module.exports);"
-            )
-            ctx.eval("globalThis.__elk = new __ELK({ workerFactory: __mkWorker(__elkWorkerSrc) });")
-            ctx.eval("globalThis.__elkRun = async (g)=>JSON.stringify(await __elk.layout(g));")
-            self._ctx = ctx
-        return self._ctx
+        return self._runtime.context("elk", self._install)
+
+    def _install(self, ctx):
+        ctx.eval("var global=globalThis, self=globalThis, window=globalThis;")
+        # mini-racer setTimeout(fn,0) hits a non-promise Atomics.waitAsync path -> coerce 0->1ms
+        ctx.eval(
+            "var __bd_st=globalThis.setTimeout;"
+            "globalThis.setTimeout=function(f,d){return __bd_st(f,(d&&d>0)?d:1);};"
+        )
+        ctx.eval(_WORKER_SHIM)
+        ctx.eval(
+            "globalThis.__elkWorkerSrc = "
+            + json.dumps(self._worker_path.read_text(encoding="utf-8"))
+        )
+        ctx.eval(
+            "var module={exports:{}},exports=module.exports,require=function(){return {};};\n"
+            + self._api_path.read_text(encoding="utf-8")
+            + "\nglobalThis.__ELK = (module.exports.default||module.exports);"
+        )
+        ctx.eval("globalThis.__elk = new __ELK({ workerFactory: __mkWorker(__elkWorkerSrc) });")
+        ctx.eval("globalThis.__elkRun = async (g)=>JSON.stringify(await __elk.layout(g));")
 
     def _layout_blocking(self, graph: dict, timeout_ms: int) -> dict:
         ctx = self._context()

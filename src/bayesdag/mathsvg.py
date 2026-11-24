@@ -181,22 +181,13 @@ class MathRenderer:
         self._bundle_path = bundle_path or _bundle_path()
         self._ctx = None
         self._ctx_error: Exception | None = None
-        self._executor = None
+        self._runtime = _v8.shared if bundle_path is None else _v8.Runtime()
         self._lock = threading.Lock()
         # (display, tex) -> (svg, token bboxes): bboxes are cached WITH the SVG so a warm
         # re-layout never re-parses the same label (token_bboxes was ~40% of warm layout time)
         self._cache: OrderedDict[tuple[bool, str], tuple[str, dict]] = OrderedDict()
 
-    def _worker(self):
-        """The single thread every V8 call is marshalled onto (see the class docstring)."""
-        with self._lock:
-            if self._executor is None:
-                import concurrent.futures
-
-                self._executor = concurrent.futures.ThreadPoolExecutor(
-                    max_workers=1, thread_name_prefix="bayesdag-mathjax"
-                )
-            return self._executor
+    _worker = staticmethod(_v8.worker)
 
     @property
     def available(self) -> bool:
@@ -226,14 +217,16 @@ class MathRenderer:
                     "`npm install && npm run build` (produces static/mathjax.bundle.js)."
                 )
             try:
-                ctx = _v8.new_isolate()  # shared lock: never build two isolates at once
-                ctx.eval(_PROCESS_SHIM)
-                ctx.eval(self._bundle_path.read_text(encoding="utf-8"))
+                ctx = self._runtime.context("mathjax", self._install)
             except Exception as exc:
                 self._ctx_error = exc
                 raise
             self._ctx = ctx
         return self._ctx
+
+    def _install(self, ctx):
+        ctx.eval(_PROCESS_SHIM)
+        ctx.eval(self._bundle_path.read_text(encoding="utf-8"))
 
     def render(self, tex: str, display: bool = True) -> str:
         """Return the SVG markup for ``tex`` (cached by content)."""
