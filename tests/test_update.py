@@ -284,3 +284,40 @@ def test_marginals_panel_for_vectors_and_deterministics(fitted_eight_schools):
     assert bayesdag.view(model, ppc_draws=0).marginals_svg("theta") == ""  # no idata: nothing
     with pytest.raises(ValueError):
         v.marginals_svg("nope")
+
+
+def test_fitted_cache_tracks_explicit_updates(monkeypatch, fitted_eight_schools):
+    from bayesdag.adapters import fitted
+    from bayesdag.render_panels import RENDERERS
+
+    model, idata = fitted_eight_schools
+    v = bayesdag.view(model, idata=idata, ppc_draws=0)
+    w = v.widget()
+    block = v.ir.blocks[0]
+    kind = next(iter(fitted.PANELS))
+    calls = []
+
+    def compute(*args):
+        calls.append(len(calls) + 1)
+        return calls[-1]
+
+    monkeypatch.setattr(fitted, "compute", compute)
+    monkeypatch.setitem(RENDERERS, kind, lambda data: f"result {data}")
+    request = {"kind": kind, "block_id": block.id, "fit_revision": 0}
+    v._on_panel_request({"new": request})
+    assert w.panel_response["svg"] == "result 1"
+    v._on_panel_request({"new": request})
+    assert len(calls) == 1
+    v.update(idata)  # the same object may have been mutated
+    assert w.spec["fit_revision"] == 1
+    v._on_panel_request({"new": request})
+    assert len(calls) == 1  # obsolete work is rejected
+    v._on_panel_request({"new": {"kind": kind, "block_id": block.id}})
+    assert w.panel_response["svg"] == "result 2"
+    assert w.panel_response["fit_revision"] == 1
+    v.update(idata.copy())
+    v._on_panel_request({"new": {**request, "fit_revision": 2}})
+    assert w.panel_response["svg"] == "result 3"
+    v.update(None)
+    assert w.spec["fit_revision"] == 3
+    assert not v._fitted_cache

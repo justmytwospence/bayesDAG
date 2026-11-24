@@ -50,7 +50,7 @@ v.update(idata=idata)                # priors become posteriors IN PLACE — not
 v.update(None)                       # ...and back: it's a toggle
 ```
 
-`update` reuses the existing layout whenever no node changes size, which is the usual case, so the figure you are looking at gains its posterior without jumping. If a posterior *does* change a node's size class — an `MvNormal`'s pairplot square becoming a per-element strip — the diagram is laid out again rather than drawn at a stale size.
+`update` reuses the existing layout whenever no node changes size, which is the usual case, so the figure you are looking at gains its posterior without jumping. If a posterior *does* change a node's size class — an `MvNormal`'s pairplot square becoming a per-element strip — the diagram is laid out again rather than drawn at a stale size. Each update invalidates fitted-panel results, even when the same `idata` object was changed in place; an open fitted panel closes rather than showing a previous fit.
 
 A vector's posterior is never pooled into one curve (that curve would be no element's posterior): up to 8 elements get one curve each, more a **forest** of per-element 50%/90% intervals sorted by median. The pinned card, and `v.marginals_svg(name, page=0)`, lists the same intervals labelled by coordinate in the variable's own order, 24 rows a page. When the `InferenceData` has `posterior_predictive` (or `prior_predictive`) draws for an observed node, its glyph becomes a **predictive check**: the data against the model's own replicates.
 

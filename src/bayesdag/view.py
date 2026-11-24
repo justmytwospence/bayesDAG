@@ -99,6 +99,8 @@ class ModelGraphView:
         # The draws themselves stay out of the IR (which is JSON-serializable and ships only
         # curves); this is the handle that makes `OverlayRef` dereferenceable — see `idata`.
         self._idata = None
+        self.fit_revision = 0
+        self._fitted_cache: dict = {}
         # The IR is ALWAYS built prior-only and owned by this view: a posterior is attached through
         # `update()` alone, so `update(None)` can always restore what was built (the prior) — and
         # a caller's IR object (or a second view of it) is never mutated.
@@ -241,6 +243,8 @@ class ModelGraphView:
         exactly what lets the figure change without being rebuilt. Passing ``idata=`` to
         ``view()`` remains the pure-dataflow alternative.
         """
+        self.fit_revision += 1
+        self._fitted_cache.clear()
         self._diagnostics = self._apply_data(idata)
         # the cached layouts stay valid exactly when no node changed size (the common case: a
         # density strip becomes a density strip); `_layout_for` re-measures and relays otherwise
@@ -374,6 +378,7 @@ class ModelGraphView:
             "role": n.role,
             "dist": n.dist,
             "observed": n.observed,
+            "observed_sources": list(n.observed_sources),
             "dims": list(n.dims),
             "params": [{"name": p.name, "value": p.value_tex} for p in n.params],
             "transform": n.transform,
@@ -435,8 +440,8 @@ class ModelGraphView:
         from .adapters import fitted
         from .render_panels import RENDERERS, render_unavailable
 
-        cache = self.__dict__.setdefault("_fitted_cache", {})
-        key = (kind, b.id, id(self._idata))
+        cache = self._fitted_cache
+        key = (kind, b.id)
         if key in cache:
             return cache[key]
         label = fitted.PANELS[kind][0]
@@ -551,6 +556,7 @@ class ModelGraphView:
 
         spec = {
             "svg": widget_svg,
+            "fit_revision": self.fit_revision,
             "nodes": nodes,
             "plates": plates,
             "aux": aux,
@@ -608,13 +614,21 @@ class ModelGraphView:
         req = change["new"] or {}
         if not req or self._widget is None:
             return
+        if req.get("fit_revision", self.fit_revision) != self.fit_revision:
+            return
         try:
             from .adapters.fitted import PANELS
 
             kind = req.get("kind", "marginals")
             if kind in PANELS and req.get("block_id") and self.ir.block(req["block_id"]):
                 status, svg, reason = self._fitted(kind, self.ir.block(req["block_id"]))
-                resp = {"request": req, "status": status, "svg": svg, "reason": reason}
+                resp = {
+                    "request": req,
+                    "fit_revision": self.fit_revision,
+                    "status": status,
+                    "svg": svg,
+                    "reason": reason,
+                }
                 self._widget.panel_response = resp
                 return
             svg = self.panel_svg(
@@ -626,6 +640,7 @@ class ModelGraphView:
             resp = {"request": req, "status": "ready" if svg else "unavailable", "svg": svg}
         except Exception as exc:  # a bad request is answered, never raised into the kernel
             resp = {"request": req, "status": "error", "reason": str(exc), "svg": ""}
+        resp["fit_revision"] = self.fit_revision
         self._widget.panel_response = resp
 
     def panel_svg(

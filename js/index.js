@@ -51,8 +51,28 @@ export default {
     panel.style.display = "none";
     el.appendChild(panel);
 
+    let revision = (model.get("spec") || {}).fit_revision ?? 0;
+    let requestNumber = 0;
+    let pending = null;
+    let panelKind = null;
+
+    function requestPanel(request) {
+      pending = { ...request, fit_revision: revision, request_number: ++requestNumber };
+      model.set("panel_request", pending);
+      model.save_changes();
+    }
+
     function draw() {
       const spec = model.get("spec") || {};
+      const nextRevision = spec.fit_revision ?? 0;
+      if (nextRevision !== revision) {
+        revision = nextRevision;
+        pending = null;
+        if (panelKind === "posterior") {
+          panel.style.display = "none";
+          panelKind = null;
+        }
+      }
       const nodes = spec.nodes || {};
       for (const c of Array.from(el.childNodes)) {
         if (c !== tooltip && c !== card && c !== panel) el.removeChild(c);
@@ -223,21 +243,15 @@ export default {
               `<div class="bd-panel-head">${esc(btn.textContent)}<span>click empty space to close</span></div>` +
               '<div class="bd-placeholder">computing from the fit&hellip;</div>';
             panel.style.display = "block";
-            model.set("panel_request", { kind: btn.dataset.kind, block_id: btn.dataset.block, nonce: Date.now() });
-            model.save_changes();
+            panelKind = "posterior";
+            requestPanel({ kind: btn.dataset.kind, block_id: btn.dataset.block });
           })
         );
         card.querySelectorAll(".bd-page-btn").forEach((btn) =>
           btn.addEventListener("click", (ev) => {
             ev.stopPropagation();
             // ask Python for the page; the answer arrives on panel_response
-            model.set("panel_request", {
-              kind: "marginals",
-              node_id: btn.dataset.node,
-              page: Number(btn.dataset.page),
-              nonce: Date.now(),
-            });
-            model.save_changes();
+            requestPanel({ kind: "marginals", node_id: btn.dataset.node, page: Number(btn.dataset.page) });
           })
         );
       }
@@ -299,6 +313,8 @@ export default {
               `<div class="bd-panel-head">${esc(a.label)}<span>click empty space to close</span></div>` +
               a.panel;
             panel.style.display = "block";
+            panelKind = "posterior";
+            pending = null;
           });
         });
         wireCard(id);
@@ -345,6 +361,8 @@ export default {
       });
 
       function pin(id) {
+        pending = null;
+        panelKind = null;
         pinned = id;
         // a compound node is a STRUCTURE, not a variable: it goes to selected_block, and
         // selected_node (which neighbouring cells feed to ArviZ) is cleared
@@ -359,6 +377,8 @@ export default {
       }
 
       function openPlate(pid) {
+        pending = null;
+        panelKind = "plate";
         const p = (spec.plates || {})[pid];
         card.style.display = "none";
         panel.innerHTML =
@@ -391,6 +411,8 @@ export default {
       });
 
       function unpin() {
+        pending = null;
+        panelKind = null;
         pinned = null;
         model.set("selected_node", "");
         model.set("selected_block", "");
@@ -425,7 +447,7 @@ export default {
       }
       // a push carrying the plate panel the user is waiting on replaces the placeholder in place
       const openPid = model.get("expanded_plate");
-      if (openPid && (spec.plates || {})[openPid] && panel.style.display === "block") {
+      if (openPid && (spec.plates || {})[openPid] && panelKind === "plate" && panel.style.display === "block") {
         openPlate(openPid);
       }
     }
@@ -433,6 +455,9 @@ export default {
     function onPanel() {
       // a page of a Python-rendered panel arrived: swap it into the open card
       const resp = model.get("panel_response") || {};
+      if (!pending || !resp.request || resp.fit_revision !== revision ||
+          resp.request.fit_revision !== revision || resp.request.request_number !== pending.request_number) return;
+      pending = null;
       if (resp.request && resp.request.kind !== "marginals" && resp.request.block_id) {
         // a fitted-structure panel: Python drew it (or says why it cannot be drawn)
         const head = panel.querySelector(".bd-panel-head");
@@ -457,8 +482,7 @@ export default {
       slot.querySelectorAll(".bd-page-btn").forEach((btn) =>
         btn.addEventListener("click", (ev) => {
           ev.stopPropagation();
-          model.set("panel_request", { kind: "marginals", node_id: btn.dataset.node, page: Number(btn.dataset.page), nonce: Date.now() });
-          model.save_changes();
+          requestPanel({ kind: "marginals", node_id: btn.dataset.node, page: Number(btn.dataset.page) });
         })
       );
     }

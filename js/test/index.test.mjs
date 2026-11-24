@@ -153,7 +153,7 @@ test("paging asks Python and swaps in its answer", async () => {
   assert.equal(state.panel_request.kind, "marginals");
   assert.equal(state.panel_request.node_id, "theta");
   assert.equal(state.panel_request.page, 1);
-  state.panel_response = { request: state.panel_request, status: "ready", svg: "<svg id=m1></svg>" };
+  state.panel_response = { request: state.panel_request, fit_revision: 0, status: "ready", svg: "<svg id=m1></svg>" };
   model.fire("change:panel_response");
   assert.ok(el.querySelector(".bd-marginals #m1"));
 });
@@ -174,7 +174,42 @@ test("a fitted-structure panel is requested from Python and shown with its reaso
   assert.equal(state.panel_request.kind, "shrinkage");
   assert.equal(state.panel_request.block_id, "block:hierarchy:theta");
   assert.match(el.querySelector(".bd-panel").innerHTML, /computing/);
-  state.panel_response = { request: state.panel_request, status: "unavailable", svg: "", reason: "needs an identity link" };
+  state.panel_response = { request: state.panel_request, fit_revision: 0, status: "unavailable", svg: "", reason: "needs an identity link" };
   model.fire("change:panel_response");
   assert.match(el.querySelector(".bd-panel").innerHTML, /needs an identity link/);
+});
+
+
+test("fit revisions and request numbers reject delayed replies", async () => {
+  const { el, state, model } = await mount();
+  const ME = el.ownerDocument.defaultView.MouseEvent;
+  body(el, "block:hierarchy:theta").dispatchEvent(new ME("click", { bubbles: true }));
+  const button = el.querySelector(".bd-fit-panel-btn");
+  button.dispatchEvent(new ME("click", { bubbles: true }));
+  const first = state.panel_request;
+  button.dispatchEvent(new ME("click", { bubbles: true }));
+  const second = state.panel_request;
+  assert.ok(second.request_number > first.request_number);
+  state.panel_response = { request: first, fit_revision: 0, status: "ready", svg: "old" };
+  model.fire("change:panel_response");
+  assert.match(el.querySelector(".bd-panel").textContent, /computing/);
+  state.panel_response = { request: second, fit_revision: 0, status: "ready", svg: "new" };
+  model.fire("change:panel_response");
+  assert.match(el.querySelector(".bd-panel").innerHTML, /new/);
+  state.spec = { ...state.spec, fit_revision: 1 };
+  model.fire("change:spec");
+  assert.equal(el.querySelector(".bd-panel").style.display, "none");
+  assert.equal(el.querySelector(".bd-card").style.display, "block");
+  model.fire("change:panel_response");
+  assert.equal(el.querySelector(".bd-panel").style.display, "none");
+});
+
+test("a prior plate stays open when the fit changes", async () => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg"><g class="bd-plate" data-plate="school"></g></svg>';
+  const { el, state, model } = await mount({ svg, plates: { school: { panel: "prior panel" } }, expandable: ["school"] });
+  el.querySelector(".bd-plate").dispatchEvent(new el.ownerDocument.defaultView.MouseEvent("click", { bubbles: true }));
+  state.spec = { ...state.spec, fit_revision: 1 };
+  model.fire("change:spec");
+  assert.equal(el.querySelector(".bd-panel").style.display, "block");
+  assert.match(el.querySelector(".bd-panel").innerHTML, /prior panel/);
 });
