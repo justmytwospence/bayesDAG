@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from bayesdag import ir as ir_mod
 from bayesdag import schema
 from bayesdag.adapters import to_elk, to_networkx
@@ -18,8 +20,6 @@ def test_schema_rejects_what_it_should():
     """A validator that accepts everything guards nothing. These two cases pin the parts of the
     generator that are easy to silently lose: `required` emission, and Literal -> enum."""
     import copy
-
-    import pytest
 
     jsonschema = pytest.importorskip("jsonschema")
 
@@ -132,8 +132,9 @@ def test_to_elk_nests_plates_and_survives_hostile_names():
     json.dumps(to_elk(cyc))
 
 
-def test_both_published_schemas_exist():
-    """A 1.0 artifact must stay checkable against the contract it was written under."""
+def test_all_published_schemas_exist():
+    """Older artifacts must stay checkable against the contract they were written under."""
+    assert schema.PUBLISHED == ("1.0", "1.1", "1.2")
     for v in schema.PUBLISHED:
         assert (schema._SCHEMA_DIR / f"graph-v{v}.json").is_file(), v
 
@@ -143,6 +144,8 @@ def test_reads_a_1_0_artifact(eight_schools_ir):
     schematic (one generic bell for every family) is dropped with a note, not shown as exact."""
     d = eight_schools_ir.to_dict()
     d["meta"]["schema_version"] = "1.0"
+    for n in d["nodes"]:
+        del n["ndim"], n["observed_sources"]
     for e in d["edges"]:
         e.pop("target_token_ids", None)
     d["nodes"].append(
@@ -159,11 +162,56 @@ def test_reads_a_1_0_artifact(eight_schools_ir):
     assert tok and all(e.target_token_ids == [e.target_token_id] for e in tok)
     legacy = out.node("legacy")
     assert legacy.glyph is None and "legacy" in legacy.glyph_note
+    assert all(n.ndim is None and n.observed_sources == [] for n in out.nodes)
+
+
+def test_reads_1_1_without_reinterpreting_legacy_edges_or_applying_1_0_fixes():
+    old = {
+        "meta": {"schema_version": "1.1"},
+        "nodes": [
+            {
+                "id": "y",
+                "role": "observed",
+                "glyph": {"kind": "schematic", "source": "prior_family_only"},
+            },
+            {"id": "data", "role": "data"},
+        ],
+        "edges": [{"source": "y", "target": "data", "target_token_id": "old"}],
+    }
+    upgraded = ModelIR.from_dict(old)
+    assert upgraded.meta.schema_version == "1.2"
+    assert all(n.ndim is None and not n.observed_sources for n in upgraded.nodes)
+    assert upgraded.node("y").glyph.kind == "schematic"
+    (edge,) = upgraded.edges
+    assert (edge.source, edge.target, edge.target_token_id, edge.target_token_ids) == (
+        "y",
+        "data",
+        "old",
+        [],
+    )
+
+
+def test_1_2_round_trip_preserves_rank_and_observation_binding():
+    data = {
+        "meta": {"schema_version": "1.2"},
+        "nodes": [
+            {"id": "values", "role": "data", "ndim": 1},
+            {"id": "y", "role": "observed", "ndim": 1, "observed_sources": ["values"]},
+        ],
+    }
+    model_ir = to_ir(data)
+    assert model_ir.node("y").ndim == 1
+    assert model_ir.node("y").observed_sources == ["values"]
+    assert model_ir.edges == []
+    schema.validate(model_ir.to_dict())
+    assert ModelIR.from_json(model_ir.to_json()) == model_ir
+
+    data["nodes"][1]["observed_sources"] = ["missing"]
+    with pytest.raises(ValueError, match=r"node y: unknown observation sources .*missing"):
+        to_ir(data)
 
 
 def test_rejects_an_unsupported_major_version(eight_schools_ir):
-    import pytest
-
     d = eight_schools_ir.to_dict()
     d["meta"]["schema_version"] = "2.0"
     with pytest.raises(ValueError, match="not supported"):

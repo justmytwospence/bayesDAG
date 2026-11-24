@@ -21,7 +21,7 @@ _SCHEMA_DIR = Path(__file__).parent / "schema"
 _SCHEMA_FILE = _SCHEMA_DIR / f"graph-v{ir.SCHEMA_VERSION}.json"
 # Every published version stays in the wheel: an artifact written by an older bayesdag must stay
 # checkable against the contract it was written under.
-PUBLISHED = ("1.0", ir.SCHEMA_VERSION)
+PUBLISHED = ("1.0", "1.1", ir.SCHEMA_VERSION)
 
 
 def _type_schema(hint: Any, defs: dict[str, Any]) -> dict[str, Any]:
@@ -108,7 +108,8 @@ def check(model_ir: ir.ModelIR) -> None:
     """Semantic validation the JSON Schema cannot express: references resolve.
 
     Unique node ids and ``(source, target)`` pairs; known edge endpoints and target tokens;
-    known plate members and parents with no parent cycle; known block and aux-view references.
+    known observation sources, plate members and parents with no parent cycle;
+    known block and aux-view references.
     Raises ``ValueError`` listing every problem found."""
     problems: list[str] = []
     ids = [n.id for n in model_ir.nodes]
@@ -121,6 +122,10 @@ def check(model_ir: ir.ModelIR) -> None:
     if dpairs:
         problems.append(f"duplicate edges {dpairs}")
     by_id = {n.id: n for n in model_ir.nodes}
+    for n in model_ir.nodes:
+        missing = [s for s in n.observed_sources if s not in known]
+        if missing:
+            problems.append(f"node {n.id}: unknown observation sources {missing}")
     for e in model_ir.edges:
         for end in (e.source, e.target):
             if end not in known:

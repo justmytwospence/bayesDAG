@@ -85,6 +85,7 @@ jobs:
               "bayesdag/static/elk-worker.min.js",
               "bayesdag/schema/graph-v1.0.json",
               "bayesdag/schema/graph-v1.1.json",
+              "bayesdag/schema/graph-v1.2.json",
               "bayesdag/py.typed",
           }
           missing = sorted(required - names)

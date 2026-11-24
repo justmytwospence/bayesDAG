@@ -81,6 +81,8 @@ Why the shape and not a number: Hunter's [*Beyond path diagrams*](https://pmc.nc
 - **transfer function** — for a `pm.Deterministic`, the canonical shape of the function it computes, drawn only when that shape is provable from the op graph.
 - **implied distribution** — for a recognized structure, the distribution the construction provably implies (`theta = mu + tau*eta` with a standard-normal `eta` is exactly `theta ~ Normal(mu, tau)`).
 
+An observed node's card also identifies named data supplying its observed values. These observation bindings are separate from dependency arrows: the same data can supply observations and independently be a predictor.
+
 A node that has nothing honest to draw says why in a grey caption; a construct with no honest picture at all (a `CustomDist`, a `GARCH11`) gets an amber "elided" badge. `pm.Potential` terms are drawn as **log-density factors**, `log ψ = <expression>`: they are neither sampled nor observed, and because generic forward simulation ignores them, a model containing one gets no prior-predictive panels (the widget says so).
 
 Roles are distinguished by fill and border rather than by outline shape — every node is a rounded rectangle, which reads better with math labels inside than an ellipse does. If you come from SEM path diagrams, note the deliberate deviation: there, ellipse means latent and rectangle means observed. Here that distinction is carried by fill and border, and the legend spells out the mapping.

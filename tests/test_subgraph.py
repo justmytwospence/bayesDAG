@@ -3,8 +3,10 @@
 import pytest
 
 import bayesdag
-from bayesdag.convert import subgraph, to_ir
-from bayesdag.ir import ModelIR
+from bayesdag.blocks import BlockSpec, apply, overview
+from bayesdag.convert import drop_index_data, subgraph, to_ir
+from bayesdag.ir import EdgeIR, ModelIR, NodeIR
+from bayesdag.schema import check
 
 
 def test_to_ir_warns_when_idata_cannot_reach_the_adapter(eight_schools_ir):
@@ -54,6 +56,55 @@ def test_subgraph_keeps_selection_plus_direct_parents(eight_schools_ir):
     # pure function: the input IR is not mutated
     assert {n.id for n in eight_schools_ir.nodes} == {"mu", "tau", "eta", "theta", "y_obs"}
     assert isinstance(sub, ModelIR)
+
+
+@pytest.fixture
+def binding_ir():
+    return ModelIR(
+        nodes=[
+            NodeIR(id="idx", role="data", usage="index"),
+            NodeIR(id="y", role="observed", observed_sources=["idx"]),
+            NodeIR(id="downstream", role="deterministic", label_tex=r"a[\mathrm{idx}]"),
+        ],
+        edges=[EdgeIR("y", "downstream"), EdgeIR("idx", "downstream")],
+    )
+
+
+def test_selection_includes_observation_binding_as_context(binding_ir):
+    sub = subgraph(binding_ir, ["y"])
+    assert {n.id for n in sub.nodes} == {"y", "idx"}
+    assert sub.edges == []
+    assert sub.node("y").observed_sources == ["idx"]
+    check(sub)
+
+
+def test_subgraph_copies_nodes_whose_binding_is_omitted(binding_ir):
+    # Give the selected node just one parent so its parent's bound input is two hops away.
+    binding_ir.edges.pop()
+    sub = subgraph(binding_ir, ["downstream"])
+    assert {n.id for n in sub.nodes} == {"y", "downstream"}
+    assert sub.node("y").observed_sources == []
+    assert binding_ir.node("y").observed_sources == ["idx"]
+    check(sub)
+
+
+def test_drop_index_data_preserves_bound_inputs(binding_ir):
+    assert drop_index_data(binding_ir).node("idx") is not None
+    binding_ir.node("y").observed_sources.clear()
+    assert drop_index_data(binding_ir).node("idx") is None  # otherwise eligible to fold
+
+
+def test_overview_drops_hidden_binding_without_adding_an_edge(binding_ir):
+    annotated = apply(binding_ir, [BlockSpec(kind="custom", title="Index", members=["idx"])])
+    projected = overview(annotated)
+    assert projected.node("idx") is None
+    assert projected.node("y").observed_sources == []
+    assert {(e.source, e.target) for e in projected.edges} == {
+        ("block:index", "downstream"),
+        ("y", "downstream"),
+    }
+    assert annotated.node("y").observed_sources == ["idx"]
+    check(projected)
 
 
 def test_subgraph_drops_empty_plates_and_rejects_unknown(eight_schools_ir):

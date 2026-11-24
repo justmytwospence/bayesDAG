@@ -1,13 +1,117 @@
 """Graph fidelity: every dependency survives conversion, ids are unambiguous, and references
 resolve (schema.check)."""
 
+import networkx as nx
 import numpy as np
 import pymc as pm
+import pytensor.tensor as pt
 import pytest
 
 from bayesdag import schema
+from bayesdag.adapters import to_networkx
 from bayesdag.convert import subgraph, to_ir
 from bayesdag.ir import AuxViewIR, BlockIR, EdgeIR, ModelIR, NodeIR, PlateIR
+
+
+def _lagged(*, named):
+    with pm.Model() as model:
+        series = pm.Data("series", np.arange(5.0))
+        slope = pm.Normal("slope")
+        mean = slope * series[:-1]
+        if named:
+            mean = pm.Deterministic("mean", mean)
+        pm.Normal("y", mean, 1, observed=series[1:])
+    return to_ir(model)
+
+
+def test_lagged_predictor_keeps_dependencies_when_named():
+    inline = _lagged(named=False)
+    named = _lagged(named=True)
+    inline_graph, named_graph = to_networkx(inline), to_networkx(named)
+    assert {(e.source, e.target, e.target_token_id) for e in inline.edges} == {
+        ("series", "y", "loc"),
+        ("slope", "y", "loc"),
+    }
+    assert {(e.source, e.target, e.target_token_id) for e in named.edges} == {
+        ("series", "mean", "series"),
+        ("slope", "mean", "slope"),
+        ("mean", "y", "loc"),
+    }
+    remaining = set(inline_graph)
+    for u in remaining:
+        assert nx.descendants(inline_graph, u) == nx.descendants(named_graph, u) & remaining
+    for ir, graph in [(inline, inline_graph), (named, named_graph)]:
+        assert nx.is_directed_acyclic_graph(graph)
+        assert ir.node("y").observed_sources == ["series"]
+        assert ir.node("series").ndim == ir.node("y").ndim == 1  # unnamed vectors
+        assert ir.node("series").dims == ir.node("y").dims == []
+        assert ir.node("slope").ndim == 0
+        schema.check(ir)
+
+
+@pytest.mark.parametrize("used_in_parameter", [False, True])
+def test_direct_observation_binding_is_not_an_edge(used_in_parameter):
+    with pm.Model() as model:
+        data = pm.Data("data", np.arange(4.0))
+        y = pm.Normal("y", data if used_in_parameter else 0, 1, observed=data)
+    assert model.rvs_to_values[y] is data
+    ir = to_ir(model)
+    assert ir.node("y").observed_sources == ["data"]
+    assert [(e.source, e.target, e.target_token_ids) for e in ir.edges] == (
+        [("data", "y", ["loc"])] if used_in_parameter else []
+    )
+    schema.check(ir)
+
+
+@pytest.mark.parametrize("named", [False, True])
+def test_shape_parameter_dependency_survives_observation_binding(named):
+    with pm.Model() as model:
+        data = pm.Data("data", np.arange(4.0))
+        source = pm.Deterministic("intermediate", data + 1) if named else data
+        pm.Normal("y", source.shape[0], 1, observed=data)
+    ir = to_ir(model)
+    assert ir.node("y").observed_sources == ["data"]
+    parent = "intermediate" if named else "data"
+    assert ir.node("y").params[0].parents == [parent]
+    edges = {
+        (e.source, e.target, e.target_token_ids[0] if e.target_token_ids else None)
+        for e in ir.edges
+    }
+    expected = {(parent, "y", "loc")}
+    if named:
+        expected.add(("data", "intermediate", "data"))
+    assert edges == expected
+    schema.check(ir)
+
+
+def test_shape_used_only_for_size_and_observation_is_not_parameter_edge():
+    with pm.Model() as model:
+        data = pm.Data("data", np.arange(4.0))
+        pm.Normal("y", 0, 1, size=data.shape[0], observed=data)
+    ir = to_ir(model)
+    assert ir.node("y").observed_sources == ["data"]
+    assert not ir.edges
+    schema.check(ir)
+
+
+@pytest.mark.parametrize("known_slots", [False, True])
+def test_named_observation_binding_stops_at_nearest_input(monkeypatch, known_slots):
+    from bayesdag.adapters import pymc as adapter
+
+    with pm.Model() as model:
+        count = pm.Data("count", np.int64(4))
+        readings = pm.Deterministic("readings", pt.arange(count))
+        pm.Normal("y", 0, 1, size=count, observed=readings)
+    if not known_slots:
+        monkeypatch.setattr(adapter, "_dist_params", lambda var: None)
+    ir = to_ir(model)
+    assert ir.node("y").observed_sources == ["readings"]
+    expected = {("count", "readings")}
+    if not known_slots:
+        expected.add(("count", "y"))  # cannot prove the count only supplies size
+    assert {(e.source, e.target) for e in ir.edges} == expected
+    assert nx.is_directed_acyclic_graph(to_networkx(ir))
+    schema.check(ir)
 
 
 def test_a_parent_feeding_two_slots_keeps_both():

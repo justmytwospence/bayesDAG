@@ -1,9 +1,9 @@
 """``from_pymc(model, idata=None) -> ModelIR``.
 
 All PyMC-isms live here (the rest of bayesdag never imports pymc). We reuse PyMC's own
-``ModelGraph`` for the authoritative topology (it already handles observed-edge reversal
-and plate grouping) and add the one thing it lacks: **slot-aware** parameter extraction,
-so an edge can point at the specific parameter token in the child's equation.
+``ModelGraph`` for variable selection, computational parents, and plate grouping. Observation
+bindings are metadata, not reversed edges. Slot-aware parameter extraction lets an edge point
+at the specific parameter token in the child's equation.
 
 Built against pymc 6.x; relies only on stable surfaces (`model_graph.ModelGraph`,
 `model.{free_RVs,observed_RVs,deterministics,data_vars,potentials,named_vars,
@@ -82,15 +82,43 @@ def _direct_named_parents(
     return out
 
 
+def _dist_params(var: Any) -> list[Any] | None:
+    """Only the op knows which inputs are parameters. None means the slots are unknown."""
+    try:
+        return list(var.owner.op.dist_params(var.owner))
+    except Exception:
+        return None
+
+
+def _observed_relationships(
+    var: Any, value: Any, named: dict[int, str], parents: set[str]
+) -> tuple[list[str], set[str]]:
+    """Nearest named inputs bind the observed values, independently of generative edges."""
+    from pytensor.graph.traversal import ancestors
+
+    sources = sorted(_direct_named_parents(value, named, exclude=var.name))
+    if not sources or not parents:
+        return sources, parents
+    dparams = _dist_params(var)
+    if dparams is None:  # no proof that an upstream input is only used for sizing
+        return sources, parents
+    parameter_parents = {p for param in dparams for p in _direct_named_parents(param, named)}
+    if parents <= parameter_parents:
+        return sources, parents
+    # A bound expression can also supply the RV's size. Its upstream inputs may surface
+    # directly via the size graph even if the binding itself stops at a nearer named input.
+    observation_ancestors = {named[id(v)] for v in ancestors([value]) if id(v) in named}
+    return sources, parents - (observation_ancestors - parameter_parents)
+
+
 def _rv_dist_and_params(var: Any, named: dict[int, str]) -> tuple[str | None, list[ParamIR]]:
     node = var.owner
     op = node.op
     pn = getattr(op, "_print_name", None)
     dist = pn[0] if pn else type(op).__name__.removesuffix("RV")
-    try:
-        dparams = list(op.dist_params(node))
-    except Exception:
-        dparams = list(node.inputs[2:])  # (rng, size, *params)
+    dparams = _dist_params(var)
+    if dparams is None:
+        dparams = list(node.inputs[2:])  # best effort for the label only, not edge direction
     names = _resolved_param_names(dist, op, len(dparams))
     params: list[ParamIR] = []
     for i, (nm, val) in enumerate(zip(names, dparams, strict=True)):  # names sized to dparams
@@ -265,8 +293,9 @@ def from_pymc(model: Any, idata: Any = None, *, blocks: bool = True) -> ModelIR:
     n2d = dict(model.named_vars_to_dims)
     transforms = model.rvs_to_transforms
 
-    compute = g.make_compute_graph()
-    var_names = list(compute)
+    var_names = g.vars_to_plot()
+    visible = {id(model[name]): name for name in var_names}
+    compute: dict[str, set[str]] = {}
     index_usage = _index_only_data(model, role_of)
 
     # child -> {parent_name: [token_id, ...]} — every slot a parent feeds, in slot order
@@ -277,6 +306,23 @@ def from_pymc(model: Any, idata: Any = None, *, blocks: bool = True) -> ModelIR:
         var = model[name]
         role = role_of.get(id(var), "latent")
         observed = role == "observed"
+        parents = g.get_parent_names(var)
+        sources: list[str] = []
+        if observed:
+            sources, parents = _observed_relationships(
+                var, model.rvs_to_values[var], visible, parents
+            )
+        if role in ("latent", "observed") and getattr(var, "owner", None) is not None:
+            # ModelGraph prunes Shape, so recover direct named dependencies from actual
+            # parameter slots (never the observation, size, or label-only fallback).
+            dparams = _dist_params(var)
+            if dparams is not None:
+                parents = parents | {
+                    parent
+                    for param in dparams
+                    for parent in _direct_named_parents(param, visible, exclude=name)
+                }
+        compute[name] = parents
         dist: str | None = None
         params: list[ParamIR] = []
         label_tex, label_tree = labels.assemble_bare(name)
@@ -343,6 +389,8 @@ def from_pymc(model: Any, idata: Any = None, *, blocks: bool = True) -> ModelIR:
                 representable=elision is None,
                 elision_reason=elision,
                 glyph_note=glyph_note,
+                ndim=getattr(var, "ndim", None),
+                observed_sources=sources,
             )
         )
 

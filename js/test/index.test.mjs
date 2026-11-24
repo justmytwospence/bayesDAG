@@ -91,6 +91,17 @@ function body(el, id) {
   return el.querySelector(`.bd-body[data-node="${id}"]`);
 }
 
+test("observation bindings are shown separately and escaped", async () => {
+  const ctx = setup();
+  ctx.state.spec.nodes.mu.observed_sources = ["data<unsafe>"];
+  const mod = await import("../index.js");
+  mod.default.render({ model: ctx.model, el: ctx.el });
+  body(ctx.el, "mu").dispatchEvent(new ctx.dom.window.MouseEvent("click", { bubbles: true }));
+  const card = ctx.el.querySelector(".bd-card");
+  assert.match(card.textContent, /Observed values from: data<unsafe>/);
+  assert.equal(card.querySelector("unsafe"), null);
+});
+
 test("the fit toggle only flips a class", async () => {
   const { el } = await mount();
   const btn = el.querySelector(".bd-toolbar button");

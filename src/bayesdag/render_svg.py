@@ -869,4 +869,7 @@ def _a11y(ir: ModelIR) -> str:
     tags = sorted({n.tag for n in ir.nodes if n.tag})
     if tags:
         desc += "; recognized structures: " + ", ".join(tags)
+    for n in ir.nodes:
+        if n.observed_sources:
+            desc += f"; {n.id}: Observed values from: {', '.join(n.observed_sources)}"
     return f"<title>bayesdag diagram of {escape(name)}</title><desc>{escape(desc)}</desc>"

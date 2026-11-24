@@ -21,7 +21,7 @@ import types
 from dataclasses import dataclass, field, is_dataclass
 from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 SCHEMA_MAJOR = 1
 
 # Structural identity of a node (fixed). NOTE: ``observed`` below is a *separate*,
@@ -144,6 +144,8 @@ class NodeIR:
     label_svg: str | None = None
     box: Box | None = None
     port_anchors: dict[str, Box] = field(default_factory=dict)  # token_id -> bbox in node-local px
+    ndim: int | None = None  # tensor rank, independent of named dims; None means unknown
+    observed_sources: list[str] = field(default_factory=list)  # bound inputs, not parents
 
 
 @dataclass
@@ -272,7 +274,9 @@ class ModelIR:
     def from_dict(cls, data: dict[str, Any]) -> ModelIR:
         """Read any 1.x IR dict. A 1.0 artifact is upgraded: its singular edge token fills the
         new token list, and a ``prior_family_only`` schematic (which 1.0 drew as one generic bell
-        whatever the family) is dropped with a note rather than shown as if it were exact."""
+        whatever the family) is dropped with a note rather than shown as if it were exact.
+        Older artifacts have unknown rank and no observation bindings by default; their edges
+        are left in place."""
         version = str((data.get("meta") or {}).get("schema_version") or SCHEMA_VERSION)
         try:
             major = int(version.split(".")[0])
@@ -284,7 +288,7 @@ class ModelIR:
                 f"{SCHEMA_MAJOR}.x)"
             )
         out = _from_dict(cls, data)
-        if version != SCHEMA_VERSION:
+        if version == "1.0":
             for e in out.edges:
                 if e.target_token_id and not e.target_token_ids:
                     e.target_token_ids = [e.target_token_id]
@@ -298,7 +302,7 @@ class ModelIR:
                 ):
                     n.glyph, n.glyph_data = None, None
                     n.glyph_note = "legacy schematic (unverified shape) omitted"
-            out.meta.schema_version = SCHEMA_VERSION
+        out.meta.schema_version = SCHEMA_VERSION
         return out
 
     def to_json(self, **kw: Any) -> str:

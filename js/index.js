@@ -251,6 +251,7 @@ export default {
         if (n.tag && !isBlock) rows.push(`<div class="bd-tag-line">${esc(n.tag)}</div>`);
         if (n.label_svg) rows.push(`<div class="bd-math">${n.label_svg}</div>`);
         if (n.dist) rows.push(`<div>distribution: <b>${esc(n.dist)}</b></div>`);
+        if (n.observed_sources && n.observed_sources.length) rows.push(`<div>Observed values from: ${esc(n.observed_sources.join(", "))}</div>`);
         if (n.dims && n.dims.length) rows.push(`<div>dims: ${esc(n.dims.join(" × "))}</div>`);
         if (n.transform) rows.push(`<div>transform: ${esc(n.transform)}</div>`);
         if (n.diag && n.diag.length) {

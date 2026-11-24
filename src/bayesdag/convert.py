@@ -54,10 +54,10 @@ def to_ir(obj: Any, idata: Any = None, *, blocks: bool = True) -> ModelIR:
 
 
 def subgraph(ir: ModelIR, var_names: Sequence[str]) -> ModelIR:
-    """A new ``ModelIR`` restricted to ``var_names`` plus their direct parents (one hop of
-    context; PyMC's own ``model_to_graphviz(var_names=...)`` keeps all ancestors). Pure omission — edges are
-    induced on the kept set, plate member lists pruned, empty plates dropped; nothing is
-    fabricated and the input IR is not mutated."""
+    """A new ``ModelIR`` restricted to ``var_names`` plus their direct parents and bound
+    observation inputs (one hop of context, not recursive). Pure omission: edges are induced
+    on the kept set, plate member lists pruned, empty plates dropped; nothing is fabricated
+    and the input IR is not mutated."""
     ids = {n.id for n in ir.nodes}
     unknown = [v for v in var_names if v not in ids]
     if unknown:
@@ -68,6 +68,18 @@ def subgraph(ir: ModelIR, var_names: Sequence[str]) -> ModelIR:
     for e in ir.edges:  # one hop of context: the direct parents of every selected node
         if e.target in var_names:
             keep.add(e.source)
+    for n in ir.nodes:
+        if n.id in var_names:
+            keep.update(n.observed_sources)
+    nodes = []
+    for n in ir.nodes:
+        if n.id in keep:
+            sources = [s for s in n.observed_sources if s in keep]
+            nodes.append(
+                n
+                if sources == n.observed_sources
+                else dataclasses.replace(n, observed_sources=sources)
+            )
     plates = []
     for p in ir.plates:
         members = [m for m in p.members if m in keep]
@@ -80,7 +92,7 @@ def subgraph(ir: ModelIR, var_names: Sequence[str]) -> ModelIR:
 
     return dataclasses.replace(
         ir,
-        nodes=[n for n in ir.nodes if n.id in keep],
+        nodes=nodes,
         edges=[e for e in ir.edges if e.source in keep and e.target in keep],
         plates=[
             p
@@ -103,17 +115,18 @@ def subgraph(ir: ModelIR, var_names: Sequence[str]) -> ModelIR:
 def drop_index_data(ir: ModelIR) -> ModelIR:
     """A new ``ModelIR`` without the index-only ``pm.Data`` nodes (``usage == "index"``: integer
     lookup tables such as ``county_idx``) — but only those whose name every consumer's equation
-    already shows (``a[county_idx]``), so nothing the reader needs leaves the page. Pure
-    omission: their edges and plate memberships go with them; the input IR is not mutated."""
+    already shows (``a[county_idx]``) and that don't supply observed values. Pure omission:
+    their edges and plate memberships go with them; the input IR is not mutated."""
     from .labels import symbol_for
 
     by_id = {n.id: n for n in ir.nodes}
     consumers: dict[str, list[str]] = {}
     for e in ir.edges:
         consumers.setdefault(e.source, []).append(e.target)
+    bound = {s for n in ir.nodes for s in n.observed_sources}
     drop = set()
     for n in ir.nodes:
-        if n.usage != "index":
+        if n.usage != "index" or n.id in bound:
             continue
         sym = symbol_for(n.id)
         kids = consumers.get(n.id, [])

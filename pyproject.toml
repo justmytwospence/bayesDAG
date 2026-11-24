@@ -76,7 +76,7 @@ artifacts = ["src/bayesdag/static/*"]
 packages = ["src/bayesdag"]
 # The published JSON Schema is advertised as "the language-neutral contract other tools can
 # consume" — it has to actually be IN the wheel, and it isn't a .py so only-packages drops it.
-force-include = { "src/bayesdag/schema/graph-v1.0.json" = "bayesdag/schema/graph-v1.0.json", "src/bayesdag/schema/graph-v1.1.json" = "bayesdag/schema/graph-v1.1.json", "THIRD_PARTY_LICENSES" = "bayesdag-0.0.1.dist-info/licenses/THIRD_PARTY_LICENSES" }
+force-include = { "src/bayesdag/schema/graph-v1.0.json" = "bayesdag/schema/graph-v1.0.json", "src/bayesdag/schema/graph-v1.1.json" = "bayesdag/schema/graph-v1.1.json", "src/bayesdag/schema/graph-v1.2.json" = "bayesdag/schema/graph-v1.2.json", "THIRD_PARTY_LICENSES" = "bayesdag-0.0.1.dist-info/licenses/THIRD_PARTY_LICENSES" }
 
 # The sdist must carry the JS SOURCES, not just the built bundles: a wheel built from the sdist
 # runs the npm build, and without package.json it failed outright. Shipping both means a source

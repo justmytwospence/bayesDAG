@@ -364,8 +364,9 @@ def _worst_diag(members: list[str], by_id: dict[str, NodeIR]) -> dict | None:
 def overview(ir: ModelIR, *, expand: Collection[str] = ()) -> ModelIR:
     """The display projection: each contracting block becomes ONE compound node carrying the
     block's implied line and its members' equations; every edge crossing the block boundary is
-    kept (``EdgeIR.via`` lists the canonical edges it stands for); internal edges go. The input
-    is not mutated. With nothing to contract, returns ``ir`` itself."""
+    kept (``EdgeIR.via`` lists the canonical edges it stands for); internal edges go. Observation
+    bindings remain metadata and only refer to visible sources. The input is not mutated.
+    With nothing to contract, returns ``ir`` itself."""
     blocks = contracting(ir, expand)
     if not blocks:
         return ir
@@ -395,6 +396,7 @@ def overview(ir: ModelIR, *, expand: Collection[str] = ()) -> ModelIR:
     for n in out.nodes:
         bid = member_to_block.get(n.id)
         if bid is None:
+            n.observed_sources = [s for s in n.observed_sources if s not in member_to_block]
             new_nodes.append(n)
             continue
         if bid in placed:
