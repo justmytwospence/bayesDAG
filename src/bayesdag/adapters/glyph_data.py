@@ -245,13 +245,28 @@ def _pmf(dist: str, p: list, max_cats: int = 40) -> dict | None:
             if fr is None:
                 return None
             lo, hi = int(fr.ppf(0.001)), int(fr.ppf(0.999))
-            hi = min(hi, lo + max_cats - 1)
-            cats = list(range(lo, hi + 1))
-            heights = np.asarray(fr.pmf(np.array(cats)), float)
+            bins = _integer_bins(lo, hi, max_cats)
+            cats = [a for a, _ in bins]
+            heights = np.array(
+                [
+                    fr.pmf(a)
+                    if a == b
+                    else (
+                        fr.cdf(b) - fr.cdf(a - 1) if fr.cdf(b) <= 0.5 else fr.sf(a - 1) - fr.sf(b)
+                    )
+                    for a, b in bins
+                ]
+            )
+            tails = {"left": float(fr.cdf(lo - 1)), "right": float(fr.sf(hi))}
         if heights.size == 0 or not np.all(np.isfinite(heights)) or heights.max() <= 0:
             return None
         m = float(heights.max()) or 1.0
-        return {"cats": [int(c) for c in cats], "heights": [float(h / m) for h in heights]}
+        result = {"cats": [int(c) for c in cats], "heights": [float(h / m) for h in heights]}
+        if dist != "Categorical":
+            result.update(bins=bins, masses=heights.tolist(), tails=tails)
+            if any(a != b for a, b in bins):
+                result["binned"] = True
+        return result
     except Exception:
         return None
 
@@ -356,6 +371,20 @@ _DISCRETE = {
 }
 
 
+def _integer_bins(lo: int, hi: int, max_bins: int) -> list[tuple[int, int]]:
+    """Partition an inclusive integer span without allocating for every integer."""
+    if hi < lo or max_bins < 1:
+        raise ValueError("invalid integer range or bin limit")
+    width = hi - lo + 1
+    step = (width + max_bins - 1) // max_bins
+    return [(start, min(start + step - 1, hi)) for start in range(lo, hi + 1, step)]
+
+
+def _bin_frequencies(values: np.ndarray, bins: list[tuple[int, int]]) -> np.ndarray:
+    ends = np.asarray([b for _, b in bins])
+    return np.bincount(np.searchsorted(ends, values), minlength=len(bins)) / values.size
+
+
 def _discrete_bars(values, max_cats: int = 30) -> dict | None:
     """Per-value frequencies for integer data or draws — one bar per value (empty interior values
     kept, so a pmf's gaps stay visible). A range wider than ``max_cats`` is grouped into at most
@@ -363,32 +392,21 @@ def _discrete_bars(values, max_cats: int = 30) -> dict | None:
     rounded: they return None."""
     try:
         v = np.asarray(values, float).ravel()
-        v = v[np.isfinite(v)]
-        if v.size == 0 or not np.all(v == np.round(v)):
+        if v.size == 0 or not np.all(np.isfinite(v)) or not np.all(v == np.round(v)):
             return None
-        vals, counts = np.unique(v.astype(np.int64), return_counts=True)  # sparse: no full range
-        lo, hi = int(vals[0]), int(vals[-1])
-        width = hi - lo + 1
-        if width <= max_cats:
-            full = np.zeros(width)
-            full[vals - lo] = counts
-            m = float(full.max()) or 1.0
-            return {
-                "cats": list(range(lo, hi + 1)),
-                "heights": [float(c / m) for c in full],
-                "n": int(v.size),
-            }
-        step = int(np.ceil(width / max_cats))
-        nb = int(np.ceil(width / step))
-        binned = np.zeros(nb)
-        np.add.at(binned, (vals - lo) // step, counts)
-        m = float(binned.max()) or 1.0
-        return {
-            "cats": [lo + i * step for i in range(nb)],
-            "heights": [float(c / m) for c in binned],
+        bins = _integer_bins(int(v.min()), int(v.max()), max_cats)
+        frequencies = _bin_frequencies(v, bins)
+        m = float(frequencies.max())
+        result = {
+            "cats": [a for a, _ in bins],
+            "bins": bins,
+            "frequencies": frequencies.tolist(),
+            "heights": (frequencies / m).tolist(),
             "n": int(v.size),
-            "binned": step,
         }
+        if any(a != b for a, b in bins):
+            result["binned"] = True
+        return result
     except Exception:
         return None
 
@@ -653,21 +671,31 @@ def _ppc_continuous(o: np.ndarray, flat: np.ndarray) -> dict | None:
 
 
 def _ppc_discrete(o: np.ndarray, flat: np.ndarray) -> dict | None:
-    o = o[np.isfinite(o)]
-    if o.size == 0 or not np.all(o == np.round(o)):
+    o = np.asarray(o, float).ravel()
+    flat = np.asarray(flat, float)
+    if (
+        not o.size
+        or flat.ndim != 2
+        or not flat.size
+        or not np.all(np.isfinite(o))
+        or not np.all(np.isfinite(flat))
+        or not np.all(o == np.round(o))
+        or not np.all(flat == np.round(flat))
+    ):
         return None
-    allv = flat[np.isfinite(flat)]
-    lo = int(min(o.min(), np.percentile(allv, 0.5)))
-    hi = int(max(o.max(), np.percentile(allv, 99.5)))
-    hi = min(hi, lo + 39)
-    cats = np.arange(lo, hi + 1)
-    obs = np.array([np.mean(o == c) for c in cats])
-    per_draw = np.stack([(flat == c).mean(axis=1) for c in cats], axis=1)  # (S, C)
+    bins = _integer_bins(int(min(o.min(), flat.min())), int(max(o.max(), flat.max())), 40)
+    obs = _bin_frequencies(o, bins)
+    per_draw = np.stack([_bin_frequencies(row, bins) for row in flat])
     med = np.median(per_draw, axis=0)
     q05, q95 = np.percentile(per_draw, [5, 95], axis=0)
     m = float(max(obs.max(), q95.max())) or 1.0
     return {
-        "cats": [int(c) for c in cats],
+        "cats": [a for a, _ in bins],
+        "bins": bins,
+        "binned": any(a != b for a, b in bins),
+        "frequencies": obs.tolist(),
+        "pred_frequencies": per_draw.tolist(),
+        "tails": {"left": 0.0, "right": 0.0},
         "heights": [float(h / m) for h in obs],
         "pred_mid": [float(h / m) for h in med],
         "pred_lo": [float(h / m) for h in q05],

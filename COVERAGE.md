@@ -102,7 +102,7 @@ oracle tests in `test_constructs.py` / `test_glyph.py`; the third is the structu
 - [x] diagnostic badges: R-hat / ESS (worst element on vectors, hedged wording, no R-hat from a single chain) + a model-level divergence note
 - [x] funnel auto-flag (structural, and only once a run has divergences to explain)
 - [x] graph-selected divergence joint — the first real `AuxViewIR`; prefers `unconstrained_posterior`, labels a computed `log τ` axis as computed; draws joined by chain/draw coordinates; counts transitions
-- [x] predictive checks from supplied `posterior_predictive` / `prior_predictive` draws (`ppc` glyph)
+- [x] predictive checks from supplied `posterior_predictive` / `prior_predictive` draws (`ppc` glyph); wide count ranges use shared integer bins instead of dropping tail values
 - [x] linked views: `selected_node` as a read-back API (`view.ui()` / `view.on_select`)
 - [ ] MCSE badges · divergence attribution · energy/BFMI · parallel-coordinates
 - [ ] layout persistence — capture a hand-arranged layout from the widget and replay it byte-identically from the static renderer (the lavaangui `plot`/`export_plot` split; the one-layout-pass design is most of the way there)

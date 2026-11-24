@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-from .glyph_data import _DISCRETE, _observed_values, _thin
+from .glyph_data import _DISCRETE, _bin_frequencies, _integer_bins, _observed_values, _thin
 
 _GRID = 48
 _MAX_CURVES = 40
@@ -44,24 +44,26 @@ def potential_note(model: Any) -> str | None:
     return f"forward simulation ignores the model's {n} Potential{'s' if n != 1 else ''}"
 
 
-def _discrete_curves(flat: np.ndarray, n_inst: int):
-    """Per-instance relative frequencies on a shared INTEGER support (a KDE would put mass on
-    values a count cannot take)."""
-    finite = flat[np.isfinite(flat)]
-    if finite.size == 0 or not np.all(finite == np.round(finite)):
+def _discrete_curves(flat: np.ndarray, n_inst: int, observed=None):
+    """Per-instance frequencies over shared inclusive integer bins."""
+    values = np.asarray(flat, float)
+    obs = np.asarray(observed if observed is not None else [], float).ravel()
+    if (
+        values.ndim != 2
+        or not values.size
+        or not np.all(np.isfinite(values))
+        or not np.all(values == np.round(values))
+        or not np.all(np.isfinite(obs))
+        or not np.all(obs == np.round(obs))
+    ):
         return None
-    lo, hi = np.percentile(finite, [0.5, 99.5])
-    lo, hi = int(np.floor(lo)), int(np.ceil(hi))
-    hi = min(hi, lo + 60)
-    cats = np.arange(lo, hi + 1)
-    curves = []
-    for i in range(min(n_inst, _MAX_CURVES)):
-        col = flat[:, i]
-        col = col[np.isfinite(col)]
-        if col.size == 0:
-            continue
-        curves.append(np.array([np.mean(col == c) for c in cats], float))
-    return (cats.astype(float), curves) if curves else None
+    lo, hi = values.min(), values.max()
+    if obs.size:
+        lo, hi = min(lo, obs.min()), max(hi, obs.max())
+    bins = _integer_bins(int(lo), int(hi), 40)
+    curves = [_bin_frequencies(values[:, i], bins) for i in range(min(n_inst, _MAX_CURVES))]
+    xs = np.array([(a + b) / 2 for a, b in bins])
+    return (xs, curves, bins) if curves else None
 
 
 def prior_predictive_expansions(model: Any, ir: Any, draws: int = 200) -> dict[str, dict]:
@@ -104,11 +106,12 @@ def prior_predictive_expansions(model: Any, ir: Any, draws: int = 200) -> dict[s
             if finite.size < 2:
                 continue
             discrete = bool(node.dist in _DISCRETE) if node.dist else False
+            obs = _observed_values(model[vid], model) if node.role == "observed" else None
             if discrete:
-                got = _discrete_curves(flat, n_inst)
+                got = _discrete_curves(flat, n_inst, obs)
                 if got is None:
                     continue
-                xs, curves = got
+                xs, curves, bins = got
             else:
                 lo, hi = np.percentile(finite, [0.5, 99.5])
                 if not (hi > lo):
@@ -131,11 +134,12 @@ def prior_predictive_expansions(model: Any, ir: Any, draws: int = 200) -> dict[s
                 "xs": [float(x) for x in xs],
                 "curves": [[float(y / peak) for y in c] for c in curves],
             }
-            if node.role == "observed":
-                obs = _observed_values(model[vid], model)
-                if obs is not None:
-                    o = np.asarray(obs, float).ravel()
-                    member["observed"] = [float(v) for v in o[np.isfinite(o)]]
+            if discrete:
+                member["bins"] = bins
+                member["frequencies"] = [c.tolist() for c in curves]
+            if obs is not None:
+                o = np.asarray(obs, float).ravel()
+                member["observed"] = [float(v) for v in o[np.isfinite(o)]]
             members.append(member)
         if members:
             out[plate.id] = {"status": "ready", "label": plate.label, "members": members}

@@ -271,10 +271,17 @@ def render_plate_panel(expansion: dict) -> str:
             'fill="#fafafa" stroke="#eeeeee"/>'
         )
         xs = mem["xs"]
-        for c in mem["curves"]:
-            out.append(_panel_curve(xs, c, box, step=bool(mem.get("discrete"))))
-        if mem.get("observed"):
+        bins = mem.get("bins")
+        if bins:
+            x0, x1 = bins[0][0] - 0.5, bins[-1][1] + 0.5
+            plot_xs = [x0, *xs, x1]
+        else:
             x0, x1 = xs[0], xs[-1]
+            plot_xs = xs
+        for c in mem["curves"]:
+            plot_c = [c[0], *c, c[-1]] if bins else c
+            out.append(_panel_curve(plot_xs, plot_c, box, step=bool(mem.get("discrete"))))
+        if mem.get("observed"):
             span = (x1 - x0) or 1.0
             for v in mem["observed"]:
                 if x0 <= v <= x1:
@@ -310,6 +317,8 @@ def render_observed_panel(node_id: str, dist: str | None, glyph_data: dict) -> s
     n_str = f" (n={n})" if n else ""
 
     def _fmt(v) -> str:
+        if isinstance(v, str):
+            return v
         return str(int(v)) if float(v).is_integer() else f"{float(v):.3g}"
 
     if heights:  # discrete: one bar per class
@@ -318,6 +327,11 @@ def render_observed_panel(node_id: str, dist: str | None, glyph_data: dict) -> s
         sub = "discrete likelihood — observed class proportions"
         caption = ""
         cats = glyph_data.get("cats") or list(range(len(heights)))
+        bins = glyph_data.get("bins")
+        if bins:
+            cats = [str(a) if a == b else f"{a}–{b}" for a, b in bins]
+            if glyph_data.get("binned"):
+                sub = "discrete likelihood — probability per bin"
         k = len(cats)
         _, centers = glyph_bar_layout(k, plot)  # tick under each bar center (kept in sync)
         idxs = range(k) if k <= 10 else (0, k // 2, k - 1)
@@ -617,6 +631,12 @@ def render_node_panel(n) -> str:
             caption += f" (every {total // shown}th rank shown)"
     if n.glyph.kind == "ppc":
         caption += " · bars = data, orange = the model's replicates"
+    bins = gd.get("bins")
+    if bins and gd.get("binned"):
+        caption += " · probability per bin"
+    tails = gd.get("tails")
+    if tails and (tails.get("left", 0) or tails.get("right", 0)):
+        caption += f" · omitted tails: {tails['left']:.2%} left, {tails['right']:.2%} right"
     spikes = (n.glyph_data or {}).get("spikes") or []
     ps = [sp["p"] for sp in spikes if isinstance(sp, dict) and sp.get("p") is not None]
     if ps:  # the bars are deliberately exaggerated to be visible — give the real numbers
@@ -631,6 +651,14 @@ def render_node_panel(n) -> str:
         'fill="#fafafa" stroke="#eeeeee"/>',
         glyph.render(n.glyph.kind, n.glyph_data, plot, stroke=stroke, fill=fill, overlay=_OVERLAY),
     ]
+    if bins and gd.get("binned"):
+        labels = [f"{a}–{b}" if a != b else str(a) for a, b in bins]
+        for i, anchor in ((0, "start"), (len(labels) - 1, "end")):
+            x = plot.x if i == 0 else plot.x + plot.w
+            out.append(
+                f'<text x="{x:.1f}" y="{plot.y + plot.h + 9:.1f}" '
+                f'text-anchor="{anchor}" font-size="8" fill="#777">{escape(labels[i])}</text>'
+            )
     if coord_labels:
         ch = plot.h / len(coord_labels)
         for i, s in enumerate(coord_labels):
@@ -872,4 +900,11 @@ def _a11y(ir: ModelIR) -> str:
     for n in ir.nodes:
         if n.observed_sources:
             desc += f"; {n.id}: Observed values from: {', '.join(n.observed_sources)}"
+        data = n.glyph_data or {}
+        if data.get("binned") and data.get("bins"):
+            bins = data["bins"]
+            desc += f"; {n.id}: probability per integer bin, {bins[0][0]}–{bins[-1][1]}"
+            tails = data.get("tails")
+            if tails and (tails.get("left", 0) or tails.get("right", 0)):
+                desc += f"; omitted tails: {tails['left']:.2%} left, {tails['right']:.2%} right"
     return f"<title>bayesdag diagram of {escape(name)}</title><desc>{escape(desc)}</desc>"

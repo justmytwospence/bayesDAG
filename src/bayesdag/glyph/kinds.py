@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import math
+from html import escape
 from typing import Any
 
 from ..ir import Box
@@ -189,12 +190,20 @@ def render_bars(data: dict[str, Any], box: Box, *, fill="#5a7fb5", stroke="#3a5f
     bw, centers = bar_layout(len(heights), box)
     base = box.y + box.h
     out = []
-    for hgt, cx in zip(heights, centers, strict=False):  # centers derived from len(heights)
+    bins = data.get("bins") if data.get("binned") else None
+    for i, (hgt, cx) in enumerate(zip(heights, centers, strict=False)):
         bh = max(0.0, min(1.0, hgt)) * box.h
-        out.append(
+        rect = (
             f'<rect x="{cx - bw / 2:.1f}" y="{base - bh:.1f}" width="{bw:.1f}" height="{bh:.1f}" '
-            f'fill="{fill}" stroke="{stroke}" stroke-width="0.4"/>'
+            f'fill="{fill}" stroke="{stroke}" stroke-width="0.4"'
         )
+        if bins and i < len(bins):
+            a, b = bins[i]
+            label = escape(f"{a}–{b}" if a != b else str(a))
+            out.append(f"{rect}><title>{label}</title></rect>")
+        else:
+            out.append(f"{rect}/>")
+
     return "".join(out)
 
 
@@ -468,7 +477,7 @@ def render_ppc(data: dict[str, Any], box: Box, *, fill="#5a7fb5", stroke="#3a5f9
     pred = "#d2691e"
     if data.get("cats") is not None:
         heights = data.get("heights") or []
-        out = [render_bars({"heights": heights}, box, fill=fill, stroke=stroke)]
+        out = [render_bars(data, box, fill=fill, stroke=stroke)]
         _, centers = bar_layout(len(heights), box)
         base = box.y + box.h
         for cx, lo, mid, hi in zip(
