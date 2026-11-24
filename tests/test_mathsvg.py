@@ -109,28 +109,30 @@ def test_renders_in_a_notebook_kernel_without_deadlocking():
         loop.close()
 
 
-def test_building_both_v8_isolates_at_once_does_not_abort_the_process():
-    """bayesdag runs two isolates — MathJax and ELK — each pinned to its own thread. Building
-    both at the same moment used to abort the whole interpreter inside V8's allocator
-    ("Check failed: !pool->IsInitialized()"), taking the user's kernel with it.
+def test_concurrent_v8_cold_start_and_shutdown():
+    """Concurrent cold starts can abort inside V8's allocator, and on Python 3.13
+    leaving both live isolates to finalization can hang after the work has finished.
 
-    This is reachable on the ordinary path: `view()` warms the ELK context on its worker thread
-    precisely so it overlaps the work that goes on to render labels through MathJax, so whether
-    the cold starts collide is a timing accident. Run in a subprocess — the failure mode is a
-    fatal signal, not an exception, so an in-process check would kill the test session itself.
+    `view()` warms ELK while MathJax renders labels, so exercise both in a fresh process.
+    Require ordinary interpreter shutdown with the isolates still held by their singletons:
+    a completion marker alone would miss the shutdown deadlock.
     """
     import subprocess
     import sys
 
     code = (
-        "import threading\n"
+        "import faulthandler, threading\n"
+        "faulthandler.dump_traceback_later(45)\n"
         "from bayesdag import mathsvg\n"
         "from bayesdag.layout import elk_backend\n"
         "err = []\n"
+        "start = threading.Barrier(2)\n"
         "def m():\n"
+        "    start.wait()\n"
         "    try: mathsvg.get_renderer().render(r'x \\sim \\mathcal{N}(0,1)')\n"
         "    except Exception as e: err.append(('math', repr(e)))\n"
         "def e():\n"
+        "    start.wait()\n"
         "    try:\n"
         "        eng = elk_backend.get_engine()\n"
         "        eng._worker().submit(eng._context).result()\n"
@@ -139,14 +141,23 @@ def test_building_both_v8_isolates_at_once_does_not_abort_the_process():
         "for t in ts: t.start()\n"
         "for t in ts: t.join()\n"
         "assert not err, err\n"
-        "print('OK')\n"
+        "print('OK', flush=True)\n"
     )
-    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=300)
+    try:
+        r = subprocess.run(
+            [sys.executable, "-X", "faulthandler", "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stderr = (exc.stderr or b"").decode(errors="replace")
+        pytest.fail(f"V8 startup or shutdown hung; stdout={exc.stdout!r}\n{stderr}", pytrace=False)
     assert r.returncode == 0, (
-        f"concurrent V8 isolate construction failed (returncode {r.returncode}); "
-        f"stdout={r.stdout!r} stderr={r.stderr[-2000:]!r}"
+        f"concurrent V8 startup or shutdown failed (returncode {r.returncode}); "
+        f"stdout={r.stdout!r}\nstderr={r.stderr}"
     )
-    assert "OK" in r.stdout
+    assert r.stdout.strip() == "OK"
 
 
 def test_bbox_cache_no_reparse_and_bounded(monkeypatch):

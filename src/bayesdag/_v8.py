@@ -1,4 +1,4 @@
-"""One process-wide lock around mini-racer isolate CONSTRUCTION.
+"""Shared mini-racer isolate construction and shutdown.
 
 bayesdag runs two independent V8 isolates — MathJax (``mathsvg``) and ELK (``layout.elk_backend``)
 — each pinned to its own dedicated thread. Each module serializes its *own* construction, but
@@ -19,9 +19,24 @@ the cost is that two cold isolates start one after the other rather than simulta
 
 from __future__ import annotations
 
+import atexit
 import threading
+import weakref
+from contextlib import ExitStack
 
 _CONSTRUCTION_LOCK = threading.Lock()
+_LIVE_ISOLATES = weakref.WeakSet()
+
+
+@atexit.register
+def _close_isolates() -> None:
+    # The executor workers have been joined, but mini-racer's daemon event-loop threads
+    # can still run. During late interpreter finalization (notably on Python 3.13), its
+    # __del__ can block forever joining a loop thread that can no longer stop itself.
+    # Keep only weak refs so short-lived renderers still release their isolates normally.
+    with ExitStack() as cleanup, _CONSTRUCTION_LOCK:
+        for isolate in _LIVE_ISOLATES:
+            cleanup.callback(isolate.close)
 
 
 def new_isolate():
@@ -30,4 +45,7 @@ def new_isolate():
     from py_mini_racer import MiniRacer
 
     with _CONSTRUCTION_LOCK:
-        return MiniRacer()
+        isolate = MiniRacer()
+        if hasattr(isolate, "close"):  # older mini-racer versions have no explicit close API
+            _LIVE_ISOLATES.add(isolate)
+        return isolate
