@@ -101,6 +101,17 @@ class _Ctx:
     def var(self, name):
         return self.model[name]
 
+    def slot_values(self, var):
+        return slot_values(var)
+
+    def fixed_value(self, expr):
+        if not depends_on_rv(expr):
+            try:
+                return np.asarray(expr.eval())
+            except Exception:
+                pass
+        return None
+
 
 def _opname(v) -> str:
     o = getattr(v, "owner", None)
@@ -117,7 +128,7 @@ def _is_dot(v) -> bool:
     return n == "Blockwise" and type(getattr(o.op, "core_op", None)).__name__ in ("Dot", "Dot22")
 
 
-def _unwrap(v, ctx: _Ctx, root_id: int | None = None):
+def _unwrap(v, ctx: _Ctx, root_id: int | None = None, *, preserve_axes: bool = False):
     """Strip value-preserving wrappers (ViewOp / DimShuffle / Identity / widening Cast), stopping
     at any named variable other than the root."""
     for _ in range(256):
@@ -129,6 +140,11 @@ def _unwrap(v, ctx: _Ctx, root_id: int | None = None):
         n = type(o.op).__name__
         sn = _scalar_op_name(o.op)
         if n in ("ViewOp", "DimShuffle", "SpecifyShape") or sn == "Identity":
+            if preserve_axes and n == "DimShuffle" and o.inputs[0].ndim:
+                order = tuple(o.op.new_order)
+                axes = tuple(i for i in order if i != "x")
+                if not order or order[0] != 0 or axes != tuple(range(len(axes))):
+                    return v
             v = o.inputs[0]
             continue
         if sn == "Cast":
@@ -272,7 +288,9 @@ def std_aux(name: str, ctx: _Ctx) -> dict | None:
         return None
     var = ctx.var(name)
     fam = dist_name(var)
-    vals = slot_values(var)
+    if fam not in ("Normal", "StudentT"):
+        return None
+    vals = ctx.slot_values(var)
     if any(v is None for v in vals) or not uniform(vals):
         return None
     q = [float(np.asarray(v).reshape(-1)[0]) for v in vals]
@@ -327,20 +345,20 @@ def _noncentered(name: str, ctx: _Ctx) -> _NC | None:
     # so every candidate is tried and exactly one must decompose with a learned scale
     matches = []
     for zname in leaves:
-        if std_aux(zname, ctx) is None:
-            continue
         if ctx.consumers.get(zname, set()) != {name}:
             continue  # z must feed D and nothing else
         if ctx.dims(name) and ctx.dims(zname) != ctx.dims(name):
             continue
+        aux_info = std_aux(zname, ctx)
+        if aux_info is None:
+            continue
         aff = affine_decompose(core, ctx.var(zname), ctx, root_id=id(root))
         if aff is None or (not any(depends_on_rv(t) for _, t in aff.scale) and aff.matrix is None):
             continue
-        matches.append((zname, aff))
+        matches.append((zname, aff, aux_info))
     if len(matches) != 1:
         return None
-    zname, aff = matches[0]
-    aux_info = std_aux(zname, ctx)
+    zname, aff, aux_info = matches[0]
     if aff.matrix is not None:
         if family != "Normal" or aux_info["family"] != "Normal":
             return None
@@ -676,7 +694,7 @@ def _local_family(lam: str, ctx: _Ctx) -> tuple[str, float | None]:
     fam = n.dist if n is not None else None
     nu = None
     if fam == "HalfStudentT":
-        vals = slot_values(ctx.var(lam))
+        vals = ctx.slot_values(ctx.var(lam))
         if vals and vals[0] is not None and uniform([vals[0]]):
             nu = float(np.asarray(vals[0]).reshape(-1)[0])
     return fam, nu
@@ -782,18 +800,39 @@ class Term:
     index: list = field(default_factory=list)
     data: list = field(default_factory=list)
     design: Any = None
+    multiplier: float | None = 1.0
+    # Inputs proved to supply one likelihood row per first-axis entry, not just named leaves.
+    row_data: list[str] = field(default_factory=list)
+    row_params: list[str] = field(default_factory=list)
+    row_design: bool = False
+
+
+def _direct_data(t, ctx: _Ctx) -> list[str]:
+    v = _unwrap(t, ctx, preserve_axes=True)
+    n = ctx.named.get(id(v))
+    return [n] if n is not None and ctx.role(n) == "data" and v.ndim else []
 
 
 def _affine_terms(t, ctx: _Ctx, blocked: set[str], hops: int = 0) -> list | None:
     """Additive :class:`Term` s of a linear predictor. Named deterministics are expanded (unless
     they anchor another block) up to 6 hops. None = not affine."""
+    expr = _unwrap(t, ctx)
+    terms = _terms(expr, ctx, blocked, hops)
+    if terms and _unwrap(t, ctx, preserve_axes=True) is not expr:
+        for term in terms:
+            term.row_data = []
+            term.row_params = []
+            term.row_design = False
+    return terms
+
+
+def _terms(t, ctx: _Ctx, blocked: set[str], hops: int) -> list | None:
     ctx.tick()
-    t = _unwrap(t, ctx)
     if id(t) in ctx.named:
         nm = ctx.named[id(t)]
         role = ctx.role(nm)
         if role == "data":
-            return [Term("const", data=[nm])]
+            return [Term("const", data=[nm], row_data=[nm] if t.ndim == 1 else [])]
         if role == "deterministic" and nm not in blocked and hops < 6:
             v = ctx.var(nm)
             inner = v.owner.inputs[0] if _opname(v) == "ViewOp" else v
@@ -802,9 +841,9 @@ def _affine_terms(t, ctx: _Ctx, blocked: set[str], hops: int = 0) -> list | None
                 return expanded
             # a nonlinear named quantity (a spike-and-slab coefficient, gamma * slab) is still
             # one VALUE the predictor is linear in: keep it as a leaf
-        return [Term("leaf", params=[nm])]
+        return [Term("leaf", params=[nm], row_params=[nm] if t.ndim == 1 else [])]
     if not depends_on_rv(t):
-        return [Term("const")]
+        return [Term("const", data=[n for n in _named_leaves(t, ctx) if ctx.role(n) == "data"])]
     o = getattr(t, "owner", None)
     if o is None:
         return [Term("const")]
@@ -812,14 +851,23 @@ def _affine_terms(t, ctx: _Ctx, blocked: set[str], hops: int = 0) -> list | None
     ins = o.inputs
     if sn in ("Add", "Sub"):
         out = []
-        for i in ins:
+        for j, i in enumerate(ins):
             r = _affine_terms(i, ctx, blocked, hops)
             if r is None:
                 return None
+            if sn == "Sub" and j > 0:
+                for term in r:
+                    if term.multiplier is not None:
+                        term.multiplier *= -1
             out += r
         return out
     if sn == "Neg":
-        return _affine_terms(ins[0], ctx, blocked, hops)
+        result = _affine_terms(ins[0], ctx, blocked, hops)
+        if result is not None:
+            for term in result:
+                if term.multiplier is not None:
+                    term.multiplier *= -1
+        return result
     if sn == "Mul" or _is_dot(t):
         rv = [i for i in ins if depends_on_rv(i)]
         if len(rv) != 1:
@@ -831,15 +879,63 @@ def _affine_terms(t, ctx: _Ctx, blocked: set[str], hops: int = 0) -> list | None
         data_like = any(_varying_data(i, ctx) for i in other)
         params = sorted({n for x in sub for n in x.params})
         index = sorted({n for x in sub for n in x.index})
-        data = sorted(
-            {n for i in other for n in _named_leaves(i, ctx) if ctx.role(n) == "data"}
-            | {n for x in sub for n in x.data}
-        )
+        fixed_data = {n for i in other for n in _named_leaves(i, ctx) if ctx.role(n) == "data"}
+        data = sorted(fixed_data | {n for x in sub for n in x.data})
+        proof = sub[0].multiplier if len(sub) == 1 and len(params) == 1 else None
+        scalar = _literal_multiplier(other[0]) if len(other) == 1 else None
+        if scalar is not None:
+            term = sub[0] if len(sub) == 1 else None
+            if term is not None:
+                term.multiplier = proof * scalar if proof is not None else None
+                return [term]
+        design = other[0] if len(other) == 1 else None
+        row_design = False
+        row_data, row_params = [], []
+        if t.ndim == 1 and sn == "Mul":
+            row_design = design is not None and design.ndim == 1
+            direct = set(_direct_data(design, ctx)) if row_design else set()
+            indirect = (fixed_data - direct) | {
+                n for term in sub for n in term.index + term.data if n not in term.row_data
+            }
+            row_data = sorted((direct | {n for term in sub for n in term.row_data}) - indirect)
+            row_params = [n for term in sub for n in term.row_params]
+        elif design is ins[0] and design.ndim == 2 and _is_dot(t):
+            # PyTensor's matrix @ vector builds a Matmul with a column-vector RHS, then
+            # squeezes the singleton axis. In both forms the left operand supplies axis 0.
+            rhs = rv[0]
+            row_design = (t.ndim == rhs.ndim == 1) or (
+                t.ndim == rhs.ndim == 2 and rhs.type.shape[1] == 1
+            )
+            if row_design:
+                row_data = _direct_data(design, ctx)
         if not data_like:
             kind = "gather" if index else "leaf"
-            return [Term(kind, params=params, index=index, data=data)]
-        design = other[0] if len(other) == 1 else None
-        return [Term("product", params=params, index=index, data=data, design=design)]
+            return [
+                Term(
+                    kind,
+                    params=params,
+                    index=index,
+                    data=data,
+                    multiplier=None,
+                    row_data=row_data,
+                    row_params=row_params,
+                )
+            ]
+        if len(sub) != 1 or sub[0].kind not in ("leaf", "gather"):
+            proof = None
+        return [
+            Term(
+                "product",
+                params=params,
+                index=index,
+                data=data,
+                design=design,
+                multiplier=proof,
+                row_data=row_data,
+                row_params=row_params,
+                row_design=row_design,
+            )
+        ]
     if type(o.op).__name__ in ("AdvancedSubtensor", "AdvancedSubtensor1", "Subtensor"):
         if any(depends_on_rv(i) for i in ins[1:]):
             return None
@@ -850,16 +946,66 @@ def _affine_terms(t, ctx: _Ctx, blocked: set[str], hops: int = 0) -> list | None
             {n for i in ins[1:] for n in _named_leaves(i, ctx) if ctx.role(n) == "data"}
             | {n for x in sub for n in x.index}
         )
-        return [Term("gather", params=sorted({n for x in sub for n in x.params}), index=idx)]
+        proof = sub[0].multiplier if len(sub) == 1 and sub[0].kind == "leaf" else None
+        row_data = []
+        if len(ins) == 2 and len(idx) == 1 and _unwrap(ins[1], ctx) is ctx.var(idx[0]):
+            if t.ndim == 1 and ins[1].ndim == 1 and np.dtype(ins[1].dtype).kind in "iu":
+                row_data = _direct_data(ins[1], ctx)
+        else:
+            proof = None
+        return [
+            Term(
+                "gather",
+                params=sorted({n for x in sub for n in x.params}),
+                index=idx,
+                data=sorted({n for x in sub for n in x.data}),
+                multiplier=proof,
+                row_data=row_data,
+            )
+        ]
     if type(o.op).__name__ == "Join":
         out = []
         for i in ins[1:]:
             r = _affine_terms(i, ctx, blocked, hops)
             if r is None:
                 return None
+            for term in r:
+                term.row_data = []
+                term.row_params = []
+                term.row_design = False
             out += r
         return out
     return None
+
+
+def _literal_multiplier(t) -> float | None:
+    """A finite literal scalar, through broadcast wrappers and explicit scalar casts."""
+    casts = []
+    for _ in range(8):
+        owner = getattr(t, "owner", None)
+        if owner is None:
+            break
+        scalar = _scalar_op_name(owner.op)
+        if scalar == "Cast":
+            if np.dtype(t.dtype).kind not in "biuf":
+                return None
+            casts.append(owner.op.scalar_op)
+        elif type(owner.op).__name__ != "DimShuffle" and scalar != "Identity":
+            return None
+        t = owner.inputs[0]
+    from pytensor.tensor import TensorConstant
+
+    if not isinstance(t, TensorConstant) or t.ndim != 0 or np.dtype(t.dtype).kind not in "biuf":
+        return None
+    value = t.data
+    try:
+        with np.errstate(invalid="raise", over="raise"):
+            for cast in reversed(casts):
+                value = cast.impl(value)
+            multiplier = float(value)
+    except (FloatingPointError, OverflowError, TypeError, ValueError):
+        return None
+    return multiplier if np.isfinite(multiplier) else None
 
 
 def _varying_data(t, ctx: _Ctx) -> bool:
@@ -867,13 +1013,8 @@ def _varying_data(t, ctx: _Ctx) -> bool:
     names = _named_leaves(t, ctx)
     if any(ctx.role(n) == "data" for n in names):
         return True
-    if depends_on_rv(t):
-        return False
-    try:
-        a = np.asarray(t.eval())
-    except Exception:
-        return False
-    return a.size > 1 and not np.all(a == a.reshape(-1)[0])
+    a = ctx.fixed_value(t)
+    return a is not None and a.size > 1 and not np.all(a == a.reshape(-1)[0])
 
 
 # --------------------------------------------------------------------------- driver
@@ -1074,7 +1215,7 @@ def _apply_shrinkage_glyph(node, sh: _Shrink, ctx: _Ctx) -> None:
             node.glyph_note = "given its scales, each coefficient is Normal"
         return
     fam, nu = _local_family(sh.local, ctx)
-    lam_vals = slot_values(ctx.var(sh.local))
+    lam_vals = ctx.slot_values(ctx.var(sh.local))
     numeric = all(v is not None and uniform([v]) for v in lam_vals)
     if fam == "HalfCauchy" and numeric:
         nu = 1.0

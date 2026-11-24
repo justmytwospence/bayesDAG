@@ -121,6 +121,8 @@ In the widget, a structure box pins like a node (its card lists roles, notes and
 
 ### Once it's fit
 
+Fitted data comparisons use the saved `observed_data` and `constant_data` in `idata`, not mutable values from a later `pm.set_data()`. Posterior coordinates are aligned by label; if required snapshots or unambiguous coordinate matches are missing, the panel explains why it cannot be drawn.
+
 With a posterior attached, each structure offers the pictures its literature uses — in the widget, pin the structure (or the node carrying its tag) and pick one; from Python, `v.fitted_panels(block_id)` lists them and `v.panel_svg(kind, block_id=...)` draws one:
 
 | structure | panels |
