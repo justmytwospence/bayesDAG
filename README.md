@@ -14,7 +14,7 @@ It also reads **well-known compound structures** off the graph — hierarchies, 
 pip install "bayesdag[interactive]"     # or: uv add "bayesdag[interactive]"
 ```
 
-Requires Python ≥ 3.12 (PyMC 6's own floor). No system packages are needed: the layout engine (ELK) and the math renderer (MathJax) both run in-process. Extras: `[interactive]` (the notebook widget), `[export]` (PNG/PDF via cairosvg, needs a system cairo). The Graphviz `dot` binary is optional and only used by the explicit `BAYESDAG_LAYOUT=dot` rollback path.
+Requires Python ≥ 3.12 (PyMC 6's own floor). No system packages are needed: the layout engine (ELK) and the math renderer (MathJax) use the bundled V8 runtime without a system Node installation. On Linux, each renderer runs in a persistent Python child process so a native renderer failure cannot take down the notebook kernel. Extras: `[interactive]` (the notebook widget), `[export]` (PNG/PDF via cairosvg, needs a system cairo). The Graphviz `dot` binary is optional and only used by the explicit `BAYESDAG_LAYOUT=dot` rollback path.
 
 ## Quickstart
 

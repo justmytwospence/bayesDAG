@@ -1,4 +1,4 @@
-"""Layout via ELK (``elkjs``) run **in-process** in ``mini-racer`` V8 — the default backend.
+"""Layout via ELK (``elkjs``) in ``mini-racer`` V8 — the default backend.
 
 Why ELK over Graphviz ``dot``: plates are first-class here but second-class in ``dot``,
 which flattens clusters before crossing minimization, so an external scalar parent of a
@@ -10,8 +10,7 @@ supplies the orthogonal bend points; ``common.orthogonal_path`` turns those into
 cubic chain the emitter draws, and the token-level port anchors are computed by us from the
 MathJax bboxes (engine-independent).
 
-Node-free integration (proven by the M0.3 spike), in its own V8 isolate (MathJax uses a
-separate one — two isolates total, ~35MB / ~67MB RSS respectively):
+Node-free integration (proven by the M0.3 spike), isolated in its own Python child on Linux:
   * the modern ``mini-racer`` (bpcreech) has an event loop + ``JSPromise.get()``;
   * a GWT globals shim (``window``/``global``/``self`` = ``globalThis``);
   * a ``setTimeout(fn, 0) -> 1ms`` coercion (mini-racer's 0ms path throws);
@@ -84,64 +83,61 @@ def _graph_counts(g: dict) -> tuple[int, int]:
 
 
 class ElkEngine:
-    """Lazy in-process ELK layout engine. Construct once and reuse (V8 init is the cost)."""
+    """Lazy ELK layout engine. Construct once and reuse (V8 init is the cost)."""
 
-    def __init__(self, api_path: Path | None = None, worker_path: Path | None = None) -> None:
+    def __init__(
+        self, api_path: Path | None = None, worker_path: Path | None = None, *, _local: bool = False
+    ) -> None:
         sd = _static_dir()
         self._api_path = api_path or (sd / "elk-api.js")
         self._worker_path = worker_path or (sd / "elk-worker.min.js")
-        self._ctx = None
-        self._executor = None
-        self._lock = threading.Lock()
+        default = api_path is None and worker_path is None
+        self._child = None
+        self._runtime = None
+        if _v8.isolated() and not _local:
+            paths = () if default else (self._api_path, self._worker_path)
+            self._child = _v8.child("elk", *paths)
+        else:
+            self._runtime = _v8.shared if default else _v8.Runtime()
 
     @property
     def available(self) -> bool:
-        try:
-            import py_mini_racer  # noqa: F401
-        except Exception:
-            return False
-        return self._api_path.exists() and self._worker_path.exists()
+        return self._api_path.exists() and self._worker_path.exists() and _v8.available()
 
-    def _worker(self):
-        # All mini-racer work runs on ONE dedicated thread. mini-racer binds its event loop to
-        # the thread that creates the context; if that's a thread with a live asyncio loop (a
-        # marimo cell), `promise.get()` either asserts or deadlocks. A single private thread that
-        # never runs an asyncio loop lets mini-racer own its loop and `.get()` block safely.
-        with self._lock:
-            if self._executor is None:
-                import concurrent.futures
+    _worker = staticmethod(_v8.worker)
 
-                self._executor = concurrent.futures.ThreadPoolExecutor(
-                    max_workers=1, thread_name_prefix="bayesdag-elk"
-                )
-            return self._executor
+    def _context(self):  # view.py's warm-up hook, called on the parent executor
+        if self._child is not None:
+            return self._child.warm()
+        return self._local_context()
 
-    def _context(self):  # must run on the worker thread (see _worker)
-        if self._ctx is None:
-            ctx = _v8.new_isolate()  # shared lock: never build two isolates at once
-            ctx.eval("var global=globalThis, self=globalThis, window=globalThis;")
-            # mini-racer setTimeout(fn,0) hits a non-promise Atomics.waitAsync path -> coerce 0->1ms
-            ctx.eval(
-                "var __bd_st=globalThis.setTimeout;"
-                "globalThis.setTimeout=function(f,d){return __bd_st(f,(d&&d>0)?d:1);};"
-            )
-            ctx.eval(_WORKER_SHIM)
-            ctx.eval(
-                "globalThis.__elkWorkerSrc = "
-                + json.dumps(self._worker_path.read_text(encoding="utf-8"))
-            )
-            ctx.eval(
-                "var module={exports:{}},exports=module.exports,require=function(){return {};};\n"
-                + self._api_path.read_text(encoding="utf-8")
-                + "\nglobalThis.__ELK = (module.exports.default||module.exports);"
-            )
-            ctx.eval("globalThis.__elk = new __ELK({ workerFactory: __mkWorker(__elkWorkerSrc) });")
-            ctx.eval("globalThis.__elkRun = async (g)=>JSON.stringify(await __elk.layout(g));")
-            self._ctx = ctx
-        return self._ctx
+    def _local_context(self):  # renderer child main thread or in-process executor
+        if self._runtime is None:
+            raise RuntimeError("ELK context is isolated in its Linux worker")
+        return self._runtime.context("elk", self._install)
+
+    def _install(self, ctx):
+        ctx.eval("var global=globalThis, self=globalThis, window=globalThis;")
+        # mini-racer setTimeout(fn,0) hits a non-promise Atomics.waitAsync path -> coerce 0->1ms
+        ctx.eval(
+            "var __bd_st=globalThis.setTimeout;"
+            "globalThis.setTimeout=function(f,d){return __bd_st(f,(d&&d>0)?d:1);};"
+        )
+        ctx.eval(_WORKER_SHIM)
+        ctx.eval(
+            "globalThis.__elkWorkerSrc = "
+            + json.dumps(self._worker_path.read_text(encoding="utf-8"))
+        )
+        ctx.eval(
+            "var module={exports:{}},exports=module.exports,require=function(){return {};};\n"
+            + self._api_path.read_text(encoding="utf-8")
+            + "\nglobalThis.__ELK = (module.exports.default||module.exports);"
+        )
+        ctx.eval("globalThis.__elk = new __ELK({ workerFactory: __mkWorker(__elkWorkerSrc) });")
+        ctx.eval("globalThis.__elkRun = async (g)=>JSON.stringify(await __elk.layout(g));")
 
     def _layout_blocking(self, graph: dict, timeout_ms: int) -> dict:
-        ctx = self._context()
+        ctx = self._local_context()
         ctx.eval("globalThis.__elkG = " + json.dumps(graph))
         try:
             return json.loads(ctx.eval("__elkRun(__elkG)").get(timeout=timeout_ms))
@@ -159,8 +155,9 @@ class ElkEngine:
                 pass  # a wedged context must not replace the diagnostic raised above
 
     def layout_graph(self, graph: dict, timeout_ms: int = 30000) -> dict:
-        # marshal onto the dedicated thread (context is created there on first use)
-        return self._worker().submit(self._layout_blocking, graph, timeout_ms).result()
+        """Lay out a graph; on Linux the timeout also covers child startup and IPC."""
+        layout = self._layout_blocking if self._child is None else self._child.layout
+        return self._worker().submit(layout, graph, timeout_ms).result()
 
 
 _ENGINE: ElkEngine | None = None

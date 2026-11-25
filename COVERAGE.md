@@ -12,10 +12,10 @@ arrive with a golden test.
 ## M0 build checklist
 - [x] Project scaffold (pyproject/package.json/docs/git)
 - [x] uv env (Python 3.12) + deps installed; `pymc` 6.0.1 / `arviz` 1.1.0 import
-- [x] **Math + token-anchor spike** — mathjax-full runs **in-process** in py_mini_racer (no runtime Node; `PACKAGE_VERSION` define kills the `eval("require")` branch); `\cssId` token anchors extracted via transform-chain composition. `src/bayesdag/mathsvg.py`.
+- [x] **Math + token-anchor spike** — mathjax-full runs in py_mini_racer (no runtime Node; `PACKAGE_VERSION` define kills the `eval("require")` branch); `\cssId` token anchors extracted via transform-chain composition. `src/bayesdag/mathsvg.py`.
 - [x] PPL-agnostic `ir` + `from_pymc` (slot-aware edges, roles, dims/coords, log-transform key) + published JSON Schema + `to_elk`/`to_networkx` + duck-typed `to_ir` dispatch
 - [x] Label engine (per-dist LaTeX templates + symbol naming + PyTensor deterministic visitor with port-tokens + token-tree); renders cleanly in MathJax
-- [x] Layout backend — **ELK** in-process (`dot -Tjson0` remains only as the `BAYESDAG_LAYOUT=dot` rollback) → `LayoutResult` + coordinate transform + param-edge -> token-anchor post-pass
+- [x] Layout backend — **ELK** in V8 (`dot -Tjson0` remains only as the `BAYESDAG_LAYOUT=dot` rollback) → `LayoutResult` + coordinate transform + param-edge -> token-anchor post-pass
 - [x] Glyph registry (glyph-agnostic) + distribution-data provider: analytic prior densities, observed histograms (FD bins), posterior KDE; `density`/`histogram`/`schematic`/`heatmap` kinds
 - [x] Shared SVG emitter (plates, role-styled chrome, embedded MathJax labels, token-anchored edges, glyphs) + static renderer (SVG; PNG/PDF via cairosvg)
 - [x] anywidget widget (ships identical SVG) + thin dependency-free controller (hover/pin/expand; no pan/zoom) + `view.py` env-fallback (`_repr_mimebundle_`/`_repr_svg_`/`_display_`, all three tested); `bayesdag.view(model)`

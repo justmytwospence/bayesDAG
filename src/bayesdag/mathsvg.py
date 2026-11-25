@@ -1,8 +1,8 @@
 """TeX -> SVG rendering + per-token anchor extraction.
 
 This is the load-bearing module the M0 spike validated:
-  * ``mathjax-full`` runs **in-process** in ``py_mini_racer`` (bare V8, no DOM, no runtime
-    Node) once the bundle is built with ``PACKAGE_VERSION`` defined (kills MathJax's
+  * ``mathjax-full`` runs in ``py_mini_racer`` (bare V8, no DOM, no runtime Node)
+    once the bundle is built with ``PACKAGE_VERSION`` defined (kills MathJax's
     ``eval("require")`` node-detection branch). See ``js/mathjax_entry.js``.
   * Each parameter token is wrapped ``\\cssId{tok-<id>}{...}`` by the label engine; MathJax
     tags the corresponding ``<g data-mml-node id="tok-<id>">``. We recover the token's
@@ -13,11 +13,12 @@ This is the load-bearing module the M0 spike validated:
 Rendering once here and embedding the identical SVG in both renderers is what makes the
 math byte-identical across the static and interactive outputs (parity principle #2).
 
-There is exactly ONE backend: in-process ``py_mini_racer`` with the bundled MathJax. If it is
-unavailable the labels degrade to plain text (with the warning in ``layout.common``) and edges
-fall back to center anchors — there is no second rung. A Node subprocess and a
-``matplotlib.mathtext`` path were both considered and rejected; mathtext in particular cannot
-give us token anchors, which is the whole point of rendering math here.
+There is exactly ONE backend: ``py_mini_racer`` with the bundled MathJax, isolated in a Python
+child on Linux. If unavailable, labels degrade to plain text (with the warning in
+``layout.common``) and edges fall back to center anchors — there is no second rung.
+A Node subprocess and a ``matplotlib.mathtext`` path were both considered and rejected;
+mathtext in particular cannot give us token anchors, which is the whole point of rendering
+math here.
 """
 
 from __future__ import annotations
@@ -167,46 +168,40 @@ def token_bboxes(svg: str) -> dict[str, tuple[float, float, float, float]]:
 
 
 class MathRenderer:
-    """Lazy in-process MathJax renderer. Construct once and reuse (V8 init is the cost).
+    """Lazy MathJax renderer. Construct once and reuse (V8 init is the cost).
 
-    Like the ELK engine, ALL V8 work runs on one dedicated thread: mini-racer binds its event
-    loop to the thread that creates the context, so an isolate built on a thread that owns a
-    live asyncio loop (a marimo cell) can assert or deadlock. Labels are rendered eagerly from
-    the caller's thread — which IS the main thread — so the pinning has to live here, not only
-    in the layout backend that happens to call us."""
+    The caller's event loop never owns V8: on Linux the executor talks to the MathJax
+    child; elsewhere it owns the in-process context.
+    """
 
     _CACHE_MAX = 4096  # LRU bound — long-lived kernels render many models; memory stays flat
 
-    def __init__(self, bundle_path: Path | None = None) -> None:
+    def __init__(self, bundle_path: Path | None = None, *, _local: bool = False) -> None:
         self._bundle_path = bundle_path or _bundle_path()
         self._ctx = None
         self._ctx_error: Exception | None = None
-        self._executor = None
+        self._child = None
+        self._runtime = None
+        if _v8.isolated() and not _local:
+            self._child = (
+                _v8.child("mathjax") if bundle_path is None else _v8.child("mathjax", bundle_path)
+            )
+        else:
+            self._runtime = _v8.shared if bundle_path is None else _v8.Runtime()
         self._lock = threading.Lock()
         # (display, tex) -> (svg, token bboxes): bboxes are cached WITH the SVG so a warm
         # re-layout never re-parses the same label (token_bboxes was ~40% of warm layout time)
         self._cache: OrderedDict[tuple[bool, str], tuple[str, dict]] = OrderedDict()
 
-    def _worker(self):
-        """The single thread every V8 call is marshalled onto (see the class docstring)."""
-        with self._lock:
-            if self._executor is None:
-                import concurrent.futures
-
-                self._executor = concurrent.futures.ThreadPoolExecutor(
-                    max_workers=1, thread_name_prefix="bayesdag-mathjax"
-                )
-            return self._executor
+    _worker = staticmethod(_v8.worker)
 
     @property
     def available(self) -> bool:
-        try:
-            import py_mini_racer  # noqa: F401
-        except Exception:
-            return False
-        return self._bundle_path.exists()
+        return self._bundle_path.exists() and _v8.available()
 
-    def _context(self):  # must run on the worker thread (see _worker)
+    def _context(self):  # local-only: renderer child main thread or in-process executor
+        if self._runtime is None:
+            raise RuntimeError("MathJax context is isolated in its Linux worker")
         if self._ctx_error is not None:
             # a failed V8/bundle build is permanent for this renderer — re-raise the cached
             # error instead of paying the multi-MB bundle eval again for every label
@@ -226,21 +221,28 @@ class MathRenderer:
                     "`npm install && npm run build` (produces static/mathjax.bundle.js)."
                 )
             try:
-                ctx = _v8.new_isolate()  # shared lock: never build two isolates at once
-                ctx.eval(_PROCESS_SHIM)
-                ctx.eval(self._bundle_path.read_text(encoding="utf-8"))
+                ctx = self._runtime.context("mathjax", self._install)
             except Exception as exc:
                 self._ctx_error = exc
                 raise
             self._ctx = ctx
         return self._ctx
 
+    def _install(self, ctx):
+        ctx.eval(_PROCESS_SHIM)
+        ctx.eval(self._bundle_path.read_text(encoding="utf-8"))
+
     def render(self, tex: str, display: bool = True) -> str:
         """Return the SVG markup for ``tex`` (cached by content)."""
         return self.render_with_bboxes(tex, display)[0]
 
-    def _tex2svg(self, tex: str, display: bool) -> str:  # runs on the worker thread
+    def _tex2svg(self, tex: str, display: bool) -> str:
         return self._context().call("tex2svg", tex, display)
+
+    def _render_blocking(self, tex: str, display: bool) -> str:
+        if self._child is not None:
+            return self._child.render(tex, display)
+        return self._tex2svg(tex, display)
 
     def render_with_bboxes(self, tex: str, display: bool = True) -> tuple[str, dict]:
         """Return ``(svg, fractional token bboxes)`` — both cached together, LRU-bounded."""
@@ -250,8 +252,7 @@ class MathRenderer:
             if cached is not None:
                 self._cache.move_to_end(key)
                 return cached
-        # marshal onto the dedicated thread (the context is created there on first use)
-        svg = self._worker().submit(self._tex2svg, tex, bool(display)).result()
+        svg = self._worker().submit(self._render_blocking, tex, key[0]).result()
         bboxes = token_bboxes(svg)
         with self._lock:
             self._cache[key] = (svg, bboxes)
